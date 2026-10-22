@@ -1,0 +1,38 @@
+﻿# Dependencies
+node_modules/
+
+# Marketing site (separate repo)
+site/
+
+# Build
+dist/
+.wrangler/
+
+# Environment
+.env
+.env.local
+.dev.vars
+wrangler.local.jsonc
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local database backups (scripts/backup-export.mjs)
+web/backups/
+
+# Taste skill working files (direction sheets, inspect screenshots)
+.taste-skill/
+
+# Generated (npm run setup / wrangler types)
+.tanstack/
+web/worker-configuration.d.ts

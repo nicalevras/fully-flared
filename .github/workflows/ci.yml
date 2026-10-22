@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The test suite imports web/ sources, which resolve packages from
+      # web/node_modules (zod, drizzle-orm, stripe v23, better-auth).
+      # Without this install the suite cannot even collect in CI.
+      - name: Install web dependencies
+        run: cd web && npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run Prettier check
+        run: npm run format:check
+
+      - name: Run tests
+        run: npm run test
+
+      - name: Type check
+        run: npm run typecheck
+
+      # worker-configuration.d.ts is git-ignored and generated; the web
+      # tsconfig includes it, so types must be generated before tsc or the
+      # check fails on a clean checkout (243 errors when missing locally).
+      - name: Generate Worker types
+        run: cd web && npx wrangler types
+
+      - name: Web type check
+        run: cd web && npx tsc --noEmit
+
+      - name: Migration drift and safety
+        run: cd web && npm run check:migrations
+
+  build-web:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        run: cd web && npm ci
+
+      - name: Generate Worker types
+        run: cd web && npx wrangler types
+
+      - name: Build web (Vite + typecheck)
+        run: cd web && npm run build
+
+  # Per-change preview deployment (plan Step 0). Requires the repo secrets
+  # CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID; the job is skipped (not
+  # failed) on forks or clones that do not have them.
+  preview-deploy:
+    if: github.event_name == 'pull_request'
+    needs: [lint-and-test, build-web]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        run: cd web && npm ci
+
+      - name: Deploy preview
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "CLOUDFLARE_API_TOKEN not set; skipping preview deploy."
+            exit 0
+          fi
+          cd web
+          node scripts/validate-deploy.mjs preview
+          npx wrangler types
+          CLOUDFLARE_ENV=preview npm run build
+          npx wrangler deploy --env preview

@@ -1,0 +1,97 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1792515501493,
+      "tag": "0000_initial",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1792517001253,
+      "tag": "0001_checkout_intents",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792518992905,
+      "tag": "0002_checkout_quote_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1792520095243,
+      "tag": "0003_catalog_read_models",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1792521252814,
+      "tag": "0004_catalog_work_capture",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1792523021006,
+      "tag": "0005_drop_catalog_publication",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1792524000000,
+      "tag": "0006_catalog_work_entity_slug",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1792524600000,
+      "tag": "0007_admission_setting_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1792542386729,
+      "tag": "0008_publication_progress",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1792613108164,
+      "tag": "0009_checkout_recovery_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1792619327972,
+      "tag": "0010_catalog_execution",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1792675988672,
+      "tag": "0011_public_reader_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1792689424205,
+      "tag": "0012_catalog_reclamation",
+      "breakpoints": true
+    }
+  ]
+}

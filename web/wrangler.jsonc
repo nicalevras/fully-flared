@@ -1,0 +1,211 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "store-web",
+  "compatibility_date": "2026-10-17",
+  "compatibility_flags": ["nodejs_compat", "enable_ctx_exports"],
+  "main": "src/server.ts",
+  // Workers Cache (Phase 4): enabled for the worker, but only the
+  // PublicStorefront entrypoint stores responses; the default gateway
+  // entrypoint runs on every request. Cross-version reuse stays off so
+  // a deploy never serves HTML rendered by older code.
+  "cache": { "enabled": true, "cross_version_cache": false },
+  "exports": {
+    "default": { "type": "worker", "cache": { "enabled": false } },
+    "PublicStorefront": { "type": "worker", "cache": { "enabled": true } },
+    "RealtimeDO": { "type": "durable-object", "storage": "sqlite" },
+    "CheckoutAdmissionDO": { "type": "durable-object", "storage": "sqlite" },
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "REALTIME", "class_name": "RealtimeDO" },
+      { "name": "CHECKOUT_ADMISSION", "class_name": "CheckoutAdmissionDO" },
+    ],
+  },
+  "triggers": { "crons": ["*/15 * * * *"] },
+  "observability": {
+    "enabled": true,
+    // Keep webhook/checkout errors observable; sampling them away hides
+    // exactly the failures reconciliation is meant to catch.
+    "head_sampling_rate": 1,
+  },
+  "vars": {
+    // Installer: set this to YOUR email before first deploy (comma-separate
+    // for multiple owners). An account created with a listed email becomes
+    // `owner` while no owner exists yet. Keep a valid owner email configured.
+    "OWNER_EMAIL": "",
+    // Installer: set to the store's public origin, for example
+    // "https://shop.example.com", before deploying. The code treats any
+    // REPLACE_WITH_* value as unset: loopback (wrangler dev) falls back to
+    // the request origin; other hosts fail closed. For an explicit local
+    // value, put BETTER_AUTH_URL in .dev.vars instead.
+    "BETTER_AUTH_URL": "REPLACE_WITH_STORE_URL",
+  },
+  "send_email": [{ "name": "EMAIL" }],
+  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "store-media" }],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "store-db",
+      "migrations_dir": "migrations",
+      // No database_id: Wrangler auto-provisions the database on deploy.
+    },
+  ],
+  // Partitioned catalog read models. Shoppers read KV; D1 stays the record and
+  // checkout always revalidates there. INSTALL-TIME VALUE: create with
+  // `npx wrangler kv namespace create CATALOG_KV` and replace this id.
+  "kv_namespaces": [{ "binding": "CATALOG_KV", "id": "REPLACE_WITH_CATALOG_KV_NAMESPACE_ID" }],
+  // Separated queues (Phase 5): financial work, notifications and
+  // catalog publication scale and fail independently. Failed messages
+  // retry, then land in the shared dead-letter queue; the DLQ has its
+  // own consumer so dead letters mark and alert instead of vanishing.
+  // Realtime broadcasts are no longer queued: they call the RealtimeDO
+  // directly, best-effort, after the durable transition.
+  "queues": {
+    "producers": [
+      { "binding": "JOBS", "queue": "store-jobs" },
+      { "binding": "NOTIFICATIONS", "queue": "store-notifications" },
+      { "binding": "CATALOG_JOBS", "queue": "store-catalog" },
+    ],
+    "consumers": [
+      {
+        "queue": "store-jobs",
+        "max_batch_size": 1,
+        "max_batch_timeout": 5,
+        "max_concurrency": 2,
+        "max_retries": 3,
+        "retry_delay": 60,
+        "dead_letter_queue": "store-jobs-dlq",
+      },
+      {
+        "queue": "store-notifications",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_concurrency": 2,
+        "max_retries": 3,
+        "retry_delay": 60,
+        "dead_letter_queue": "store-jobs-dlq",
+      },
+      {
+        "queue": "store-catalog",
+        "max_batch_size": 1,
+        "max_batch_timeout": 5,
+        "max_concurrency": 1,
+        "max_retries": 3,
+        "retry_delay": 60,
+        "dead_letter_queue": "store-jobs-dlq",
+      },
+      {
+        "queue": "store-jobs-dlq",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_concurrency": 1,
+        "max_retries": 0,
+      },
+    ],
+  },
+  // Platform rate limiting. INSTALL-TIME VALUES: namespace_id must be a
+  // unique numeric string you choose for this Cloudflare account.
+  "ratelimits": [
+    {
+      "name": "CHECKOUT_LIMITER",
+      "namespace_id": "REPLACE_WITH_CHECKOUT_RATE_LIMIT_NAMESPACE_ID",
+      "simple": { "limit": 30, "period": 60 },
+    },
+    {
+      "name": "AUTH_LIMITER",
+      "namespace_id": "REPLACE_WITH_AUTH_RATE_LIMIT_NAMESPACE_ID",
+      "simple": { "limit": 20, "period": 60 },
+    },
+  ],
+  "env": {
+    // `npx wrangler deploy --env preview` for per-change preview deploys.
+    // Bindings are NOT inherited by named environments: every binding is
+    // declared again below, pointed at preview-only resources, and preview
+    // runs no production crons against live data.
+    "preview": {
+      "name": "store-web-preview",
+      "cache": { "enabled": true, "cross_version_cache": false },
+      "exports": {
+        "default": { "type": "worker", "cache": { "enabled": false } },
+        "PublicStorefront": { "type": "worker", "cache": { "enabled": true } },
+        "RealtimeDO": { "type": "durable-object", "storage": "sqlite" },
+        "CheckoutAdmissionDO": { "type": "durable-object", "storage": "sqlite" },
+      },
+      "vars": { "OWNER_EMAIL": "", "BETTER_AUTH_URL": "REPLACE_WITH_STORE_URL" },
+      "triggers": { "crons": [] },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "store-db-preview",
+          "migrations_dir": "migrations",
+        },
+      ],
+      "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "store-media-preview" }],
+      "kv_namespaces": [
+        { "binding": "CATALOG_KV", "id": "REPLACE_WITH_PREVIEW_CATALOG_KV_NAMESPACE_ID" },
+      ],
+      "queues": {
+        "producers": [
+          { "binding": "JOBS", "queue": "store-jobs-preview" },
+          { "binding": "NOTIFICATIONS", "queue": "store-notifications-preview" },
+          { "binding": "CATALOG_JOBS", "queue": "store-catalog-preview" },
+        ],
+        "consumers": [
+          {
+            "queue": "store-jobs-preview",
+            "max_batch_size": 1,
+            "max_batch_timeout": 5,
+            "max_concurrency": 2,
+            "max_retries": 3,
+            "retry_delay": 60,
+            "dead_letter_queue": "store-jobs-preview-dlq",
+          },
+          {
+            "queue": "store-notifications-preview",
+            "max_batch_size": 10,
+            "max_batch_timeout": 5,
+            "max_concurrency": 2,
+            "max_retries": 3,
+            "retry_delay": 60,
+            "dead_letter_queue": "store-jobs-preview-dlq",
+          },
+          {
+            "queue": "store-catalog-preview",
+            "max_batch_size": 1,
+            "max_batch_timeout": 5,
+            "max_concurrency": 1,
+            "max_retries": 3,
+            "retry_delay": 60,
+            "dead_letter_queue": "store-jobs-preview-dlq",
+          },
+          {
+            "queue": "store-jobs-preview-dlq",
+            "max_batch_size": 10,
+            "max_batch_timeout": 5,
+            "max_concurrency": 1,
+            "max_retries": 0,
+          },
+        ],
+      },
+      "ratelimits": [
+        {
+          "name": "CHECKOUT_LIMITER",
+          "namespace_id": "REPLACE_WITH_PREVIEW_CHECKOUT_RATE_LIMIT_NAMESPACE_ID",
+          "simple": { "limit": 30, "period": 60 },
+        },
+        {
+          "name": "AUTH_LIMITER",
+          "namespace_id": "REPLACE_WITH_PREVIEW_AUTH_RATE_LIMIT_NAMESPACE_ID",
+          "simple": { "limit": 20, "period": 60 },
+        },
+      ],
+      "send_email": [{ "name": "EMAIL" }],
+      "durable_objects": {
+        "bindings": [
+          { "name": "REALTIME", "class_name": "RealtimeDO" },
+          { "name": "CHECKOUT_ADMISSION", "class_name": "CheckoutAdmissionDO" },
+        ],
+      },
+    },
+  },
+}
