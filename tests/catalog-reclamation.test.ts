@@ -348,3 +348,55 @@ it('incremental layout commits a durable GC root before mutable delivery', async
   expect(JSON.parse(reference!.pending_payload)).toEqual({ revision: reference!.root_hash });
   expect(kv.map.has('catalog:r1:layout:current')).toBe(false); // normal timed delivery remains responsible
 });
+
+it('deletes a batch of eligible artifacts in one sweep unit and keeps a failed key retryable', async () => {
+  const kv = new Kv();
+  const eligible = Array.from({ length: 120 }, (_, i) =>
+    layoutKey(`old-${String(i).padStart(3, '0')}`)
+  );
+  const ineligible = Array.from({ length: 5 }, (_, i) => layoutKey(`keep-${i}`));
+  for (const key of [...eligible, ...ineligible]) {
+    await doc(key);
+    kv.map.set(key, '{}');
+  }
+  await cycle(kv, start);
+  await db
+    .prepare(
+      'UPDATE catalog_artifacts SET retry_at=? WHERE key IN (SELECT value FROM json_each(?))'
+    )
+    .bind(new Date(start + 10 * CATALOG_RETENTION_MS).toISOString(), JSON.stringify(ineligible))
+    .run();
+  const failing = eligible[0];
+  const remove = kv.delete.bind(kv);
+  kv.delete = async (key: string) => {
+    if (key === failing) throw new Error('injected storage failure');
+    await remove(key);
+  };
+  const at = start + CATALOG_RETENTION_MS + 1;
+  const lease = await claimCatalogLease(db);
+  expect(lease).not.toBeNull();
+  if (!lease) return;
+  const phase = async () =>
+    (await db.prepare('SELECT phase FROM catalog_gc_state').first<{ phase: string }>())?.phase;
+  for (let i = 0; i < 100 && (await phase()) !== 'sweep'; i++)
+    await runCatalogGcUnit(db, kv, lease, at);
+  expect(await phase()).toBe('sweep');
+  await runCatalogGcUnit(db, kv, lease, at);
+  await releaseCatalogLease(db, lease);
+  const goneFromKv = eligible.filter((key) => !kv.map.has(key));
+  const goneFromD1 = (
+    await Promise.all(eligible.map(async (key) => ((await has(key)) ? null : key)))
+  ).filter((key) => key !== null);
+  expect(goneFromKv).toHaveLength(49);
+  expect(goneFromD1).toEqual(goneFromKv);
+  expect(
+    await db
+      .prepare('SELECT retry_at,failure FROM catalog_artifacts WHERE key=?')
+      .bind(failing)
+      .first()
+  ).toMatchObject({ retry_at: expect.any(String), failure: 'KV deletion failed' });
+  for (const key of ineligible) {
+    expect(kv.map.has(key)).toBe(true);
+    expect(await has(key)).toBe(true);
+  }
+});
