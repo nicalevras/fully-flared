@@ -68,12 +68,15 @@ describe('homepage catalogue D1 fallback path', () => {
     expect(second.featured?.slug).toBe('prod-25');
   });
 
-  it('route wires search pagination and the paged loader', () => {
-    const route = readFileSync('web/src/routes/_shop.index.tsx', 'utf8');
+  it('/shop wires search pagination and the paged loader; home has neither', () => {
+    const route = readFileSync('web/src/routes/_shop.shop.tsx', 'utf8');
     expect(route).toContain('validateSearch: collectionSearchSchema');
+    expect(route).toContain('stripSearchParams({ page: 1 })');
     expect(route).toContain('loaderDeps: ({ search: { page } }) => ({ page })');
     expect(route).toContain('getHomeProductsPage');
-    expect(route).not.toContain('snapshot.products.slice(0, 24)');
-    expect(route).toContain('featured?.id');
+    expect(route).toContain('to="/shop" search={{ page: page + 1 }}');
+    const home = readFileSync('web/src/routes/_shop.index.tsx', 'utf8');
+    expect(home).not.toContain('validateSearch');
+    expect(home).not.toContain('getHomeProductsPage');
   });
 });

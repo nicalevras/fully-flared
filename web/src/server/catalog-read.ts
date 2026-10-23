@@ -239,15 +239,19 @@ export async function readListingPage(
   );
 }
 
+/** `beforeFallback` runs only when KV has no pointer, before D1 is
+ *  asked; it may throw to refuse the lookup. */
 export async function readProductDocument(
   db: D1Database,
   kv: CatalogKv | undefined,
-  slug: string
+  slug: string,
+  beforeFallback?: () => Promise<void>
 ): Promise<ProductDocument | null> {
   return requestRead(kv ?? db, `product:${slug}`, async () => {
     const pointerSchema = z.object({ id: z.string().min(1), revision: z.string().min(1) }).strict();
     let pointer = decode(await kvValue(kv, productSlugKey(slug)), pointerSchema, () => true);
     if (!pointer) {
+      await beforeFallback?.();
       const row = await db
         .prepare('SELECT product_id,doc_revision FROM catalog_cards WHERE slug=?')
         .bind(slug)
@@ -344,6 +348,7 @@ export type StorefrontLayoutSnapshot = {
   collections: Array<{ slug: string; title: string }>;
   collectionsTotal: number;
   collectionTeasers: Array<{ slug: string; title: string; description: string }>;
+  featured: Array<{ slug: string; title: string }>;
   posts: Array<{ slug: string; title: string; excerpt: string; published_at: string }>;
 };
 export function getStorefrontLayout(
@@ -382,6 +387,7 @@ export function getStorefrontLayout(
       collections: [],
       collectionsTotal: 0,
       collectionTeasers: [],
+      featured: [],
       posts: [],
     };
   });

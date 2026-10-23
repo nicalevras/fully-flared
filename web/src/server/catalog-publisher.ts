@@ -35,6 +35,8 @@ import {
   COLLECTION_INDEX,
   POSTS_INDEX,
   DIRECTORY_FANOUT,
+  FEATURED_INDEX,
+  MAX_RAILS,
   type CatalogCard,
   type DirectoryNode,
   type ListingPage,
@@ -66,7 +68,8 @@ const CHUNK = 88;
 // editorial document, and one layout republish.
 const BUILD_STEP_STATEMENTS = 7;
 const EDITORIAL_DOC_STATEMENTS = 8;
-const LAYOUT_STATEMENTS = 13;
+const LAYOUT_STATEMENTS = 14;
+const RETIRE_STATEMENTS = 7;
 
 type KvLike = ReclaimKv & {
   get(key: string): Promise<string | null>;
@@ -97,13 +100,12 @@ function placeholders(n: number) {
   return Array.from({ length: n }, () => '?').join(',');
 }
 
+type InvalidationEntry = { scope: string; scopeId: string; listingId?: string };
+
 /** Records pending Workers Cache invalidations for what a publish
  *  changed (Phase 4). The gateway drains these through the
  *  cache-owning entrypoint; until then the 60 s TTL bounds staleness. */
-async function recordInvalidations(
-  db: D1Database,
-  entries: { scope: string; scopeId: string }[]
-): Promise<void> {
+async function recordInvalidations(db: D1Database, entries: InvalidationEntry[]): Promise<void> {
   const statements = invalidationStatements(db, entries);
   if (statements.length) await db.batch(statements);
 }
@@ -112,7 +114,7 @@ async function recordInvalidations(
  *  their invalidations atomically with the state they invalidate. */
 function invalidationStatements(
   db: D1Database,
-  entries: { scope: string; scopeId: string }[]
+  entries: InvalidationEntry[]
 ): D1PreparedStatement[] {
   const seen = new Set<string>();
   const rows = entries.filter((e) => {
@@ -127,9 +129,9 @@ function invalidationStatements(
     statements.push(
       db
         .prepare(
-          `WITH entries AS(SELECT json_extract(value,'$.scope') AS scope,json_extract(value,'$.scopeId') AS scope_id FROM json_each(?)), refs AS(SELECT *,CASE WHEN scope='layout' THEN 'layout' WHEN scope='listing' THEN 'listing:'||COALESCE((SELECT id FROM collections WHERE slug=scope_id),scope_id) ELSE NULL END AS ref FROM entries)
+          `WITH entries AS(SELECT json_extract(value,'$.scope') AS scope,json_extract(value,'$.scopeId') AS scope_id,json_extract(value,'$.listingId') AS listing_id FROM json_each(?)), refs AS(SELECT scope,scope_id,CASE WHEN scope='layout' THEN 'layout' WHEN scope='listing' THEN 'listing:'||COALESCE(listing_id,(SELECT id FROM collections WHERE slug=scope_id),scope_id) ELSE NULL END AS ref FROM entries), targets AS(SELECT * FROM refs UNION ALL SELECT 'listing','${FEATURED_INDEX}',ref FROM refs WHERE scope='listing' AND EXISTS(SELECT 1 FROM collections WHERE id=substr(ref,9) AND featured_rank IS NOT NULL))
          INSERT INTO catalog_invalidations (id, scope, scope_id, created_at,ref_key,ref_seq)
-         SELECT lower(hex(randomblob(16))),scope,scope_id,?,(SELECT ref_key FROM catalog_ref_state WHERE ref_key=ref),(SELECT committed_seq FROM catalog_ref_state WHERE ref_key=ref) FROM refs`
+         SELECT lower(hex(randomblob(16))),scope,scope_id,?,(SELECT ref_key FROM catalog_ref_state WHERE ref_key=ref),(SELECT committed_seq FROM catalog_ref_state WHERE ref_key=ref) FROM targets`
         )
         .bind(JSON.stringify(rows.slice(i, i + 500)), at)
     );
@@ -2176,6 +2178,12 @@ async function buildLayoutModel(db: D1Database, settings: Awaited<ReturnType<typ
     .prepare('SELECT slug,title,description FROM collections ORDER BY title,id LIMIT 8')
     .all<{ slug: string; title: string; description: string }>();
   const count = await db.prepare('SELECT COUNT(*) AS n FROM collections').first<{ n: number }>();
+  const featured = await db
+    .prepare(
+      'SELECT slug,title FROM collections WHERE featured_rank IS NOT NULL ORDER BY featured_rank,title LIMIT ?'
+    )
+    .bind(MAX_RAILS)
+    .all<{ slug: string; title: string }>();
   const posts = await db
     .prepare(
       "SELECT slug,title,excerpt,published_at FROM posts WHERE (status='published' AND (published_at IS NULL OR published_at<=?)) OR (status='scheduled' AND published_at IS NOT NULL AND published_at<=?) ORDER BY published_at DESC,id DESC LIMIT 3"
@@ -2195,6 +2203,7 @@ async function buildLayoutModel(db: D1Database, settings: Awaited<ReturnType<typ
     collections: navigation.results.map(({ slug, title }) => ({ slug, title })),
     collectionTeasers: navigation.results.slice(0, 4),
     collectionsTotal: count?.n ?? 0,
+    featured: featured.results,
     posts: posts.results.map((p) => ({ ...p, published_at: p.published_at ?? '' })),
   };
 }
@@ -2533,6 +2542,58 @@ async function publishCollectionMeta(
     const key = collectionMetaKey(row.slug);
     await publishDocument(db, kv, put, 'collection-meta', key, value);
   }
+}
+
+/** Unpublishes a deleted collection, write-then-advance: KV loses its
+ *  pointer and listing ref first, then one batch retires the D1 mirrors
+ *  and records the purge. A retry repeats the deletes; once the batch
+ *  commits nothing is found and it is a no-op. */
+async function retireCollection(
+  db: D1Database,
+  kv: KvLike | undefined,
+  listingId: string
+): Promise<void> {
+  const refKey = `listing:${listingId}`;
+  const pointerPrefix = collectionMetaKey('').slice(0, -':meta'.length);
+  const found = await db
+    .prepare(
+      `WITH slugs AS(SELECT json_extract(d.payload_json,'$.slug') AS slug FROM catalog_documents p JOIN catalog_documents d ON d.key=json_extract(p.payload_json,'$.key')
+         WHERE p.key>? AND p.key<? AND p.kind='collection-meta-pointer' AND json_extract(d.payload_json,'$.id')=?
+           AND NOT EXISTS(SELECT 1 FROM collections c WHERE c.slug=json_extract(d.payload_json,'$.slug')))
+       SELECT s.slug,EXISTS(SELECT 1 FROM catalog_ref_state WHERE ref_key=?) AS published,
+         EXISTS(SELECT 1 FROM catalog_ref_state r JOIN catalog_documents l ON l.key=?||r.root_hash JOIN json_each(l.payload_json,'$.featured') f
+           WHERE r.ref_key='layout' AND json_extract(f.value,'$.slug') IN (SELECT slug FROM slugs)) AS featured
+       FROM (SELECT 1) LEFT JOIN slugs s`
+    )
+    .bind(pointerPrefix, `${pointerPrefix}\uffff`, listingId, refKey, layoutKey(''))
+    .all<{ slug: string | null; published: number; featured: number }>();
+  const slugs = found.results.flatMap((row) => (row.slug ? [row.slug] : []));
+  if (!slugs.length && !found.results.some((row) => row.published)) return;
+  const pointers = slugs.map(collectionMetaKey);
+  if (kv?.delete) for (const key of [...pointers, listingRefKey(listingId)]) await kv.delete(key);
+  const at = now();
+  await db.batch([
+    db
+      .prepare('DELETE FROM catalog_documents WHERE key IN (SELECT value FROM json_each(?))')
+      .bind(JSON.stringify(pointers)),
+    db.prepare('DELETE FROM catalog_ref_state WHERE ref_key=?').bind(refKey),
+    db
+      .prepare(
+        'UPDATE catalog_listing_ref_history SET retired_at=? WHERE listing_id=? AND retired_at IS NULL'
+      )
+      .bind(at, listingId),
+    db
+      .prepare(
+        "UPDATE catalog_listings SET active=0,state='superseded',updated_at=? WHERE listing_id=? AND active=1"
+      )
+      .bind(at, listingId),
+    ...invalidationStatements(db, [
+      ...slugs.map((slug) => ({ scope: 'listing', scopeId: slug, listingId })),
+      ...(found.results.some((row) => row.featured)
+        ? [{ scope: 'listing', scopeId: FEATURED_INDEX }]
+        : []),
+    ]),
+  ]);
 }
 
 /** Refresh one listing: same membership -> patch only changed pages
@@ -3036,7 +3097,7 @@ export async function processCatalogWork(
             cardChanged: boolean;
           })
         : null;
-    const invalidations: { scope: string; scopeId: string }[] = [];
+    const invalidations: InvalidationEntry[] = [];
     // Checkpoints record the invalidations gathered so far: replayed work
     // is content-addressed and would not gather them again.
     const saveWork = async (
@@ -3116,17 +3177,16 @@ export async function processCatalogWork(
                 'UPDATE catalog_build_listings SET changed=2 WHERE build_id=? AND listing_id=?'
               )
               .bind(checkpointId, prepared.listing_id),
-            db
-              .prepare(
-                "INSERT OR IGNORE INTO catalog_invalidations(id,scope,scope_id,created_at) VALUES(?,'listing',?,?)"
-              )
-              .bind(
-                `${checkpointId}:${claimed[0]!.target_revision}:${prepared.listing_id}`,
-                prepared.listing_id === ALL_LISTING
-                  ? 'all'
-                  : (prepared.slug ?? prepared.listing_id),
-                now()
-              ),
+            ...invalidationStatements(db, [
+              {
+                scope: 'listing',
+                scopeId:
+                  prepared.listing_id === ALL_LISTING
+                    ? 'all'
+                    : (prepared.slug ?? prepared.listing_id),
+                listingId: prepared.listing_id,
+              },
+            ]),
           ]
         );
       }
@@ -3366,35 +3426,46 @@ export async function processCatalogWork(
       for (const listingId of [...affected].sort()) {
         if (progress && listingId <= progress.lastListing) continue;
         if (budget?.spent()) throw new BudgetExhausted('combined');
-        let prepared = false;
-        const changed = await refreshAffectedListing(db, kv, put, listingId, {
-          cardsById,
-          productIds,
-          cardChangedIds,
-          collectionEdited: collectionIds.has(listingId),
-          collections: collections.results,
-          ...(budget ? { budget } : {}),
-          ...(lease ? { lease } : {}),
-          ...(checkpointId && budget
-            ? {
-                preparePublication: async (publication: ListingPublication) => {
-                  await saveWork('publication', listingId, cardChangedIds.size > 0, publication);
-                  prepared = true;
-                },
-              }
-            : {}),
-        });
-        if (prepared)
-          return { processed: 0, productsPublished, listingsRefreshed: [], kvPuts, more: true };
-        if (changed) {
-          listingsRefreshed.push(listingId);
-          invalidations.push({
-            scope: 'listing',
-            scopeId:
-              listingId === ALL_LISTING
-                ? 'all'
-                : (collections.results.find((c) => c.id === listingId)?.slug ?? listingId),
+        if (
+          listingId !== ALL_LISTING &&
+          !collections.results.some((collection) => collection.id === listingId)
+        ) {
+          if (checkpointId && budget && !budget.fits(RETIRE_STATEMENTS)) {
+            await saveWork('listings', progress?.lastListing ?? '', cardChangedIds.size > 0);
+            return { processed: 0, productsPublished, listingsRefreshed, kvPuts, more: true };
+          }
+          await retireCollection(db, kv, listingId);
+        } else {
+          let prepared = false;
+          const changed = await refreshAffectedListing(db, kv, put, listingId, {
+            cardsById,
+            productIds,
+            cardChangedIds,
+            collectionEdited: collectionIds.has(listingId),
+            collections: collections.results,
+            ...(budget ? { budget } : {}),
+            ...(lease ? { lease } : {}),
+            ...(checkpointId && budget
+              ? {
+                  preparePublication: async (publication: ListingPublication) => {
+                    await saveWork('publication', listingId, cardChangedIds.size > 0, publication);
+                    prepared = true;
+                  },
+                }
+              : {}),
           });
+          if (prepared)
+            return { processed: 0, productsPublished, listingsRefreshed: [], kvPuts, more: true };
+          if (changed) {
+            listingsRefreshed.push(listingId);
+            invalidations.push({
+              scope: 'listing',
+              scopeId:
+                listingId === ALL_LISTING
+                  ? 'all'
+                  : (collections.results.find((c) => c.id === listingId)?.slug ?? listingId),
+            });
+          }
         }
         if (checkpointId) {
           await saveWork('listings', listingId, cardChangedIds.size > 0);

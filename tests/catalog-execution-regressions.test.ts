@@ -2,7 +2,9 @@ import { it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createTestDb, seedProduct } from './helpers/d1';
 import { runCatalogUnit as productionUnit } from '../web/src/server/catalog-publisher';
 import { CATALOG_BUDGET_LIMITS, CatalogBudget } from '../web/src/server/catalog-exec';
-import { drainCatalogInvalidations } from '../web/src/server/public-cache';
+import { cacheTagsForPath, drainCatalogInvalidations } from '../web/src/server/public-cache';
+import { getStorefrontLayout } from '../web/src/server/catalog-read';
+import { buildCatalogReadModels } from './helpers/catalog-driver';
 import { catalogQueueHarness } from './helpers/catalog-queue';
 import {
   contentRevision,
@@ -538,5 +540,159 @@ it('an expired lease cannot commit listings, layouts or work checkpoints', async
     } finally {
       await dispose();
     }
+  }
+});
+
+const invalidationRefs = async (db: D1Database, scopeId: string) =>
+  (
+    await db
+      .prepare(
+        "SELECT ref_key AS refKey,ref_seq AS refSeq FROM catalog_invalidations WHERE scope='listing' AND scope_id=?"
+      )
+      .bind(scopeId)
+      .all<{ refKey: string | null; refSeq: number | null }>()
+  ).results;
+
+async function seedWithCaps(db: D1Database, kv: Kv) {
+  await db.batch([
+    db.prepare(
+      "INSERT INTO products(id,slug,title,status,created_at,updated_at) VALUES('cap','cap','Cap','active','2026-01-01','2026-01-01')"
+    ),
+    db.prepare(
+      "INSERT INTO collections(id,slug,title,kind,created_at) VALUES('c2','caps','Caps','manual','2026-01-01')"
+    ),
+    db.prepare("INSERT INTO product_collections(product_id,collection_id) VALUES('cap','c2')"),
+  ]);
+  await seedTeesAndPost(db, kv);
+}
+
+/** Runs incremental units, draining after each: no tag may purge while
+ *  the reference its invalidation waits on is undelivered. */
+async function driveAndDrain(db: D1Database, kv: Kv, beforeDrain?: () => Promise<void>) {
+  const purged = new Set<string>();
+  const held = new Set<string>();
+  const purge = async (tags: string[]) => tags.forEach((tag) => purged.add(tag));
+  let done = false;
+  for (let unit = 0; unit < 80 && !done; unit++) {
+    done = (await runCatalogUnit(db, kv, { budget: new CatalogBudget() })).done;
+    await beforeDrain?.();
+    const undelivered = (
+      await db
+        .prepare(
+          "SELECT CASE i.scope WHEN 'layout' THEN 'layout' ELSE i.scope||'-'||i.scope_id END AS tag FROM catalog_invalidations i JOIN catalog_ref_state r ON r.ref_key=i.ref_key WHERE r.delivered_seq<i.ref_seq"
+        )
+        .all<{ tag: string }>()
+    ).results.map((row) => row.tag);
+    const { tags } = await drainCatalogInvalidations(db, purge);
+    for (const tag of undelivered) {
+      expect(tags).not.toContain(tag);
+      held.add(tag);
+    }
+  }
+  expect(done).toBe(true);
+  await drainCatalogInvalidations(db, purge);
+  return { purged, held };
+}
+
+it('featuring a collection republishes the home layout incrementally and purges / after delivery', async () => {
+  const { db, dispose } = await createTestDb();
+  const kv = new Kv();
+  try {
+    await seedWithCaps(db, kv);
+    await db.prepare("UPDATE collections SET featured_rank=1 WHERE id='c'").run();
+    const { purged, held } = await driveAndDrain(db, kv);
+    expect((await getStorefrontLayout(db, { CATALOG_KV: kv })).featured).toEqual([
+      { slug: 'tees', title: 'Tees' },
+    ]);
+    expect(held).toContain('layout');
+    expect(purged).toContain('layout');
+    expect(cacheTagsForPath('/')).toContain('layout');
+
+    await db.prepare("UPDATE collections SET featured_rank=NULL WHERE id='c'").run();
+    expect((await driveAndDrain(db, kv)).purged).toContain('layout');
+    expect((await getStorefrontLayout(db, { CATALOG_KV: kv })).featured).toEqual([]);
+  } finally {
+    await dispose();
+  }
+});
+
+it('a product edit purges / only through a featured collection, after its delivery', async () => {
+  const { db, dispose } = await createTestDb();
+  const kv = new Kv();
+  try {
+    await seedWithCaps(db, kv);
+    await db.prepare("UPDATE collections SET featured_rank=1 WHERE id='c'").run();
+    await drive(db, kv, 200);
+    await db.prepare('DELETE FROM catalog_invalidations').run();
+
+    await db.prepare("UPDATE products SET title='Tee zero' WHERE id='tee-0'").run();
+    type Refs = Awaited<ReturnType<typeof invalidationRefs>>;
+    let featured: Refs = [];
+    let tees: Refs = [];
+    const { purged, held } = await driveAndDrain(db, kv, async () => {
+      if (featured.length) return;
+      featured = await invalidationRefs(db, '@featured');
+      tees = await invalidationRefs(db, 'tees');
+    });
+    expect(featured).toHaveLength(1);
+    expect(featured[0]?.refKey).toBe('listing:c');
+    expect(tees).toContainEqual(featured[0]);
+    expect(held).toContain('listing-@featured');
+    expect(purged).toContain('listing-@featured');
+
+    await db.prepare('DELETE FROM catalog_invalidations').run();
+    await db.prepare("UPDATE products SET title='Cap two' WHERE id='cap'").run();
+    await drive(db, kv, 200);
+    expect(await invalidationRefs(db, 'caps')).not.toEqual([]);
+    expect(await invalidationRefs(db, '@featured')).toEqual([]);
+  } finally {
+    await dispose();
+  }
+});
+
+it('a resumed catalogue publication purges only after its own delivery', async () => {
+  const { db, dispose } = await createTestDb();
+  const kv = new Kv();
+  try {
+    await seedTeesAndPost(db, kv);
+    await db.prepare("UPDATE products SET title='Tee zero' WHERE id='tee-0'").run();
+    let resumed = false;
+    let done = false;
+    for (let unit = 0; unit < 80 && !done; unit++) {
+      const d1Statements = Math.min(20 + unit, CATALOG_BUDGET_LIMITS.d1Statements);
+      done = (
+        await runCatalogUnit(db, kv, {
+          budget: new CatalogBudget({ ...CATALOG_BUDGET_LIMITS, d1Statements }),
+        })
+      ).done;
+      resumed ||= Boolean(
+        await db
+          .prepare(
+            "SELECT 1 FROM catalog_builds WHERE kind='work' AND state='waiting' AND json_extract(state_json,'$.stage')='publication' AND json_extract(state_json,'$.lastListing')='all'"
+          )
+          .first()
+      );
+    }
+    expect(done).toBe(true);
+    expect(resumed).toBe(true);
+    const committed = await db
+      .prepare("SELECT committed_seq AS seq FROM catalog_ref_state WHERE ref_key='listing:all'")
+      .first<{ seq: number }>();
+    const rows = await invalidationRefs(db, 'all');
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) expect(row).toEqual({ refKey: 'listing:all', refSeq: committed?.seq });
+  } finally {
+    await dispose();
+  }
+});
+
+it('a full build purges a newly created product page', async () => {
+  const { db, dispose } = await createTestDb();
+  try {
+    await seedProduct(db);
+    await buildCatalogReadModels(db, new Kv());
+    expect(await invalidated(db)).toContain('product:tee');
+  } finally {
+    await dispose();
   }
 });

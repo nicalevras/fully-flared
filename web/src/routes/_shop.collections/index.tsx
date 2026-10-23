@@ -1,6 +1,8 @@
-import { createFileRoute, Link } from '@tanstack/react-router';
+import { createFileRoute, Link, stripSearchParams } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
-import { listAllCollections } from '../../server/catalog-read';
+import { getStorefrontLayout, listAllCollections } from '../../server/catalog-read';
+import { requestCanonicalBase } from '../../server/canonical-base';
+import { absoluteUrl, pagedPath } from '../../lib/seo';
 import { validateServerInput } from '../../server/function-boundary';
 import { collectionPageInputSchema, collectionSearchSchema } from '../../schemas/checkout';
 import { Button } from '@/components/ui/button';
@@ -11,18 +13,36 @@ const getCollections = createServerFn({ method: 'GET' })
   .validator(validateServerInput(collectionPageInputSchema.omit({ slug: true })))
   .handler(async ({ data }) => {
     const { env } = await import('cloudflare:workers');
-    return listAllCollections(env.DB, env, data.page);
+    const [collections, layout] = await Promise.all([
+      listAllCollections(env.DB, env, data.page),
+      getStorefrontLayout(env.DB, env),
+    ]);
+    return { ...collections, canonicalBaseUrl: requestCanonicalBase(layout.canonicalBaseUrl) };
   });
 
 export const Route = createFileRoute('/_shop/collections/')({
   validateSearch: collectionSearchSchema,
+  search: { middlewares: [stripSearchParams({ page: 1 })] },
   loaderDeps: ({ search: { page } }) => ({ page }),
   loader: async ({ deps }) => getCollections({ data: { page: deps.page } }),
   headers: () => ({
     'Cache-Control': 'public, max-age=60, stale-while-revalidate=300',
     'CDN-Cache-Control': 'max-age=300, stale-while-revalidate=600',
   }),
-  head: () => ({ meta: [{ title: 'Collections' }] }),
+  head: ({ loaderData }) => ({
+    meta: [{ title: 'Collections' }],
+    links: loaderData
+      ? [
+          {
+            rel: 'canonical',
+            href: absoluteUrl(
+              loaderData.canonicalBaseUrl,
+              pagedPath('/collections', loaderData.page)
+            ),
+          },
+        ]
+      : [],
+  }),
   component: CollectionsIndex,
 });
 

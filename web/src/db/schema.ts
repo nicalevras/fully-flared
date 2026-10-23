@@ -279,6 +279,7 @@ export const collections = sqliteTable(
     ruleJson: text('rule_json'),
     seoTitle: text('seo_title'),
     seoDescription: text('seo_description'),
+    featuredRank: integer('featured_rank'),
     createdAt: text('created_at').notNull(),
   },
   (t) => [index('collections_title_id_idx').on(t.title, t.id)]

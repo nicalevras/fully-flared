@@ -1183,7 +1183,7 @@ export async function runAdminAction(
         const kind = f.kind === 'rule' ? 'rule' : 'manual';
         await db
           .prepare(
-            'INSERT INTO collections (id, slug, title, description, kind, rule_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO collections (id, slug, title, description, kind, rule_json, featured_rank, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
           )
           .bind(
             collectionId,
@@ -1192,6 +1192,7 @@ export async function runAdminAction(
             f.description,
             kind,
             kind === 'rule' ? f.ruleJson || null : null,
+            f.featuredRank,
             now()
           )
           .run();
@@ -1203,7 +1204,7 @@ export async function runAdminAction(
         const kind = f.kind === 'rule' ? 'rule' : 'manual';
         await db
           .prepare(
-            'UPDATE collections SET title = ?, description = ?, seo_title = ?, seo_description = ?, kind = ?, rule_json = ? WHERE id = ?'
+            'UPDATE collections SET title = ?, description = ?, seo_title = ?, seo_description = ?, kind = ?, rule_json = ?, featured_rank = ? WHERE id = ?'
           )
           .bind(
             f.title,
@@ -1212,6 +1213,7 @@ export async function runAdminAction(
             f.seoDescription || null,
             kind,
             kind === 'rule' ? f.ruleJson || null : null,
+            f.featuredRank,
             f.collectionId
           )
           .run();

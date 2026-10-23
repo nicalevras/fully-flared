@@ -1,6 +1,12 @@
 import { beforeEach, afterEach, expect, it } from 'vitest';
 import { createTestDb } from './helpers/d1';
-import { readListingPage, readProductDocument } from '../web/src/server/catalog-read';
+import {
+  getStorefrontLayout,
+  readListingPage,
+  readProductDocument,
+} from '../web/src/server/catalog-read';
+import { getFeaturedRails } from '../web/src/server/catalog-discovery';
+import { repairPendingDeliveries } from '../web/src/server/catalog-publisher';
 import { ALL_LISTING } from '../web/src/server/catalog-models';
 
 class FakeKv {
@@ -157,6 +163,50 @@ it('a rebuild with no changes is a no-op; a single edit republishes only its pag
     .bind(ALL_LISTING)
     .first<{ n: number }>();
   expect(gens?.n).toBe(2);
+});
+
+it('home rails render featured collections from KV alone, in rank order', async () => {
+  for (let i = 1; i <= 10; i++)
+    await product(
+      `p${i}`,
+      `item-${i}`,
+      `Item ${i}`,
+      `2026-01-${String(i).padStart(2, '0')}T00:00:00.000Z`
+    );
+  await db.batch([
+    db.prepare(
+      "INSERT INTO collections(id,slug,title,description,kind,featured_rank,created_at) VALUES('c1','tees','Tees','','manual',1,'2026-01-01'),('c2','bags','Bags','','manual',2,'2026-01-01'),('c3','caps','Caps','','manual',2,'2026-01-01'),('c4','empty','Empty','','manual',3,'2026-01-01'),('c5','hats','Hats','','manual',NULL,'2026-01-01')"
+    ),
+    db.prepare(
+      "INSERT INTO product_collections(product_id,collection_id) SELECT id,'c1' FROM products UNION ALL SELECT 'p1','c2' UNION ALL SELECT 'p2','c3' UNION ALL SELECT 'p3','c5'"
+    ),
+  ]);
+  await buildCatalogReadModels(db, kv);
+  await repairPendingDeliveries(db, kv, (key, value) => kv.put(key, value), { limit: 20 });
+  let queries = 0;
+  const noD1 = new Proxy(db, {
+    get(target, key) {
+      if (key === 'prepare')
+        return () => {
+          queries++;
+          throw new Error('Unexpected D1 query');
+        };
+      return Reflect.get(target, key);
+    },
+  });
+  const env = { CATALOG_KV: kv };
+  const layout = await getStorefrontLayout(noD1, env);
+  expect(layout.featured.map((c) => c.slug)).toEqual(['tees', 'bags', 'caps', 'empty']);
+  const rails = await getFeaturedRails(noD1, env, layout.featured);
+  expect(rails.map((r) => [r.slug, r.products.length])).toEqual([
+    ['tees', 8],
+    ['bags', 1],
+    ['caps', 1],
+  ]);
+  expect(rails[0]?.products.map((p) => p.slug)).toEqual(
+    [10, 9, 8, 7, 6, 5, 4, 3].map((i) => `item-${i}`)
+  );
+  expect(queries).toBe(0);
 });
 
 it('KV miss or corrupt values fall back to the exact D1 payload', async () => {

@@ -2,8 +2,10 @@ import { useAvailability } from '../lib/availability';
 import { useState } from 'react';
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
+import { getRequest, setResponseStatus } from '@tanstack/react-start/server';
 import { validateServerInput } from '../server/function-boundary';
 import { searchCatalog } from '../server/catalog-discovery';
+import { storefrontLimited } from '../server/storefront-limit';
 import * as z from 'zod';
 import { searchQueryParamSchema } from '../schemas/checkout';
 import { ProductCard } from '../components/ProductCard';
@@ -21,7 +23,11 @@ const search = createServerFn({ method: 'GET' })
   )
   .handler(async ({ data }) => {
     const { env } = await import('cloudflare:workers');
-    return searchCatalog(env.DB, env, data.q, data.cursor);
+    const result = await searchCatalog(env.DB, env, data.q, data.cursor, () =>
+      storefrontLimited(env.STOREFRONT_LIMITER, 'search', getRequest())
+    );
+    if (result.limited) setResponseStatus(429);
+    return result;
   });
 
 export const Route = createFileRoute('/_shop/search')({
@@ -85,7 +91,11 @@ function SearchPage() {
           current value instead of copying props into state in an effect. */}
       <SearchForm key={q} initial={q} />
 
-      {q ? (
+      {q && data.limited ? (
+        <p className="mt-8 text-sm text-zinc-500" role="status">
+          Too many searches, try again in a minute.
+        </p>
+      ) : q ? (
         <>
           <p className="mt-8 text-sm text-zinc-500" role="status">
             {results.length}
@@ -97,7 +107,7 @@ function SearchPage() {
               <p className="font-medium">No matches</p>
               <p className="mt-1 text-sm text-zinc-500">
                 Try a different word, or browse{' '}
-                <Link to="/" className="text-zinc-950 underline underline-offset-2">
+                <Link to="/shop" className="text-zinc-950 underline underline-offset-2">
                   everything in the store
                 </Link>
                 .

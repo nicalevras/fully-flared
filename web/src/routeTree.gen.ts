@@ -17,6 +17,7 @@ import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as ShopIndexRouteImport } from './routes/_shop.index'
 import { Route as ShopCartRouteImport } from './routes/_shop.cart'
 import { Route as ShopSearchRouteImport } from './routes/_shop.search'
+import { Route as ShopShopRouteImport } from './routes/_shop.shop'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AdminBlogRouteImport } from './routes/admin/blog'
 import { Route as AdminCollectionsRouteImport } from './routes/admin/collections'
@@ -89,6 +90,11 @@ const ShopCartRoute = ShopCartRouteImport.update({
 const ShopSearchRoute = ShopSearchRouteImport.update({
   id: '/search',
   path: '/search',
+  getParentRoute: () => ShopRoute,
+} as any)
+const ShopShopRoute = ShopShopRouteImport.update({
+  id: '/shop',
+  path: '/shop',
   getParentRoute: () => ShopRoute,
 } as any)
 const AdminIndexRoute = AdminIndexRouteImport.update({
@@ -270,6 +276,7 @@ export interface FileRoutesByFullPath {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/cart': typeof ShopCartRoute
   '/search': typeof ShopSearchRoute
+  '/shop': typeof ShopShopRoute
   '/admin/blog': typeof AdminBlogRoute
   '/admin/collections': typeof AdminCollectionsRoute
   '/admin/customers': typeof AdminCustomersRoute
@@ -310,6 +317,7 @@ export interface FileRoutesByTo {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/cart': typeof ShopCartRoute
   '/search': typeof ShopSearchRoute
+  '/shop': typeof ShopShopRoute
   '/admin/blog': typeof AdminBlogRoute
   '/admin/collections': typeof AdminCollectionsRoute
   '/admin/customers': typeof AdminCustomersRoute
@@ -355,6 +363,7 @@ export interface FileRoutesById {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/_shop/cart': typeof ShopCartRoute
   '/_shop/search': typeof ShopSearchRoute
+  '/_shop/shop': typeof ShopShopRoute
   '/admin/blog': typeof AdminBlogRoute
   '/admin/collections': typeof AdminCollectionsRoute
   '/admin/customers': typeof AdminCustomersRoute
@@ -401,6 +410,7 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/cart'
     | '/search'
+    | '/shop'
     | '/admin/blog'
     | '/admin/collections'
     | '/admin/customers'
@@ -441,6 +451,7 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/cart'
     | '/search'
+    | '/shop'
     | '/admin/blog'
     | '/admin/collections'
     | '/admin/customers'
@@ -485,6 +496,7 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/_shop/cart'
     | '/_shop/search'
+    | '/_shop/shop'
     | '/admin/blog'
     | '/admin/collections'
     | '/admin/customers'
@@ -593,6 +605,13 @@ declare module '@tanstack/react-router' {
       path: '/search'
       fullPath: '/search'
       preLoaderRoute: typeof ShopSearchRouteImport
+      parentRoute: typeof ShopRoute
+    }
+    '/_shop/shop': {
+      id: '/_shop/shop'
+      path: '/shop'
+      fullPath: '/shop'
+      preLoaderRoute: typeof ShopShopRouteImport
       parentRoute: typeof ShopRoute
     }
     '/admin/': {
@@ -891,6 +910,7 @@ const CheckoutRouteRouteWithChildren = CheckoutRouteRoute._addFileChildren(
 interface ShopRouteChildren {
   ShopCartRoute: typeof ShopCartRoute
   ShopSearchRoute: typeof ShopSearchRoute
+  ShopShopRoute: typeof ShopShopRoute
   ShopIndexRoute: typeof ShopIndexRoute
   ShopAuthSignInRoute: typeof ShopAuthSignInRoute
   ShopBlogSlugRoute: typeof ShopBlogSlugRoute
@@ -907,6 +927,7 @@ interface ShopRouteChildren {
 const ShopRouteChildren: ShopRouteChildren = {
   ShopCartRoute: ShopCartRoute,
   ShopSearchRoute: ShopSearchRoute,
+  ShopShopRoute: ShopShopRoute,
   ShopIndexRoute: ShopIndexRoute,
   ShopAuthSignInRoute: ShopAuthSignInRoute,
   ShopBlogSlugRoute: ShopBlogSlugRoute,

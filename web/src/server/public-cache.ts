@@ -9,9 +9,8 @@
 // exactly the pages they touch; the 60 s TTL is the fallback when a
 // purge has not landed yet.
 
-const EXCLUDED_PREFIX =
-  /^\/(?:api|_server|_serverFn|admin|auth|account|checkout|cart|ws|search)(?:\/|$)/;
-const PUBLIC_PREFIX = /^\/(?:products|collections|pages|blog)(?:\/|$)/;
+const EXCLUDED_PREFIX = /^\/(?:api|_server|_serverFn|admin|auth|account|checkout|cart|ws)(?:\/|$)/;
+const PUBLIC_PREFIX = /^\/(?:products|collections|pages|blog|shop|search)(?:\/|$)/;
 
 // Known click-tracking parameters that never change rendered content.
 // Anything else (pagination, filters) is preserved in the cache key.
@@ -31,29 +30,34 @@ const TRACKING_PARAMS = new Set([
   '_ga',
 ]);
 
+const PAGE_PARAMS = ['page'];
+const SEARCH_PARAMS = ['q', 'cursor'];
+
 /** Returns the cleaned request to forward to PublicStorefront, or
  *  null when the request must render directly in the gateway. */
 export function publicCacheRequest(request: Request): Request | null {
   if (request.method !== 'GET') return null;
   if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') return null;
-  if (!request.headers.get('accept')?.includes('text/html')) return null;
+  // Crawlers and bare HTTP clients often send no Accept or */*; they get the same HTML.
+  const accept = request.headers.get('accept');
+  if (accept && !accept.includes('text/html') && !accept.includes('*/*')) return null;
   const url = new URL(request.url);
   if (EXCLUDED_PREFIX.test(url.pathname)) return null;
   if (url.pathname !== '/' && !PUBLIC_PREFIX.test(url.pathname)) return null;
   const paginated =
-    url.pathname === '/' ||
+    url.pathname === '/shop' ||
     url.pathname === '/collections' ||
     /^\/collections\/[^/]+\/?$/.test(url.pathname) ||
     url.pathname === '/blog';
+  const kept = url.pathname === '/search' ? SEARCH_PARAMS : paginated ? PAGE_PARAMS : [];
   for (const key of [...url.searchParams.keys()])
-    if (TRACKING_PARAMS.has(key.toLowerCase()) || !(paginated && key === 'page'))
-      url.searchParams.delete(key);
-  if (paginated && url.searchParams.has('page')) {
+    if (TRACKING_PARAMS.has(key.toLowerCase()) || !kept.includes(key)) url.searchParams.delete(key);
+  // Page 1 renders at the bare path, so it shares that cache entry.
+  if (url.searchParams.has('page')) {
     const page = Number(url.searchParams.get('page'));
-    url.searchParams.set(
-      'page',
-      String(Number.isSafeInteger(page) && page >= 1 && page <= 100_000 ? page : 1)
-    );
+    if (Number.isSafeInteger(page) && page > 1 && page <= 100_000)
+      url.searchParams.set('page', String(page));
+    else url.searchParams.delete('page');
   }
   url.searchParams.sort();
   const headers = new Headers(request.headers);
@@ -90,11 +94,12 @@ export function privateResponse(request: Request, response: Response): boolean {
 export function cacheTagsForPath(pathname: string): string[] {
   const tags = ['layout'];
   if (pathname === '/') {
-    tags.push('listing-all', 'listing-@collections');
+    tags.push('listing-@featured', 'listing-@collections');
     return tags;
   }
   const [, section, slug] = pathname.split('/');
-  if (section === 'products' && slug) tags.push(`product-${slug}`);
+  if (section === 'shop' || section === 'search') tags.push('listing-all');
+  else if (section === 'products' && slug) tags.push(`product-${slug}`);
   else if (section === 'collections') tags.push(slug ? `listing-${slug}` : 'listing-@collections');
   else if (section === 'pages' && slug) tags.push(`editorial-${slug}`);
   else if (section === 'blog')
@@ -103,21 +108,23 @@ export function cacheTagsForPath(pathname: string): string[] {
 }
 
 /** Applies the Workers Cache storage policy to a rendered response.
- *  Only successful HTML without private state is storable, for a
- *  60-second shared TTL with browser revalidation; anything else is
- *  marked uncacheable so it can never be stored or replayed. */
+ *  Only HTML without private state is storable: a page for a 60-second
+ *  shared TTL with browser revalidation, a not-found page for 30 seconds
+ *  so unknown slugs stop reaching storage; anything else is marked
+ *  uncacheable so it can never be stored or replayed. */
 export function publicCacheResponse(response: Response, tags: string[]): Response {
+  const ttl = response.status === 200 ? 60 : response.status === 404 ? 30 : 0;
   const cacheable =
-    response.status === 200 &&
+    ttl > 0 &&
     (response.headers.get('content-type') ?? '').includes('text/html') &&
     !response.headers.has('set-cookie') &&
     !(response.headers.get('cache-control') ?? '').includes('no-store');
   if (cacheable) {
-    response.headers.set('Cache-Control', 'public, max-age=0, s-maxage=60');
+    response.headers.set('Cache-Control', `public, max-age=0, s-maxage=${ttl}`);
     // Some route loaders set their own longer CDN TTLs from the
     // pre-Workers-Cache design; the entrypoint policy wins so purges
-    // and the 60 s bound hold for every public page.
-    response.headers.set('CDN-Cache-Control', 'max-age=60');
+    // and the TTL bound hold for every public page.
+    response.headers.set('CDN-Cache-Control', `max-age=${ttl}`);
     response.headers.set('Cache-Tag', tags.join(','));
   } else if (!(response.headers.get('cache-control') ?? '').includes('no-store')) {
     response.headers.set('Cache-Control', 'private, no-store');
@@ -172,70 +179,67 @@ export async function takePurgeToken(db: D1Database, nowMs = Date.now()): Promis
 }
 
 /** Drains pending catalog invalidations through the cache-owning
- *  entrypoint, at most 100 tags per purge and one gate token per
- *  request. Rows are deleted only once their tag was purged; a refused
- *  or failed request leaves the rest pending for the next pass and the
- *  TTL remains the fallback, so a failed purge never loses one. */
+ *  entrypoint, one purge per distinct tag however many rows share it,
+ *  at most 100 tags per purge and one gate token per request. A purged
+ *  tag deletes only rows that were already safe to drop when the pass
+ *  began; anything newer, undelivered or refused stays for a later
+ *  pass and the TTL remains the fallback, so a purge is never lost. */
 export async function drainCatalogInvalidations(
   db: D1Database,
   purge: (tags: string[]) => Promise<unknown>,
   limit = 500
-): Promise<{ drained: number; tags: string[] }> {
-  const rows = await db
+): Promise<{ drained: number; tags: string[]; more: boolean }> {
+  const startedAt = new Date().toISOString();
+  const groups = await db
     .prepare(
-      `SELECT id, scope, scope_id AS scopeId,ref_key,ref_seq FROM catalog_invalidations i WHERE ref_key IS NULL OR EXISTS(SELECT 1 FROM catalog_ref_state r WHERE r.ref_key=i.ref_key AND r.delivered_seq>=i.ref_seq) ORDER BY created_at ASC LIMIT ?`
+      `SELECT scope, scope_id AS scopeId FROM catalog_invalidations i WHERE ref_key IS NULL OR EXISTS(SELECT 1 FROM catalog_ref_state r WHERE r.ref_key=i.ref_key AND r.delivered_seq>=i.ref_seq) GROUP BY scope, scope_id ORDER BY MIN(created_at), MIN(rowid) LIMIT ?`
     )
     .bind(limit)
-    .all<CatalogInvalidation & { ref_key: string | null; ref_seq: number | null }>();
-  if (!rows.results.length) return { drained: 0, tags: [] };
-  // Only rows that map to a real tag may be deleted, and only after
-  // that tag was purged. Unmappable rows stay pending and visible in
-  // logs instead of being silently dropped with the mapped ones.
-  const mapped = rows.results.filter((r) => invalidationTag(r.scope, r.scopeId) !== null);
-  const unmappable = rows.results.length - mapped.length;
-  if (unmappable > 0)
+    .all<{ scope: string; scopeId: string }>();
+  const mapped = groups.results.flatMap((group) => {
+    const tag = invalidationTag(group.scope, group.scopeId);
+    return tag ? [{ ...group, tag }] : [];
+  });
+  // Unmappable rows stay pending and visible in logs instead of being
+  // silently dropped with the mapped ones.
+  if (mapped.length < groups.results.length)
     console.error(
       JSON.stringify({
         event: 'catalog_invalidation_unmappable',
-        count: unmappable,
-        ids: rows.results
-          .filter((r) => invalidationTag(r.scope, r.scopeId) === null)
-          .map((r) => r.id),
+        scopes: groups.results
+          .filter((group) => invalidationTag(group.scope, group.scopeId) === null)
+          .map((group) => `${group.scope}:${group.scopeId}`),
       })
     );
-  const tags = invalidationTags(mapped);
-  const purged = new Set<string>();
-  for (let i = 0; i < tags.length; i += PURGE_TAG_LIMIT) {
-    const chunk = tags.slice(i, i + PURGE_TAG_LIMIT);
+  const purged: string[] = [];
+  let drained = 0;
+  for (let i = 0; i < mapped.length; i += PURGE_TAG_LIMIT) {
+    const chunk = mapped.slice(i, i + PURGE_TAG_LIMIT);
+    const tags = [...new Set(chunk.map((group) => group.tag))];
     if (!(await takePurgeToken(db))) {
       console.warn(
-        JSON.stringify({ event: 'catalog_cache_purge_deferred', pending: tags.length - i })
+        JSON.stringify({ event: 'catalog_cache_purge_deferred', pending: mapped.length - i })
       );
-      break;
+      return { drained, tags: purged, more: false };
     }
     try {
-      await purge(chunk);
+      await purge(tags);
     } catch (error) {
       console.error(JSON.stringify({ event: 'catalog_cache_purge_failed', error: String(error) }));
-      break;
+      return { drained, tags: purged, more: false };
     }
-    for (const tag of chunk) purged.add(tag);
-  }
-  const done = mapped.filter((r) => purged.has(invalidationTag(r.scope, r.scopeId) ?? ''));
-  let drained = 0;
-  for (let i = 0; i < done.length; i += 90) {
-    const chunk = done.slice(i, i + 90);
+    purged.push(...tags);
+    // last_write_at only moves forward on delivery, so a ref delivered
+    // after the pass began keeps its rows; NULL means it was confirmed
+    // without a KV write.
     const removed = await db
       .prepare(
-        `DELETE FROM catalog_invalidations WHERE EXISTS(SELECT 1 FROM json_each(?) x
-        WHERE json_extract(x.value,'$.id')=catalog_invalidations.id
-          AND json_extract(x.value,'$.ref_key') IS catalog_invalidations.ref_key
-          AND json_extract(x.value,'$.ref_seq') IS catalog_invalidations.ref_seq)
-        AND (ref_key IS NULL OR EXISTS(SELECT 1 FROM catalog_ref_state r WHERE r.ref_key=catalog_invalidations.ref_key AND r.delivered_seq>=catalog_invalidations.ref_seq))`
+        `DELETE FROM catalog_invalidations WHERE EXISTS(SELECT 1 FROM json_each(?1) x WHERE json_extract(x.value,'$[0]')=scope AND json_extract(x.value,'$[1]')=scope_id)
+        AND ((ref_key IS NULL AND created_at<=?2) OR EXISTS(SELECT 1 FROM catalog_ref_state r WHERE r.ref_key=catalog_invalidations.ref_key AND r.delivered_seq>=catalog_invalidations.ref_seq AND COALESCE(r.last_write_at,'')<=?2))`
       )
-      .bind(JSON.stringify(chunk.map(({ id, ref_key, ref_seq }) => ({ id, ref_key, ref_seq }))))
+      .bind(JSON.stringify(chunk.map((group) => [group.scope, group.scopeId])), startedAt)
       .run();
     drained += removed.meta.changes ?? 0;
   }
-  return { drained, tags: [...purged] };
+  return { drained, tags: purged, more: groups.results.length === limit };
 }

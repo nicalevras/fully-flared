@@ -1,5 +1,6 @@
 import * as z from 'zod';
 import { centsInt, emailString, idString, nonEmptyString, slugString } from './common';
+import { MAX_RAILS } from '../server/catalog-models';
 
 // Every admin action is one member of this discriminated union. The action
 // switch receives only parsed, typed payloads — no str()/num() coercion of
@@ -7,6 +8,7 @@ import { centsInt, emailString, idString, nonEmptyString, slugString } from './c
 const text = (max = 500) => z.string().max(max);
 const optText = (max = 500) => z.string().max(max).optional().default('');
 const nullableCents = z.number().int().min(0).nullable().optional();
+const featuredRank = z.number().int().min(1).max(MAX_RAILS).nullable().optional().default(null);
 
 const variantInput = z.object({
   sku: nonEmptyString(100),
@@ -97,6 +99,7 @@ export const adminActionSchema = z.discriminatedUnion('action', [
     description: text(5_000).optional().default(''),
     kind: z.enum(['manual', 'rule']).optional().default('manual'),
     ruleJson: optText(1_000),
+    featuredRank,
   }),
   z.object({
     action: z.literal('collection.update'),
@@ -107,6 +110,7 @@ export const adminActionSchema = z.discriminatedUnion('action', [
     seoDescription: optText(500),
     kind: z.enum(['manual', 'rule']).optional().default('manual'),
     ruleJson: optText(1_000),
+    featuredRank,
   }),
   z.object({ action: z.literal('collection.delete'), collectionId: idString }),
   z.object({

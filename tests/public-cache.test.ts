@@ -27,6 +27,9 @@ it('classifies only ordinary public HTML GETs for the storefront', () => {
     '/pages/about',
     '/blog',
     '/blog/hello',
+    '/shop',
+    '/shop?page=2',
+    '/search?q=tee',
   ])
     expect(publicCacheRequest(new Request(`https://shop.test${path}`, html)), path).not.toBeNull();
   for (const path of [
@@ -37,7 +40,6 @@ it('classifies only ordinary public HTML GETs for the storefront', () => {
     '/auth/login',
     '/api/checkout',
     '/_serverFn/test',
-    '/search?q=tee',
     '/media/x.jpg',
     '/favicon.ico',
   ])
@@ -59,6 +61,21 @@ it('classifies only ordinary public HTML GETs for the storefront', () => {
       })
     )
   ).toBeNull();
+  for (const headers of [{}, { accept: '*/*' }])
+    expect(publicCacheRequest(new Request('https://shop.test/', { headers }))).not.toBeNull();
+});
+
+it('gives each page one cache key: page 1 and home pages share the bare path', () => {
+  const origin = 'https://shop.test';
+  const key = (path: string) =>
+    publicCacheRequest(new Request(origin + path, html))?.url.slice(origin.length);
+  expect(key('/shop?page=1')).toBe('/shop');
+  expect(key('/shop?page=abc')).toBe('/shop');
+  expect(key('/shop?page=2&utm_source=x')).toBe('/shop?page=2');
+  expect(key('/collections/shoes?page=1')).toBe('/collections/shoes');
+  expect(key('/?page=3')).toBe('/');
+  expect(key('/search?q=tee&utm_source=x&foo=1')).toBe('/search?q=tee');
+  expect(key('/search?cursor=abc&q=tee&page=2')).toBe('/search?cursor=abc&q=tee');
 });
 
 it('strips private/forwarding headers and nonsemantic product parameters', () => {
@@ -85,7 +102,9 @@ it('strips private/forwarding headers and nonsemantic product parameters', () =>
 });
 
 it('derives cache tags from the route scope', () => {
-  expect(cacheTagsForPath('/')).toEqual(['layout', 'listing-all', 'listing-@collections']);
+  expect(cacheTagsForPath('/')).toEqual(['layout', 'listing-@featured', 'listing-@collections']);
+  expect(cacheTagsForPath('/shop')).toEqual(['layout', 'listing-all']);
+  expect(cacheTagsForPath('/search')).toEqual(['layout', 'listing-all']);
   expect(cacheTagsForPath('/products/tee')).toEqual(['layout', 'product-tee']);
   expect(cacheTagsForPath('/collections/shoes')).toEqual(['layout', 'listing-shoes']);
   expect(cacheTagsForPath('/collections')).toEqual(['layout', 'listing-@collections']);
@@ -94,7 +113,7 @@ it('derives cache tags from the route scope', () => {
   expect(cacheTagsForPath('/blog/hello')).toEqual(['layout', 'editorial-hello']);
 });
 
-it('stores only successful private-free HTML, for a 60s shared TTL', () => {
+it('stores private-free HTML: pages for 60s, not-found pages for 30s', () => {
   const ok = publicCacheResponse(
     new Response('<html>ok</html>', {
       headers: { 'content-type': 'text/html', 'cdn-cache-control': 'max-age=3600' },
@@ -117,9 +136,26 @@ it('stores only successful private-free HTML, for a 60s shared TTL', () => {
 
   const missing = publicCacheResponse(
     new Response('nope', { status: 404, headers: { 'content-type': 'text/html' } }),
+    ['layout', 'product-gone']
+  );
+  expect(missing.headers.get('cache-control')).toBe('public, max-age=0, s-maxage=30');
+  expect(missing.headers.get('cdn-cache-control')).toBe('max-age=30');
+  expect(missing.headers.get('cache-tag')).toBe('layout,product-gone');
+
+  const missingWithCookie = publicCacheResponse(
+    new Response('nope', {
+      status: 404,
+      headers: { 'content-type': 'text/html', 'set-cookie': 'x=1' },
+    }),
     ['layout']
   );
-  expect(missing.headers.get('cache-control')).toBe('private, no-store');
+  expect(missingWithCookie.headers.get('cache-control')).toBe('private, no-store');
+
+  const limited = publicCacheResponse(
+    new Response('slow down', { status: 429, headers: { 'content-type': 'text/html' } }),
+    ['layout']
+  );
+  expect(limited.headers.get('cache-control')).toBe('private, no-store');
 
   const redirect = publicCacheResponse(
     new Response(null, { status: 302, headers: { location: '/products/tee' } }),
@@ -245,6 +281,112 @@ it('keeps unmappable invalidation rows instead of deleting them with the purged 
       .prepare('SELECT id FROM catalog_invalidations ORDER BY id')
       .all<{ id: string }>();
     expect(remaining.results.map((r) => r.id)).toEqual(['i2', 'i3']);
+  } finally {
+    await dispose();
+  }
+});
+
+async function seedInvalidations(
+  db: D1Database,
+  rows: { tag: string; ref?: string; seq?: number }[],
+  refs: { key: string; delivered: number; lastWriteAt: string }[] = []
+) {
+  await db.batch([
+    ...refs.map(({ key, delivered, lastWriteAt }) =>
+      db
+        .prepare(
+          'INSERT INTO catalog_ref_state (ref_key, committed_seq, delivered_seq, last_write_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+        )
+        .bind(key, delivered + 1, delivered, lastWriteAt, '2026-01-01')
+    ),
+    ...rows.map(({ tag, ref, seq }, i) =>
+      db
+        .prepare(
+          "INSERT INTO catalog_invalidations (id, scope, scope_id, ref_key, ref_seq, created_at) VALUES (?, 'product', ?, ?, ?, '2026-01-01')"
+        )
+        .bind(`i${i}`, tag, ref ?? null, seq ?? null)
+    ),
+  ]);
+}
+
+const pendingIds = async (db: D1Database) =>
+  (
+    await db.prepare('SELECT id FROM catalog_invalidations ORDER BY id').all<{ id: string }>()
+  ).results.map((r) => r.id);
+
+it('coalesces delivered rows into one purge and keeps rows not yet safe to delete', async () => {
+  const { db, dispose } = await createTestDb();
+  try {
+    await seedInvalidations(
+      db,
+      [
+        { tag: 'tee' },
+        { tag: 'tee', ref: 'listing:a', seq: 1 },
+        { tag: 'tee', ref: 'listing:a', seq: 1 },
+        { tag: 'tee', ref: 'listing:a', seq: 2 },
+        { tag: 'cap', ref: 'listing:late', seq: 1 },
+      ],
+      [
+        { key: 'listing:a', delivered: 1, lastWriteAt: '2026-01-01T00:00:00.000Z' },
+        { key: 'listing:late', delivered: 1, lastWriteAt: '2999-01-01T00:00:00.000Z' },
+      ]
+    );
+    const purge = vi.fn(async () => ({}));
+    const result = await drainCatalogInvalidations(db, purge);
+    expect(purge).toHaveBeenCalledTimes(1);
+    expect(purge).toHaveBeenCalledWith(['product-tee', 'product-cap']);
+    expect(result).toEqual({ drained: 3, tags: ['product-tee', 'product-cap'], more: false });
+    // i3 waits for delivery of seq 2; i4's ref was delivered after the pass began.
+    expect(await pendingIds(db)).toEqual(['i3', 'i4']);
+  } finally {
+    await dispose();
+  }
+});
+
+it('drains distinct tags across passes until the purge gate runs dry', async () => {
+  const { db, dispose } = await createTestDb();
+  try {
+    await seedInvalidations(
+      db,
+      Array.from({ length: 250 }, (_, i) => ({ tag: `p${i}` }))
+    );
+    for (let i = 0; i < 23; i++) await takePurgeToken(db);
+    const purge = vi.fn(async () => ({}));
+    const passes = [];
+    for (let pass = 0; pass < 3; pass++)
+      passes.push(await drainCatalogInvalidations(db, purge, 100));
+    expect(passes.map(({ drained, more }) => ({ drained, more }))).toEqual([
+      { drained: 100, more: true },
+      { drained: 100, more: true },
+      { drained: 0, more: false },
+    ]);
+    expect(await pendingIds(db)).toHaveLength(50);
+  } finally {
+    await dispose();
+  }
+});
+
+it('re-purges rows whose delete failed instead of losing them', async () => {
+  const { db, dispose } = await createTestDb();
+  try {
+    await seedInvalidations(db, [{ tag: 'tee' }]);
+    const failingDeletes = new Proxy(db, {
+      get: (target, key) =>
+        key === 'prepare'
+          ? (sql: string) => {
+              if (sql.startsWith('DELETE')) throw new Error('D1 unavailable');
+              return target.prepare(sql);
+            }
+          : Reflect.get(target, key),
+    });
+    const purge = vi.fn(async () => ({}));
+    await expect(drainCatalogInvalidations(failingDeletes, purge)).rejects.toThrow(
+      'D1 unavailable'
+    );
+    expect(await pendingIds(db)).toEqual(['i0']);
+    expect(await drainCatalogInvalidations(db, purge)).toMatchObject({ drained: 1 });
+    expect(purge.mock.calls).toEqual([[['product-tee']], [['product-tee']]]);
+    expect(await pendingIds(db)).toEqual([]);
   } finally {
     await dispose();
   }
