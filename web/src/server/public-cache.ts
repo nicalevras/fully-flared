@@ -78,13 +78,17 @@ export function publicCacheRequest(request: Request): Request | null {
 const PRIVATE_PREFIX = /^\/(?:api|_server|_serverFn|admin|auth|account|checkout|cart|ws)(?:\/|$)/;
 
 /** True when a response must never be shared: the request carried
- *  private state, the response sets cookies, or the path is private. */
+ *  private state, the response sets cookies, or the path is private.
+ *  /media/ bytes are identical for every visitor, so its request
+ *  credentials do not make the response private. */
 export function privateResponse(request: Request, response: Response): boolean {
+  if (response.headers.has('set-cookie')) return true;
+  const pathname = new URL(request.url).pathname;
+  if (pathname.startsWith('/media/')) return false;
   return (
     request.headers.has('cookie') ||
     request.headers.has('authorization') ||
-    response.headers.has('set-cookie') ||
-    PRIVATE_PREFIX.test(new URL(request.url).pathname)
+    PRIVATE_PREFIX.test(pathname)
   );
 }
 

@@ -47,6 +47,8 @@ function withSecurityHeaders(response: Response, request?: Request): Response {
   headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   headers.set('X-Frame-Options', 'DENY');
   headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  if (request && new URL(request.url).protocol === 'https:')
+    headers.set('Strict-Transport-Security', 'max-age=31536000');
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
