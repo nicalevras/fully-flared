@@ -35,6 +35,7 @@ import { Route as ApiReportsRouteImport } from './routes/api/reports'
 import { Route as CheckoutIndexRouteImport } from './routes/checkout/index'
 import { Route as CheckoutSuccessRouteImport } from './routes/checkout/success'
 import { Route as MediaKeyRouteImport } from './routes/media/$key'
+import { Route as SitemapChar123kindChar125DotxmlRouteImport } from './routes/sitemap.{$kind}[.]xml'
 import { Route as ShopAccountIndexRouteImport } from './routes/_shop.account/index'
 import { Route as ShopAuthIndexRouteImport } from './routes/_shop.auth/index'
 import { Route as ShopAuthForgotRouteImport } from './routes/_shop.auth/forgot'
@@ -184,6 +185,12 @@ const MediaKeyRoute = MediaKeyRouteImport.update({
   path: '/media/$key',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SitemapChar123kindChar125DotxmlRoute =
+  SitemapChar123kindChar125DotxmlRouteImport.update({
+    id: '/sitemap/{$kind}.xml',
+    path: '/sitemap/{$kind}.xml',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ShopAccountIndexRoute = ShopAccountIndexRouteImport.update({
   id: '/account/',
   path: '/account/',
@@ -304,6 +311,7 @@ export interface FileRoutesByFullPath {
   '/api/reports': typeof ApiReportsRoute
   '/checkout/success': typeof CheckoutSuccessRoute
   '/media/$key': typeof MediaKeyRoute
+  '/sitemap/{$kind}.xml': typeof SitemapChar123kindChar125DotxmlRoute
   '/admin/': typeof AdminIndexRoute
   '/checkout/': typeof CheckoutIndexRoute
   '/auth/forgot': typeof ShopAuthForgotRoute
@@ -347,6 +355,7 @@ export interface FileRoutesByTo {
   '/api/reports': typeof ApiReportsRoute
   '/checkout/success': typeof CheckoutSuccessRoute
   '/media/$key': typeof MediaKeyRoute
+  '/sitemap/{$kind}.xml': typeof SitemapChar123kindChar125DotxmlRoute
   '/': typeof ShopIndexRoute
   '/admin': typeof AdminIndexRoute
   '/checkout': typeof CheckoutIndexRoute
@@ -395,6 +404,7 @@ export interface FileRoutesById {
   '/api/reports': typeof ApiReportsRoute
   '/checkout/success': typeof CheckoutSuccessRoute
   '/media/$key': typeof MediaKeyRoute
+  '/sitemap/{$kind}.xml': typeof SitemapChar123kindChar125DotxmlRoute
   '/_shop/': typeof ShopIndexRoute
   '/admin/': typeof AdminIndexRoute
   '/checkout/': typeof CheckoutIndexRoute
@@ -444,6 +454,7 @@ export interface FileRouteTypes {
     | '/api/reports'
     | '/checkout/success'
     | '/media/$key'
+    | '/sitemap/{$kind}.xml'
     | '/admin/'
     | '/checkout/'
     | '/auth/forgot'
@@ -487,6 +498,7 @@ export interface FileRouteTypes {
     | '/api/reports'
     | '/checkout/success'
     | '/media/$key'
+    | '/sitemap/{$kind}.xml'
     | '/'
     | '/admin'
     | '/checkout'
@@ -534,6 +546,7 @@ export interface FileRouteTypes {
     | '/api/reports'
     | '/checkout/success'
     | '/media/$key'
+    | '/sitemap/{$kind}.xml'
     | '/_shop/'
     | '/admin/'
     | '/checkout/'
@@ -569,6 +582,7 @@ export interface RootRouteChildren {
   ApiMediaRoute: typeof ApiMediaRoute
   ApiReportsRoute: typeof ApiReportsRoute
   MediaKeyRoute: typeof MediaKeyRoute
+  SitemapChar123kindChar125DotxmlRoute: typeof SitemapChar123kindChar125DotxmlRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiWebhooksStripeRoute: typeof ApiWebhooksStripeRoute
 }
@@ -755,6 +769,13 @@ declare module '@tanstack/react-router' {
       path: '/media/$key'
       fullPath: '/media/$key'
       preLoaderRoute: typeof MediaKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sitemap/{$kind}.xml': {
+      id: '/sitemap/{$kind}.xml'
+      path: '/sitemap/{$kind}.xml'
+      fullPath: '/sitemap/{$kind}.xml'
+      preLoaderRoute: typeof SitemapChar123kindChar125DotxmlRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_shop/account/': {
@@ -1008,6 +1029,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiMediaRoute: ApiMediaRoute,
   ApiReportsRoute: ApiReportsRoute,
   MediaKeyRoute: MediaKeyRoute,
+  SitemapChar123kindChar125DotxmlRoute: SitemapChar123kindChar125DotxmlRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiWebhooksStripeRoute: ApiWebhooksStripeRoute,
 }
