@@ -230,12 +230,21 @@ export const indexArtifactSchema = z
  *  token): FNV-1a 64-bit over the serialized value, synchronous so a
  *  10k-product build does not pay 20k async crypto round-trips. */
 export function contentRevision(json: string): string {
-  let hash = 0xcbf29ce484222325n;
-  const prime = 0x100000001b3n;
-  const mask = 0xffffffffffffffffn;
+  // FNV prime 2^40 + 0x1b3 applied to four 16-bit limbs, so no step leaves the exact integer range.
+  let h0 = 0x2325,
+    h1 = 0x8422,
+    h2 = 0x9ce4,
+    h3 = 0xcbf2;
   for (let i = 0; i < json.length; i++) {
-    hash ^= BigInt(json.charCodeAt(i));
-    hash = (hash * prime) & mask;
+    h0 ^= json.charCodeAt(i);
+    const t0 = h0 * 0x1b3;
+    const t1 = h1 * 0x1b3 + (t0 >>> 16);
+    const t2 = h2 * 0x1b3 + (h0 << 8) + (t1 >>> 16);
+    const t3 = h3 * 0x1b3 + (h1 << 8) + (t2 >>> 16);
+    h0 = t0 & 0xffff;
+    h1 = t1 & 0xffff;
+    h2 = t2 & 0xffff;
+    h3 = t3 & 0xffff;
   }
-  return hash.toString(16).padStart(16, '0');
+  return [h3, h2, h1, h0].map((limb) => limb.toString(16).padStart(4, '0')).join('');
 }
