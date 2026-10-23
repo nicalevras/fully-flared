@@ -112,7 +112,7 @@ export class RealtimeDO extends DurableObject {
   }
 
   override async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean) {
-    console.log(JSON.stringify({ event: 'realtime_close', code, wasClean }));
+    if (!wasClean) console.warn(JSON.stringify({ event: 'realtime_close_unclean', code }));
     try {
       ws.close(code, reason);
     } catch {

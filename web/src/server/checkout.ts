@@ -763,7 +763,7 @@ async function applyStripeEvent(
       data.payment_intent === null
     ) {
       // Checkout always creates a PaymentIntent, so this dispute is not for one of our orders.
-      console.log(
+      console.warn(
         JSON.stringify({ event: 'webhook_dispute_unmatched', type: event.type, eventId: event.id })
       );
     } else if (event.type === 'charge.dispute.closed' || event.type === 'charge.dispute.created') {
@@ -836,7 +836,7 @@ async function applyStripeEvent(
       // Not one of the subscribed payment events: ack-and-ignore is
       // correct (Stripe endpoints can receive account-level noise), but
       // it must be visible, never silent.
-      console.log(
+      console.warn(
         JSON.stringify({ event: 'webhook_event_ignored', type: event.type, eventId: event.id })
       );
     }
