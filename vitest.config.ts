@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig({
   resolve: {
@@ -12,6 +12,11 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['tests/**/*.test.ts'],
+    // The 100k capacity gate takes about half an hour; run it with `npm run test:scale`.
+    exclude: [
+      ...configDefaults.exclude,
+      ...(process.env.CATALOG_SCALE === '1' ? [] : ['tests/catalog-scale-100k.test.ts']),
+    ],
     // Every suite boots a Miniflare D1 and applies the full migration
     // chain; with all files in parallel that contends hard enough to blow
     // the 10s default hook/test budgets on a loaded box (observed as mass
