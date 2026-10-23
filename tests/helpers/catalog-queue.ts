@@ -93,6 +93,7 @@ export async function catalogQueueHarness(
       acked = false;
       retried = false;
       let sent = false;
+      let sendOptions: { delaySeconds?: number } | undefined;
       await worker.queue(
         {
           queue: 'store-catalog',
@@ -113,8 +114,9 @@ export async function catalogQueueHarness(
           DB: counted,
           CATALOG_KV: binding,
           CATALOG_JOBS: {
-            async send() {
+            async send(_body: JobMessage, options?: { delaySeconds?: number }) {
               other++;
+              sendOptions = options;
               if (failSend) {
                 failSend = false;
                 throw new Error('Injected continuation send failure');
@@ -144,7 +146,7 @@ export async function catalogQueueHarness(
         } as never
       );
       expect(d1 + kvOps + other).toBeLessThanOrEqual(900);
-      return { d1, kv: kvOps, other, rows, acked, retried, continued: sent };
+      return { d1, kv: kvOps, other, rows, acked, retried, continued: sent, sendOptions };
     },
   };
 }

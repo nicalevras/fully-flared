@@ -1,7 +1,7 @@
 import { loadDirectoryNode, resolveDirectoryRevision } from './catalog-read';
 import { runCatalogGcUnit, type ReclaimKv } from './catalog-gc';
 import { repairCatalogUnit } from './catalog-repair';
-import { catalogWorkDue, verifyChangedReferences } from './catalog-operations';
+import { verifyChangedReferences } from './catalog-operations';
 import { publishedMediaContent } from './media-delivery';
 import { listPublishedProductsByIds, parseRule } from './catalog';
 import {
@@ -2017,6 +2017,9 @@ export async function processCatalogBuild(
   }
 }
 
+/** Delay before retrying while another invocation holds the catalogue lease. */
+export const BUSY_RETRY_SECONDS = 5;
+
 /** One bounded production unit under the shared invocation budget
  *  and the publisher lease (Round 2 execution model). Priority:
  *  continue an open build, deliver pending references, bootstrap or
@@ -2047,11 +2050,11 @@ export async function runCatalogUnit(
       return { done: false, busy: false, budgetExhausted: true };
     throw error;
   }
-  if (!lease) return { done: false, busy: true };
+  if (!lease) return { done: false, busy: true, retryAfterSeconds: BUSY_RETRY_SECONDS };
   cdb = fencedCatalogDb(metered, lease);
   try {
-    // Idle maintenance needs its budget before publication bookkeeping consumes it.
-    if (opts?.maintenance && !(await catalogWorkDue(cdb))) {
+    // Maintenance runs only its own step; catalogue work stays on the catalog.rebuild chain.
+    if (opts?.maintenance) {
       if (opts.maintenance === 'gc')
         return { done: (await runCatalogGcUnit(metered, kv, lease)) === null, busy: false };
       return { done: kv ? await repairCatalogUnit(cdb, kv, lease) : true, busy: false };

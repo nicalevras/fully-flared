@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb } from './helpers/d1';
 import {
   ensureCatalogReadModels,
+  BUSY_RETRY_SECONDS,
   processCatalogWork,
   runCatalogUnit,
 } from '../web/src/server/catalog-publisher';
@@ -265,7 +266,7 @@ describe('Round 2 bounded catalog execution', () => {
     const lease = await claimCatalogLease(db);
     expect(lease).not.toBeNull();
     const res = await runCatalogUnit(db, kv, { budget: new CatalogBudget() });
-    expect(res).toEqual({ done: false, busy: true });
+    expect(res).toEqual({ done: false, busy: true, retryAfterSeconds: BUSY_RETRY_SECONDS });
     await db
       .prepare(
         'UPDATE catalog_publication_state SET lease_token = NULL, lease_expires_at = NULL WHERE id = 1'
