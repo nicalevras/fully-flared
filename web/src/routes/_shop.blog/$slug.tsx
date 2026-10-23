@@ -1,9 +1,9 @@
-import { Link, createFileRoute, notFound, redirect } from '@tanstack/react-router';
+import { Link, createFileRoute } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import { validateServerInput } from '../../server/function-boundary';
 import { PostNotFound } from '../../components/NotFound';
 import { richTextCls } from '../../lib/rich-text';
-import { getStorefrontLayout, readEditorialDocument } from '../../server/catalog-read';
+import { loadPostPage } from '../../server/storefront-pages';
 import { requestCanonicalBase } from '../../server/canonical-base';
 import { sanitizeHtml } from '../../server/sanitize';
 import { slugParamSchema } from '../../schemas/checkout';
@@ -31,15 +31,7 @@ const getPost = createServerFn({ method: 'GET' })
   .validator(validateServerInput(slugParamSchema))
   .handler(async ({ data: slug }): Promise<Post> => {
     const { env } = await import('cloudflare:workers');
-    const settings = await getStorefrontLayout(env.DB, env);
-    const row = await readEditorialDocument(env.DB, env.CATALOG_KV, 'post', slug);
-    if (!row) {
-      const moved = await env.DB.prepare('SELECT to_path FROM redirects WHERE from_path = ?')
-        .bind(`/blog/${slug}`)
-        .first<{ to_path: string }>();
-      if (moved) throw redirect({ to: moved.to_path });
-      throw notFound();
-    }
+    const { layout: settings, doc: row } = await loadPostPage(env.DB, env, slug);
     return {
       slug: row.slug,
       title: row.title,

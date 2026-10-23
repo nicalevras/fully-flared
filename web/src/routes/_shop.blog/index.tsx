@@ -1,5 +1,5 @@
 import { absoluteUrl, pagedPath, seoMeta } from '../../lib/seo';
-import { getStorefrontLayout, listPublishedPosts } from '../../server/catalog-read';
+import { loadPostsIndex } from '../../server/storefront-pages';
 import { withRequestCanonicalBase } from '../../server/canonical-base';
 import { Link, createFileRoute, stripSearchParams } from '@tanstack/react-router';
 import { formatDate } from '../../lib/format';
@@ -14,10 +14,8 @@ const getPosts = createServerFn({ method: 'GET' })
   .validator(validateServerInput(homePageInputSchema))
   .handler(async ({ data }) => {
     const { env } = await import('cloudflare:workers');
-    return {
-      ...(await listPublishedPosts(env.DB, env, data.page)),
-      layout: withRequestCanonicalBase(await getStorefrontLayout(env.DB, env)),
-    };
+    const { layout, posts } = await loadPostsIndex(env.DB, env, data.page);
+    return { ...posts, layout: withRequestCanonicalBase(layout) };
   });
 
 export const Route = createFileRoute('/_shop/blog/')({

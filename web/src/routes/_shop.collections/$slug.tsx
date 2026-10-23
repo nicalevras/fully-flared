@@ -1,10 +1,9 @@
 import { useAvailability } from '../../lib/availability';
 import { absoluteUrl, pagedPath, seoMeta } from '../../lib/seo';
-import { getStorefrontLayout } from '../../server/catalog-read';
 import { withRequestCanonicalBase } from '../../server/canonical-base';
-import { createFileRoute, Link, notFound, stripSearchParams } from '@tanstack/react-router';
+import { createFileRoute, Link, stripSearchParams } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
-import { getPublishedCollection } from '../../server/catalog-discovery';
+import { loadCollectionPage } from '../../server/storefront-pages';
 import { validateServerInput } from '../../server/function-boundary';
 import { collectionPageInputSchema, collectionSearchSchema } from '../../schemas/checkout';
 import { ProductCard } from '../../components/ProductCard';
@@ -17,9 +16,7 @@ const getCollection = createServerFn({ method: 'GET' })
   .validator(validateServerInput(collectionPageInputSchema))
   .handler(async ({ data }) => {
     const { env } = await import('cloudflare:workers');
-    const layout = await getStorefrontLayout(env.DB, env);
-    const result = await getPublishedCollection(env.DB, env, data.slug, data.page);
-    if (!result) throw notFound();
+    const { layout, result } = await loadCollectionPage(env.DB, env, data.slug, data.page);
     return { ...result, layout: withRequestCanonicalBase(layout) };
   });
 
