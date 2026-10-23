@@ -217,8 +217,7 @@ async function requestCancellation(db: D1Database, claim: PaymentClaim) {
 async function cancelAuthorizationLocally(
   db: D1Database,
   intent: CheckoutIntentRow,
-  claim: PaymentClaim,
-  notify = true
+  claim: PaymentClaim
 ) {
   const gate = {
     sql: "EXISTS(SELECT 1 FROM checkout_intents WHERE id=? AND payment_claim_token=? AND payment_fencing=? AND payment_state='canceled')",
@@ -228,7 +227,7 @@ async function cancelAuthorizationLocally(
     .prepare('SELECT customer_email,number FROM orders WHERE id=?')
     .bind(intent.order_id)
     .first<{ customer_email: string; number: string }>();
-  const emailed = notify && order && order.customer_email !== 'deleted@invalid';
+  const emailed = !intent.superseded_by && order && order.customer_email !== 'deleted@invalid';
   await commitWithEmails(
     db,
     [
@@ -404,7 +403,7 @@ export async function runAuthorizedCheckout(
       const payable =
         intent.provider_step === 'session' && Date.parse(intent.session_expires_at) > Date.now();
       if ((intent.cancel_requested || intent.superseded_by) && !creating && !payable) {
-        await cancelAuthorizationLocally(db, intent, claim, !intent.superseded_by);
+        await cancelAuthorizationLocally(db, intent, claim);
         return;
       }
       // Session creation may already be in flight. Initiation recovery retains

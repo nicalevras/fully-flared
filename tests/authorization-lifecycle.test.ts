@@ -205,6 +205,7 @@ it('canceling an authorized attempt cancels the PaymentIntent without capture', 
   expect(a.expire).not.toHaveBeenCalled();
   expect(a.capture).not.toHaveBeenCalled();
   expect(await stock()).toMatchObject({ on_hand: 1, reserved: 0 });
+  expect(await cancelEmails(a.id)).toBe(1);
 });
 
 it('zero-total completion allocates once without a monetary capture or refund', async () => {
@@ -297,17 +298,103 @@ it('a canceled checkout keeps waiting while its Stripe page is still being creat
   expect((await loadIntent(db, a.id))?.payment_state).not.toBe('canceled');
 });
 
+async function seedSecondVariant() {
+  const now = new Date().toISOString();
+  await db.batch([
+    db
+      .prepare(
+        "INSERT INTO variants (id, product_id, sku, title, price_cents, status, continue_selling, created_at) VALUES ('v2', 'p1', 'TEE-2', 'Second', 1000, 'active', 0, ?)"
+      )
+      .bind(now),
+    db
+      .prepare("INSERT INTO stock (sku, on_hand, reserved, updated_at) VALUES ('TEE-2', 5, 0, ?)")
+      .bind(now),
+  ]);
+}
+async function cartState(cartId: string) {
+  const cart = await db
+    .prepare('SELECT status,active_checkout_id,revision FROM carts WHERE id=?')
+    .bind(cartId)
+    .first<{ status: string; active_checkout_id: string | null; revision: number }>();
+  const lines = await db
+    .prepare('SELECT sku,qty FROM cart_items WHERE cart_id=? ORDER BY sku')
+    .bind(cartId)
+    .all();
+  return { cart, lines: lines.results };
+}
+
 it('editing the cart after the shopper approved payment still captures the approved order', async () => {
+  await seedSecondVariant();
   const { creds, ref } = await shopperCart();
   const a = await attempt(undefined, ref);
   await addCartLine(db, creds, 'TEE-1', 1);
+  await addCartLine(db, creds, 'TEE-2', 2);
+  const editedRevision = (await cartIdentity(db, creds))?.revision ?? -1;
   await run(a);
   expect(a.capture).toHaveBeenCalledTimes(1);
   expect(a.cancel).not.toHaveBeenCalled();
   expect((await loadIntent(db, a.id))?.payment_state).toBe('finalized');
-  expect(
-    await db.prepare('SELECT status FROM carts WHERE id=?').bind(ref.cartId).first()
-  ).toMatchObject({ status: 'converted' });
+  const settled = await cartState(ref.cartId);
+  expect(settled.cart).toMatchObject({ status: 'open', active_checkout_id: null });
+  expect(settled.cart?.revision).toBeGreaterThan(editedRevision);
+  expect(settled.lines).toEqual([
+    { sku: 'TEE-1', qty: 1 },
+    { sku: 'TEE-2', qty: 2 },
+  ]);
+  await run(a);
+  expect(await cartState(ref.cartId)).toEqual(settled);
+});
+
+it('an edited cart drops a purchased line that only held the purchased quantity', async () => {
+  await seedSecondVariant();
+  const { creds, ref } = await shopperCart();
+  const a = await attempt(undefined, ref);
+  await addCartLine(db, creds, 'TEE-2', 1);
+  await run(a);
+  expect(await cartState(ref.cartId)).toMatchObject({
+    cart: { status: 'open', active_checkout_id: null },
+    lines: [{ sku: 'TEE-2', qty: 1 }],
+  });
+});
+
+it('an unedited cart converts when its approved order settles', async () => {
+  const { ref } = await shopperCart();
+  const a = await attempt(undefined, ref);
+  await run(a);
+  expect((await loadIntent(db, a.id))?.payment_state).toBe('finalized');
+  expect((await cartState(ref.cartId)).cart).toMatchObject({ status: 'converted' });
+});
+
+it('a replaced checkout whose Stripe page expired ends canceled without emailing the shopper', async () => {
+  const { ref } = await shopperCart();
+  const a = await attempt(undefined, ref);
+  await pending(undefined, ref);
+  await db
+    .prepare('UPDATE checkout_intents SET payment_intent_id=NULL WHERE id=?')
+    .bind(a.id)
+    .run();
+  a.provider.retrieveCheckoutSession = async () => ({
+    id: `cs_${a.id}`,
+    status: 'expired',
+    payment_status: 'unpaid',
+    payment_intent: null,
+    amount_total: a.pi.amount,
+    currency: a.pi.currency,
+    metadata: a.pi.metadata,
+  });
+  await run(a);
+  expect((await loadIntent(db, a.id))?.payment_state).toBe('canceled');
+  expect(await cancelEmails(a.id)).toBe(0);
+});
+
+it('a replaced checkout whose PaymentIntent was canceled ends canceled without emailing the shopper', async () => {
+  const { ref } = await shopperCart();
+  const a = await attempt(undefined, ref);
+  await pending(undefined, ref);
+  a.pi.status = 'canceled';
+  await run(a);
+  expect((await loadIntent(db, a.id))?.payment_state).toBe('canceled');
+  expect(await cancelEmails(a.id)).toBe(0);
 });
 
 it('a capture for a paid shopper goes through while new checkouts hold every start permit', async () => {

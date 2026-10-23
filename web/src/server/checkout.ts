@@ -1145,10 +1145,28 @@ export async function markOrderPaid(
       { sql: gate, values: [order.id, transition] }
     )
   );
+  // A cart edited after approval stays open with the purchased quantities removed.
+  const linkedCart = (revision: 'IS' | 'IS NOT') =>
+    `carts.status='open' AND EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=? AND ci.flow='manual_capture' AND ci.cart_id=carts.id AND ci.id=carts.active_checkout_id AND ci.cart_revision ${revision} carts.revision)`;
+  const purchased = `(SELECT COALESCE(SUM(i.qty),0) FROM order_items i WHERE i.order_id=? AND i.sku=cart_items.sku)`;
+  const editedLines = `cart_id IN (SELECT id FROM carts WHERE ${linkedCart('IS NOT')})`;
   statements.push(
     db
       .prepare(
-        `UPDATE carts SET status='converted',updated_at=? WHERE status='open' AND EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=? AND ci.flow='manual_capture' AND ci.cart_id=carts.id AND ci.id=carts.active_checkout_id) AND ${gate}`
+        `UPDATE carts SET status='converted',updated_at=? WHERE ${linkedCart('IS')} AND ${gate}`
+      )
+      .bind(at, order.id, order.id, transition),
+    db
+      .prepare(`DELETE FROM cart_items WHERE ${editedLines} AND qty<=${purchased} AND ${gate}`)
+      .bind(order.id, order.id, order.id, transition),
+    db
+      .prepare(
+        `UPDATE cart_items SET qty=qty-${purchased} WHERE ${editedLines} AND ${purchased}>0 AND ${gate}`
+      )
+      .bind(order.id, order.id, order.id, order.id, transition),
+    db
+      .prepare(
+        `UPDATE carts SET active_checkout_id=NULL,revision=revision+1,updated_at=? WHERE ${linkedCart('IS NOT')} AND ${gate}`
       )
       .bind(at, order.id, order.id, transition)
   );
