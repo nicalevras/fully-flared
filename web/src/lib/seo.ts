@@ -17,6 +17,11 @@ export function absoluteUrl(base: string, path: string): string {
   return `${cleanBase}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
+/** Each page of a sequence is its own canonical; page 1 is the bare path. */
+export function pagedPath(path: string, page: number): string {
+  return page > 1 ? `${path}?page=${page}` : path;
+}
+
 export function seoMeta(input: {
   title: string;
   description: string;

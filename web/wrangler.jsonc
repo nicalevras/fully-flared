@@ -127,6 +127,11 @@
       "namespace_id": "REPLACE_WITH_AUTH_RATE_LIMIT_NAMESPACE_ID",
       "simple": { "limit": 20, "period": 60 },
     },
+    {
+      "name": "STOREFRONT_LIMITER",
+      "namespace_id": "REPLACE_WITH_STOREFRONT_RATE_LIMIT_NAMESPACE_ID",
+      "simple": { "limit": 30, "period": 60 },
+    },
   ],
   "env": {
     // `npx wrangler deploy --env preview` for per-change preview deploys.
@@ -217,6 +222,11 @@
           "name": "AUTH_LIMITER",
           "namespace_id": "REPLACE_WITH_PREVIEW_AUTH_RATE_LIMIT_NAMESPACE_ID",
           "simple": { "limit": 20, "period": 60 },
+        },
+        {
+          "name": "STOREFRONT_LIMITER",
+          "namespace_id": "REPLACE_WITH_PREVIEW_STOREFRONT_RATE_LIMIT_NAMESPACE_ID",
+          "simple": { "limit": 30, "period": 60 },
         },
       ],
       "send_email": [{ "name": "EMAIL" }],

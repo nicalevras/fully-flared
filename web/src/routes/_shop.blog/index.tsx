@@ -1,7 +1,7 @@
-import { absoluteUrl, seoMeta } from '../../lib/seo';
+import { absoluteUrl, pagedPath, seoMeta } from '../../lib/seo';
 import { getStorefrontLayout, listPublishedPosts } from '../../server/catalog-read';
 import { withRequestCanonicalBase } from '../../server/canonical-base';
-import { Link, createFileRoute } from '@tanstack/react-router';
+import { Link, createFileRoute, stripSearchParams } from '@tanstack/react-router';
 import { formatDate } from '../../lib/format';
 import { createServerFn } from '@tanstack/react-start';
 import { validateServerInput } from '../../server/function-boundary';
@@ -22,6 +22,7 @@ const getPosts = createServerFn({ method: 'GET' })
 
 export const Route = createFileRoute('/_shop/blog/')({
   validateSearch: collectionSearchSchema,
+  search: { middlewares: [stripSearchParams({ page: 1 })] },
   loaderDeps: ({ search: { page } }) => ({ page }),
   loader: async ({ deps }) => getPosts({ data: { page: deps.page } }),
   staleTime: 20_000,
@@ -29,18 +30,21 @@ export const Route = createFileRoute('/_shop/blog/')({
     'Cache-Control': 'public, max-age=300, stale-while-revalidate=600',
     'CDN-Cache-Control': 'max-age=3600, stale-while-revalidate=86400',
   }),
-  head: ({ loaderData }) => ({
-    meta: loaderData
-      ? seoMeta({
-          title: `Journal · ${loaderData.layout.storeName}`,
-          description: 'Articles and updates.',
-          url: absoluteUrl(loaderData.layout.canonicalBaseUrl, '/blog'),
-        })
-      : [],
-    links: loaderData
-      ? [{ rel: 'canonical', href: absoluteUrl(loaderData.layout.canonicalBaseUrl, '/blog') }]
-      : [],
-  }),
+  head: ({ loaderData }) => {
+    if (!loaderData) return { meta: [], links: [] };
+    const url = absoluteUrl(
+      loaderData.layout.canonicalBaseUrl,
+      pagedPath('/blog', loaderData.page)
+    );
+    return {
+      meta: seoMeta({
+        title: `Journal · ${loaderData.layout.storeName}`,
+        description: 'Articles and updates.',
+        url,
+      }),
+      links: [{ rel: 'canonical', href: url }],
+    };
+  },
   component: BlogIndex,
 });
 

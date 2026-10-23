@@ -148,7 +148,7 @@ export async function readListingRef(
         `SELECT h.generation,h.publication_seq,h.root_hash,h.page_count,h.total,h.page_size,
       (SELECT rd.document_key FROM catalog_ref_documents rd JOIN catalog_documents d ON d.key=rd.document_key
        WHERE rd.ref_key=? AND rd.publication_seq=h.publication_seq AND d.kind='collection-meta' LIMIT 1) AS metadata_key
-      FROM catalog_listing_ref_history h WHERE h.listing_id=? ORDER BY h.publication_seq DESC LIMIT 1`
+      FROM catalog_listing_ref_history h WHERE h.listing_id=? AND h.retired_at IS NULL ORDER BY h.publication_seq DESC LIMIT 1`
       )
       .bind(`listing:${listingId}`, listingId)
       .first<{
@@ -239,15 +239,19 @@ export async function readListingPage(
   );
 }
 
+/** `beforeFallback` runs only when KV has no pointer, before D1 is
+ *  asked; it may throw to refuse the lookup. */
 export async function readProductDocument(
   db: D1Database,
   kv: CatalogKv | undefined,
-  slug: string
+  slug: string,
+  beforeFallback?: () => Promise<void>
 ): Promise<ProductDocument | null> {
   return requestRead(kv ?? db, `product:${slug}`, async () => {
     const pointerSchema = z.object({ id: z.string().min(1), revision: z.string().min(1) }).strict();
     let pointer = decode(await kvValue(kv, productSlugKey(slug)), pointerSchema, () => true);
     if (!pointer) {
+      await beforeFallback?.();
       const row = await db
         .prepare('SELECT product_id,doc_revision FROM catalog_cards WHERE slug=?')
         .bind(slug)
@@ -344,6 +348,7 @@ export type StorefrontLayoutSnapshot = {
   collections: Array<{ slug: string; title: string }>;
   collectionsTotal: number;
   collectionTeasers: Array<{ slug: string; title: string; description: string }>;
+  featured: Array<{ slug: string; title: string }>;
   posts: Array<{ slug: string; title: string; excerpt: string; published_at: string }>;
 };
 export function getStorefrontLayout(
@@ -382,37 +387,29 @@ export function getStorefrontLayout(
       collections: [],
       collectionsTotal: 0,
       collectionTeasers: [],
+      featured: [],
       posts: [],
     };
   });
 }
 
-export type HomeProductsPage = {
+export type ShopProductsPage = {
   products: PublishedProductCard[];
   total: number;
   page: number;
   pageCount: number;
-  featured: PublishedProductCard | null;
 };
-export async function getHomeProductsPage(
+export async function getShopProductsPage(
   db: D1Database,
   env: EnvLike,
   requestedPage: number
-): Promise<HomeProductsPage> {
+): Promise<ShopProductsPage> {
   const ref = await readListingRef(db, env.CATALOG_KV, ALL_LISTING);
-  if (!ref) return { products: [], total: 0, page: 1, pageCount: 1, featured: null };
-  const win = pageWindow(ref.total, requestedPage, HOME_PAGE_SIZE);
-  const first = await readListingPage(db, env.CATALOG_KV, ALL_LISTING, 1, ref);
-  const page =
-    win.page === 1 ? first : await readListingPage(db, env.CATALOG_KV, ALL_LISTING, win.page, ref);
-  if (!first || !page) throw new Error('Published catalog page is unavailable');
-  return {
-    products: page.cards,
-    total: ref.total,
-    page: win.page,
-    pageCount: ref.pageCount,
-    featured: first.cards[0] ?? null,
-  };
+  if (!ref) return { products: [], total: 0, page: 1, pageCount: 1 };
+  const { page } = pageWindow(ref.total, requestedPage, HOME_PAGE_SIZE);
+  const listing = await readListingPage(db, env.CATALOG_KV, ALL_LISTING, page, ref);
+  if (!listing) throw new Error('Published catalog page is unavailable');
+  return { products: listing.cards, total: ref.total, page, pageCount: ref.pageCount };
 }
 export async function getHomeCollections(db: D1Database, env: EnvLike) {
   return (await getStorefrontLayout(db, env)).collectionTeasers;

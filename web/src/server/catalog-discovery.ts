@@ -1,12 +1,18 @@
 import { type PublishedProductCard } from './catalog';
-import { readListingPage, readListingRef, readCollectionMeta } from './catalog-read';
+import {
+  readListingPage,
+  readListingRef,
+  readCollectionMeta,
+  type CatalogKv,
+} from './catalog-read';
+import { RAIL_SIZE } from './catalog-models';
 
 // Discovery readers over the partitioned catalog (Phase 3B). Search
 // matches through the D1 products_fts index and fetches only matching
 // cards — it never walks listing chunks. Collection pages come from
 // the published listing generations (KV or exact D1 payload).
 
-type CatalogEnv = { CATALOG_KV?: KVNamespace };
+type CatalogEnv = { CATALOG_KV?: CatalogKv };
 
 export const SEARCH_PAGE_SIZE = 50;
 
@@ -36,19 +42,22 @@ export function decodeSearchCursor(raw: string | undefined): SearchCursor | null
 /** One bounded page of FTS matches. Continuation is a keyset cursor
  *  over the stable (created_at DESC, id DESC) order: pass the previous
  *  page's nextCursor to fetch the next page. A malformed cursor is
- *  treated as "from the start" rather than an error. */
+ *  treated as "from the start" rather than an error. `limited` is asked
+ *  only when there are terms to match, before any D1 work. */
 export async function searchCatalog(
   db: D1Database,
   _env: CatalogEnv,
   query: string,
-  cursorRaw?: string
-): Promise<{ cards: PublishedProductCard[]; nextCursor: string | null }> {
+  cursorRaw?: string,
+  limited?: () => Promise<boolean>
+): Promise<{ cards: PublishedProductCard[]; nextCursor: string | null; limited?: true }> {
   const terms = query
     .split(/\s+/)
     .map((t) => t.trim())
     .filter(Boolean)
     .slice(0, 8);
   if (!terms.length) return { cards: [], nextCursor: null };
+  if (await limited?.()) return { cards: [], nextCursor: null, limited: true };
   // FTS5 MATCH with quoted terms (user input cannot inject operators).
   const match = terms.map((t) => `"${t.replace(/"/g, '""')}"`).join(' ');
   const cursor = decodeSearchCursor(cursorRaw);
@@ -111,4 +120,27 @@ export async function getPublishedCollection(
     page: clamped,
     pageCount: ref.pageCount,
   };
+}
+
+/** Home rails: the first RAIL_SIZE cards of each featured collection's
+ *  first page, in layout order. A collection that is unpublished or has
+ *  no products yet is skipped. */
+export async function getFeaturedRails(
+  db: D1Database,
+  env: CatalogEnv,
+  featured: ReadonlyArray<{ slug: string }>
+) {
+  const rails = await Promise.all(
+    featured.map(async ({ slug }) => {
+      const published = await getPublishedCollection(db, env, slug);
+      return published?.products.length
+        ? {
+            slug,
+            title: published.collection.title,
+            products: published.products.slice(0, RAIL_SIZE),
+          }
+        : null;
+    })
+  );
+  return rails.filter((rail) => rail !== null);
 }

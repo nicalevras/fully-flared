@@ -16,7 +16,7 @@ import {
 } from '../web/src/server/catalog-models';
 import {
   getHomeCollections,
-  getHomeProductsPage,
+  getShopProductsPage,
   getStorefrontLayout,
   listAllCollections,
   listPublishedPosts,
@@ -95,7 +95,7 @@ it('healthy home layout, teasers and products need no source database reads', as
     },
   });
   const env = { CATALOG_KV: kv as unknown as KVNamespace };
-  await getHomeProductsPage(forbidden, env, 1);
+  await getShopProductsPage(forbidden, env, 1);
   await getStorefrontLayout(forbidden, env);
   await getHomeCollections(forbidden, env);
 });
@@ -182,7 +182,7 @@ it('published collection, editorial, navigation and discovery render with zero D
   await runWithRequestContext({} as ExecutionContext, async () => {
     expect((await getStorefrontLayout(forbidden, env)).collections[0]!.slug).toBe('tees');
     expect((await getHomeCollections(forbidden, env))[0]!.description).toBe('Published collection');
-    expect((await getHomeProductsPage(forbidden, env, 1)).total).toBe(1);
+    expect((await getShopProductsPage(forbidden, env, 1)).total).toBe(1);
     expect((await getPublishedCollection(forbidden, env, 'tees'))!.collection.title).toBe('Tees');
     expect((await listAllCollections(forbidden, env)).total).toBe(1);
     expect((await listPublishedPosts(forbidden, env)).posts[0]!.slug).toBe('launch');
@@ -246,52 +246,81 @@ it('complete title/ID-ordered discovery and pinned collection SEO survive missin
   );
 });
 
-it('the actual queue resumes a changed discovery index within the shared invocation budget', {timeout:180_000}, async () => {
+async function editCollectionDuringIndexScan() {
   await db
     .prepare(
       "INSERT INTO collections(id,slug,title,description,kind,created_at) VALUES('c','tees','Tees','Original','manual','2026-01-01')"
     )
     .run();
   const write = kv.put.bind(kv);
-  let edited = false;
+  const scan = { edited: false };
   kv.put = async (key, value) => {
     await write(key, value);
     if (
-      !edited &&
+      !scan.edited &&
       key.startsWith('catalog:r1:listing:@collections:page:') &&
       JSON.parse(value).items.length
     ) {
-      edited = true;
+      scan.edited = true;
       await db
         .prepare("UPDATE collections SET title='Changed during index scan' WHERE id='c'")
         .run();
     }
   };
-  const queue = await catalogQueueHarness(db, kv);
-  vi.useFakeTimers({ toFake: ['Date'] });
-  let complete = false;
-  for (let i = 0; i < 180; i++) {
-    const step = await queue.deliver();
-    expect(step.retried).toBe(false);
-    if (step.acked && !step.continued) {
-      complete = true;
-      break;
+  return scan;
+}
+
+it(
+  'the actual queue resumes a changed discovery index within the shared invocation budget',
+  { timeout: 180_000 },
+  async () => {
+    const scan = await editCollectionDuringIndexScan();
+    const queue = await catalogQueueHarness(db, kv);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    let complete = false;
+    for (let i = 0; i < 180; i++) {
+      const step = await queue.deliver();
+      expect(step.retried).toBe(false);
+      if (step.acked && !step.continued) {
+        complete = true;
+        break;
+      }
     }
+    expect(complete).toBe(true);
+    expect(scan.edited).toBe(true);
+    expect(
+      (await db
+        .prepare('SELECT COUNT(*) AS n FROM catalog_ref_state WHERE pending_payload IS NOT NULL')
+        .first<{ n: number }>())!.n
+    ).toBe(0);
+    expect((await getHomeCollections(db, { CATALOG_KV: kv as never }))[0]!.title).toBe(
+      'Changed during index scan'
+    );
+    expect((await listAllCollections(db, { CATALOG_KV: kv as never })).collections[0]!.slug).toBe(
+      'tees'
+    );
+    expect((await listAllCollections(db, { CATALOG_KV: kv as never })).collections[0]!.title).toBe(
+      'Changed during index scan'
+    );
   }
-  expect(complete).toBe(true);
-  expect(edited).toBe(true);
-  expect(
-    (await db
-      .prepare('SELECT COUNT(*) AS n FROM catalog_ref_state WHERE pending_payload IS NOT NULL')
-      .first<{ n: number }>())!.n
-  ).toBe(0);
-  expect((await getHomeCollections(db, { CATALOG_KV: kv as never }))[0]!.title).toBe(
-    'Changed during index scan'
-  );
-  expect((await listAllCollections(db, { CATALOG_KV: kv as never })).collections[0]!.slug).toBe(
-    'tees'
-  );
-  expect((await listAllCollections(db, { CATALOG_KV: kv as never })).collections[0]!.title).toBe(
-    'Changed during index scan'
-  );
-});
+);
+
+it(
+  'a collection edit during an index scan does not stall a later product publish',
+  { timeout: 300_000 },
+  async () => {
+    const scan = await editCollectionDuringIndexScan();
+    const queue = await catalogQueueHarness(db, kv);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    let complete = false;
+    for (let i = 0; i < 260 && !complete; i++) {
+      if (i === 80)
+        await db.prepare("UPDATE products SET title='Edited after index scan' WHERE id='p1'").run();
+      const step = await queue.deliver();
+      complete = i >= 80 && step.acked && !step.continued;
+    }
+    expect(scan.edited).toBe(true);
+    expect(complete).toBe(true);
+    expect((await readProductDocument(db, kv, 'tee'))?.title).toBe('Edited after index scan');
+  }
+);

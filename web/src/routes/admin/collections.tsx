@@ -4,6 +4,7 @@ import { Link, createFileRoute, useRouter } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import { useAdminAction, type AdminPayload } from '../../components/AdminNav';
 import { slugify } from '../../lib/format';
+import { MAX_RAILS } from '../../server/catalog-models';
 import {
   btnDestructive,
   btnPrimary,
@@ -26,6 +27,7 @@ type CollectionRow = {
   seo_description: string | null;
   kind: string;
   rule_json: string | null;
+  featured_rank: number | null;
   productIds: string[];
 };
 
@@ -39,6 +41,7 @@ const ruleJsonOf = (d: RuleDraft) =>
           : { type: d.ruleType, value: Math.round(Number(d.ruleValue || 0) * 100) }
       );
 type ProductOption = { id: string; title: string; status: string };
+const featuredRankOf = (value: string) => (value.trim() ? Number(value) : null);
 
 const getData = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
@@ -48,7 +51,7 @@ const getData = createServerFn({ method: 'GET' })
     const [cols, products] = await Promise.all([
       db
         .prepare(
-          'SELECT id, slug, title, description, seo_title, seo_description, kind, rule_json FROM collections ORDER BY title'
+          'SELECT id, slug, title, description, seo_title, seo_description, kind, rule_json, featured_rank FROM collections ORDER BY title'
         )
         .all<Omit<CollectionRow, 'productIds'>>(),
       db
@@ -83,9 +86,19 @@ function AdminCollections() {
     kind: 'manual',
     ruleType: 'title_contains',
     ruleValue: '',
+    featuredRank: '',
   });
   const [editing, setEditing] = useState<
-    Record<string, { title: string; description: string; seoTitle: string; seoDescription: string }>
+    Record<
+      string,
+      {
+        title: string;
+        description: string;
+        seoTitle: string;
+        seoDescription: string;
+        featuredRank: string;
+      }
+    >
   >({});
   const [ruleDrafts, setRuleDrafts] = useState<Record<string, RuleDraft>>({});
   const [members, setMembers] = useState<Record<string, string[]>>({});
@@ -99,6 +112,7 @@ function AdminCollections() {
       description: c.description,
       seoTitle: c.seo_title ?? '',
       seoDescription: c.seo_description ?? '',
+      featuredRank: c.featured_rank?.toString() ?? '',
     };
   const ruleOf = (c: CollectionRow): RuleDraft => {
     const draft = ruleDrafts[c.id];
@@ -182,7 +196,7 @@ function AdminCollections() {
                   </span>
                 </div>
 
-                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <div className="mt-4 grid gap-4 sm:grid-cols-3">
                   <div>
                     <label className={labelCls} htmlFor={`c-title-${c.id}`}>
                       Title
@@ -207,6 +221,23 @@ function AdminCollections() {
                       placeholder="Optional"
                       onChange={(e) =>
                         setEditing({ ...editing, [c.id]: { ...ed, seoTitle: e.target.value } })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className={labelCls} htmlFor={`c-featured-${c.id}`}>
+                      Feature on home (order)
+                    </label>
+                    <input
+                      id={`c-featured-${c.id}`}
+                      className={inputCls}
+                      type="number"
+                      min={1}
+                      max={MAX_RAILS}
+                      value={ed.featuredRank}
+                      placeholder="Off"
+                      onChange={(e) =>
+                        setEditing({ ...editing, [c.id]: { ...ed, featuredRank: e.target.value } })
                       }
                     />
                   </div>
@@ -303,6 +334,7 @@ function AdminCollections() {
                         seoDescription: ed.seoDescription,
                         kind: ruleOf(c).kind,
                         ruleJson: ruleJsonOf(ruleOf(c)),
+                        featuredRank: featuredRankOf(ed.featuredRank),
                       },
                       `Collection ${ed.title} saved.`
                     )
@@ -382,6 +414,7 @@ function AdminCollections() {
                 description: form.description,
                 kind: form.kind,
                 ruleJson: ruleJsonOf(form),
+                featuredRank: featuredRankOf(form.featuredRank),
               },
               'Collection created.'
             )
@@ -393,12 +426,13 @@ function AdminCollections() {
               kind: 'manual',
               ruleType: 'title_contains',
               ruleValue: '',
+              featuredRank: '',
             });
           }
         }}
       >
         <h2 className="text-sm font-medium text-zinc-950">Create collection</h2>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-3">
           <div>
             <label className={labelCls} htmlFor="n-title">
               Title
@@ -427,6 +461,21 @@ function AdminCollections() {
               placeholder="new-arrivals"
               value={form.slug}
               onChange={(e) => setForm({ ...form, slug: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className={labelCls} htmlFor="n-featured">
+              Feature on home (order)
+            </label>
+            <input
+              id="n-featured"
+              className={inputCls}
+              type="number"
+              min={1}
+              max={MAX_RAILS}
+              placeholder="Off"
+              value={form.featuredRank}
+              onChange={(e) => setForm({ ...form, featuredRank: e.target.value })}
             />
           </div>
         </div>

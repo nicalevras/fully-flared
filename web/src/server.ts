@@ -144,22 +144,25 @@ export default {
   },
 };
 
+const CRON_DRAIN_PASSES = 3;
+
 /** Purges pending catalog invalidations through the cache-owning
  *  entrypoint (purges are scoped to it). Failed purges keep their
- *  rows pending; the 60 s cache TTL remains the fallback. */
+ *  rows pending; the 60 s cache TTL remains the fallback. A budgeted
+ *  queue drain takes one pass; the cron drain continues while a full
+ *  page was purged, bounded to stay within one invocation's statements. */
 async function drainPublicCacheInvalidations(
   env: Cloudflare.Env,
   ctx: ExecutionContext,
   budget?: CatalogBudget
 ): Promise<void> {
-  await drainCatalogInvalidations(
-    budget ? countedDb(env.DB, budget) : env.DB,
-    async (tags) => {
-      budget?.tickOp();
-      return ctx.exports.PublicStorefront.purgeInvalidations(tags);
-    },
-    budget ? 90 : 500
-  );
+  const db = budget ? countedDb(env.DB, budget) : env.DB;
+  const purge = async (tags: string[]) => {
+    budget?.tickOp();
+    return ctx.exports.PublicStorefront.purgeInvalidations(tags);
+  };
+  for (let pass = 0; pass < (budget ? 1 : CRON_DRAIN_PASSES); pass++)
+    if (!(await drainCatalogInvalidations(db, purge, budget ? 90 : 500)).more) return;
 }
 
 async function handleFetch(
@@ -292,10 +295,12 @@ async function handleQueue(
         // unit plus this handler's follow-up (invalidation drain and
         // realtime broadcast); when it is nearly spent the follow-up
         // is deferred — invalidations stay queued for the next unit.
+        // Purges wait for the finished run so a multi-unit publish
+        // spends one rate-limited request instead of one per unit.
         const budget = new CatalogBudget();
         const result = await runCatalogUnit(env.DB, env.CATALOG_KV, { budget });
         if (budget.remaining > 10 && budget.remainingStatements > 5) {
-          await drainPublicCacheInvalidations(env, ctx, budget);
+          if (result.done) await drainPublicCacheInvalidations(env, ctx, budget);
           budget.tickOp();
           const stub = env.REALTIME.getByName('admin');
           await stub

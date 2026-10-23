@@ -1,3 +1,12 @@
 CREATE INDEX `outbox_claim_due_idx` ON `outbox` (`status`,`claimed_at`,`id`) WHERE "outbox"."attempts"<3;--> statement-breakpoint
 CREATE INDEX `refunds_age_due_idx` ON `refunds` (`status`,`created_at`,`id`);--> statement-breakpoint
-CREATE INDEX `refunds_attempt_due_idx` ON `refunds` (`status`,`attempts`,`id`);
+CREATE INDEX `refunds_attempt_due_idx` ON `refunds` (`status`,`attempts`,`id`);--> statement-breakpoint
+CREATE TABLE `cache_purge_gate` (
+	`id` integer PRIMARY KEY NOT NULL,
+	`tokens` real NOT NULL,
+	`refilled_at` integer NOT NULL
+);
+--> statement-breakpoint
+INSERT INTO cache_purge_gate(id,tokens,refilled_at) VALUES(1,25,0);
+--> statement-breakpoint
+ALTER TABLE `collections` ADD `featured_rank` integer;

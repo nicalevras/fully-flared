@@ -165,7 +165,7 @@ export function StorefrontLayout() {
                 <ul className="flex flex-col gap-1 text-[15px]">
                   <li>
                     <Link
-                      to="/"
+                      to="/shop"
                       onClick={() => setMenuOpen(false)}
                       className="block rounded-lg px-2 py-2 hover:bg-zinc-50"
                     >
@@ -228,7 +228,7 @@ export function StorefrontLayout() {
             </SheetContent>
           </Sheet>
           <nav className="ml-6 hidden items-center gap-1 md:flex" aria-label="Primary">
-            <Link to="/" className={navLink}>
+            <Link to="/shop" className={navLink}>
               Shop all
             </Link>
             {collections.map((c) => (
@@ -295,7 +295,7 @@ export function StorefrontLayout() {
             <p className="text-sm font-medium text-zinc-950">Shop</p>
             <ul className="mt-4 space-y-2.5 text-sm text-zinc-500">
               <li>
-                <Link to="/" className="hover:text-zinc-950">
+                <Link to="/shop" className="hover:text-zinc-950">
                   Shop all
                 </Link>
               </li>

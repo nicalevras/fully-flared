@@ -110,6 +110,29 @@ async function rpc(id, data, { cookie = '', method = 'POST' } = {}) {
   };
 }
 try {
+  for (const path of ['/', '/shop', '/collections', '/?page=1', '/shop?page=1'])
+    for (const headers of [{ accept: 'text/html' }, {}]) {
+      const response = await fetch(base + path, { headers, redirect: 'manual' });
+      assert.equal(response.status, 200, `${path} renders in place`);
+      assert.equal(response.headers.get('location'), null);
+      await response.body?.cancel();
+    }
+  const shopPage = await (await fetch(base + '/shop?page=2', { redirect: 'manual' })).text();
+  assert.match(shopPage, /<link rel="canonical" href="[^"]*\/shop\?page=2"/);
+  const missing = [];
+  for (let i = 0; i <= 30; i++)
+    missing.push(
+      (
+        await fetch(`${base}/products/${prefix}-missing-${i}`, {
+          headers: { accept: 'text/html', 'CF-Connecting-IP': fixtureIp },
+        })
+      ).status
+    );
+  assert.deepEqual([...new Set(missing.slice(0, 30))], [404]);
+  assert.equal(missing[30], 429);
+  console.log(
+    'PASS storefront actual HTTP: /, /shop, /collections and page-1 URLs render without redirects, /shop?page=2 is canonical, the 31st unknown product per network is 429.'
+  );
   const adminId = await idFor('/src/lib/adminFns.ts', 'adminActionFn');
   const getOrderId = await idFor('/src/routes/checkout/success.tsx', 'getOrder');
   const anonymous = await rpc(adminId, {

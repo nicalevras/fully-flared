@@ -3,10 +3,12 @@ import { useState } from 'react';
 import { useStoreCurrency } from '../../lib/use-store-currency';
 import { Link, createFileRoute, notFound, redirect } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
+import { getRequest, setResponseStatus } from '@tanstack/react-start/server';
 import { validateServerInput } from '../../server/function-boundary';
 import { getStorefrontLayout } from '../../server/catalog-read';
 import { readProductDocument } from '../../server/catalog-read';
 import { requestCanonicalBase } from '../../server/canonical-base';
+import { storefrontLimited } from '../../server/storefront-limit';
 import { slugParamSchema } from '../../schemas/checkout';
 import { formatMoney } from '../../components/ProductCard';
 import { absoluteUrl, jsonLd, seoMeta } from '../../lib/seo';
@@ -60,7 +62,12 @@ const getProduct = createServerFn({ method: 'GET' })
       currency: layout.currency,
     };
     // Published documents fall back only to their exact durable mirror.
-    const cached = await readProductDocument(env.DB, env.CATALOG_KV, slug);
+    const cached = await readProductDocument(env.DB, env.CATALOG_KV, slug, async () => {
+      if (await storefrontLimited(env.STOREFRONT_LIMITER, 'product', getRequest())) {
+        setResponseStatus(429);
+        throw notFound();
+      }
+    });
     if (cached && cached.status === 'active') return { ...cached, ...base };
     const moved = await env.DB.prepare('SELECT to_path FROM redirects WHERE from_path = ?')
       .bind(`/products/${slug}`)

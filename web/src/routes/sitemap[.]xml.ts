@@ -21,6 +21,7 @@ export const Route = createFileRoute('/sitemap.xml')({
         ]);
         const urls: { loc: string; lastmod?: string }[] = [
           { loc: `${base}/` },
+          { loc: `${base}/shop` },
           { loc: `${base}/blog` },
           ...products.results.map((p) => ({
             loc: `${base}/products/${p.slug}`,

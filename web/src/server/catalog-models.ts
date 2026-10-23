@@ -8,6 +8,9 @@ import { z } from 'zod';
 export const ALL_LISTING = 'all';
 export const HOME_PAGE_SIZE = 24;
 export const COLLECTION_PAGE_SIZE = 48;
+export const MAX_RAILS = 4;
+export const RAIL_SIZE = 8;
+export const FEATURED_INDEX = '@featured';
 
 export const catalogCardSchema = z.object({
   id: z.string(),
@@ -145,6 +148,7 @@ export const layoutModelSchema = z.object({
   collectionTeasers: z
     .array(z.object({ slug: z.string(), title: z.string(), description: z.string() }))
     .max(4),
+  featured: z.array(z.object({ slug: z.string(), title: z.string() })).max(MAX_RAILS),
   posts: z
     .array(
       z.object({

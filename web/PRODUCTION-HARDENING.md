@@ -30,20 +30,20 @@ or billing guarantees. Existing indexes cover the other examined selections.
 
 ## Requirement ledger
 
-| Requirement | Implementation and local evidence | Remaining evidence |
-| --- | --- | --- |
-| Clean CI environment | Fresh root/web installs and generated declarations without local secrets; lint, formatting and production build passed | Recheck gates affected by final repairs |
-| Queue isolation | Task-aware maintenance dispatcher; generic maintenance enqueue refused; configured queue-role map validated; misplaced consumer messages forwarded before ack | Focused queue tests pass; external delivery remains at least once |
-| Conditional watchdog | Shared eligibility, fixed cutoff, independent dispatch, live-claim/backoff preservation, deterministic alert IDs | Idle, independent failure and legacy compatibility regressions pass |
-| Recovery progress | Reservation/order mutation counts; webhook/preparation/authorization/refund postconditions; conservative delay for unchanged due work | No new orchestration service or scheduler |
-| Notification recovery | Finite 25-row pages; cursor advances after accepted enqueue; immediate committed mail still goes to notifications | Pagination/failure recovery regressions pass; external delivery can redeliver |
-| Authorization-first stock | No allocation at preparation; guarded stock/coupon allocation after authorization; exact-amount capture and durable uncertainty | Stubbed last-unit, uncertainty, free-order and compensation regressions pass; real Stripe pending |
-| Legacy refund compensation | Fully refunded unfulfilled legacy purchases use a guarded compensation transition; no second refund or receipt | Failed ordinary regression corrected and focused follow-up passed |
-| Boundary validation | Validate settings values before currency-lock conflicts; unexpected errors retain generic responses | Actual HTTP checks pass, including invalid currency 400 and locked currency 409 |
-| Media lifecycle | Claim-losing responsive uploads reach deletion cleanup; immutable variant keys and retained records remain | Actual HTTP upload/permission checks pass; remote public delivery pending |
-| Catalog maintenance | Idle GC/replica work receives budget before publication bookkeeping; pending publication remains higher priority | Focused budget/liveness checks in progress |
-| Public/private delivery | Existing published readers, pinned fallback, semantic keys, CSRF and private response rules retained | Local HTTP/browser checks performed; deployed cache propagation pending |
-| Security/dependencies | Secret scan: 378 tracked files and 495 build files, including comparison with local secret values; no matches | Dependency advisories classified below; no version upgrades |
+| Requirement                | Implementation and local evidence                                                                                                                             | Remaining evidence                                                                                |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Clean CI environment       | Fresh root/web installs and generated declarations without local secrets; lint, formatting and production build passed                                        | Recheck gates affected by final repairs                                                           |
+| Queue isolation            | Task-aware maintenance dispatcher; generic maintenance enqueue refused; configured queue-role map validated; misplaced consumer messages forwarded before ack | Focused queue tests pass; external delivery remains at least once                                 |
+| Conditional watchdog       | Shared eligibility, fixed cutoff, independent dispatch, live-claim/backoff preservation, deterministic alert IDs                                              | Idle, independent failure and legacy compatibility regressions pass                               |
+| Recovery progress          | Reservation/order mutation counts; webhook/preparation/authorization/refund postconditions; conservative delay for unchanged due work                         | No new orchestration service or scheduler                                                         |
+| Notification recovery      | Finite 25-row pages; cursor advances after accepted enqueue; immediate committed mail still goes to notifications                                             | Pagination/failure recovery regressions pass; external delivery can redeliver                     |
+| Authorization-first stock  | No allocation at preparation; guarded stock/coupon allocation after authorization; exact-amount capture and durable uncertainty                               | Stubbed last-unit, uncertainty, free-order and compensation regressions pass; real Stripe pending |
+| Legacy refund compensation | Fully refunded unfulfilled legacy purchases use a guarded compensation transition; no second refund or receipt                                                | Failed ordinary regression corrected and focused follow-up passed                                 |
+| Boundary validation        | Validate settings values before currency-lock conflicts; unexpected errors retain generic responses                                                           | Actual HTTP checks pass, including invalid currency 400 and locked currency 409                   |
+| Media lifecycle            | Claim-losing responsive uploads reach deletion cleanup; immutable variant keys and retained records remain                                                    | Actual HTTP upload/permission checks pass; remote public delivery pending                         |
+| Catalog maintenance        | Idle GC/replica work receives budget before publication bookkeeping; pending publication remains higher priority                                              | Focused budget/liveness checks in progress                                                        |
+| Public/private delivery    | Existing published readers, pinned fallback, semantic keys, CSRF and private response rules retained                                                          | Local HTTP/browser checks performed; deployed cache propagation pending                           |
+| Security/dependencies      | Secret scan: 378 tracked files and 495 build files, including comparison with local secret values; no matches                                                 | Dependency advisories classified below; no version upgrades                                       |
 
 ## Test budget and failures
 

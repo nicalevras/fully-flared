@@ -1,10 +1,19 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { createTestDb, seedProduct } from './helpers/d1';
 import { processCatalogWork } from '../web/src/server/catalog-publisher';
-import { readListingPage } from '../web/src/server/catalog-read';
-import { getHomeProductsPage } from '../web/src/server/catalog-read';
+import {
+  getShopProductsPage,
+  readListingPage,
+  readListingRef,
+} from '../web/src/server/catalog-read';
 import { getPublishedCollection } from '../web/src/server/catalog-discovery';
-import { ALL_LISTING, listingRefKey } from '../web/src/server/catalog-models';
+import {
+  ALL_LISTING,
+  collectionMetaKey,
+  listingPageKey,
+  listingRefKey,
+} from '../web/src/server/catalog-models';
+import { drainCatalogInvalidations } from '../web/src/server/public-cache';
 
 // Publication guarantees for the partitioned catalog (Phase 3B). This
 // file previously covered the whole-catalog snapshot publisher; the
@@ -123,11 +132,25 @@ it('finds old products beyond a 500-card degraded home page', async () => {
     ]);
   }
   await buildCatalogReadModels(db, kv);
-  const home = await getHomeProductsPage(db, env as never, 26);
+  const home = await getShopProductsPage(db, env as never, 26);
   expect(home.total).toBe(601);
   expect(home.pageCount).toBe(26);
   expect(home.products.length).toBeGreaterThan(0);
-  expect(home.featured?.slug).toBe('tee');
+});
+
+it('/shop page N reads only page N of the catalogue', async () => {
+  const read: string[] = [];
+  const recording = {
+    ...kv,
+    async get(key: string) {
+      read.push(key);
+      return kv.get(key);
+    },
+  };
+  const shop = await getShopProductsPage(db, { CATALOG_KV: recording } as never, 2);
+  expect(shop.page).toBe(2);
+  expect(read.some((key) => key.startsWith(listingPageKey(ALL_LISTING, 2, '')))).toBe(true);
+  expect(read.some((key) => key.startsWith(listingPageKey(ALL_LISTING, 1, '')))).toBe(false);
 });
 
 it('paginates collections at 48 per page with a total', async () => {
@@ -189,3 +212,38 @@ it('no single KV value holds the whole catalog; references stay small', async ()
   expect(ref.total).toBe(603);
 });
 import { buildCatalogReadModels } from './helpers/catalog-driver';
+
+it('a deleted collection is retired: its pages disappear and its cache is purged once', async () => {
+  await db
+    .prepare(
+      "INSERT INTO collections(id,slug,title,kind,created_at) VALUES('gone','gone','Gone','manual','2026-01-01')"
+    )
+    .run();
+  await db
+    .prepare("INSERT INTO product_collections(product_id,collection_id) VALUES('p1','gone')")
+    .run();
+  await processCatalogWork(db, kv);
+  expect(await getPublishedCollection(db, env as never, 'gone', 1)).not.toBeNull();
+  const stalePointer = map.get(collectionMetaKey('gone')) ?? '';
+  expect(stalePointer).not.toBe('');
+
+  await db.prepare("DELETE FROM product_collections WHERE collection_id='gone'").run();
+  await db.prepare("DELETE FROM collections WHERE id='gone'").run();
+  await db.prepare('DELETE FROM catalog_invalidations').run();
+  await processCatalogWork(db, kv);
+  expect(await getPublishedCollection(db, env as never, 'gone', 1)).toBeNull();
+  expect(map.has(listingRefKey('gone'))).toBe(false);
+  expect(await readListingRef(db, kv, 'gone')).toBeNull();
+  map.set(collectionMetaKey('gone'), stalePointer);
+  expect(await readListingRef(db, kv, 'gone')).toBeNull();
+  expect(await getPublishedCollection(db, env as never, 'gone', 1)).toBeNull();
+  map.delete(collectionMetaKey('gone'));
+  const purged: string[] = [];
+  await drainCatalogInvalidations(db, async (tags) => purged.push(...tags));
+  expect(purged).toContain('listing-gone');
+
+  const before = writes.length;
+  expect((await processCatalogWork(db, kv)).processed).toBe(0);
+  expect(writes).toHaveLength(before);
+  expect(await getPublishedCollection(db, env as never, 'gone', 1)).toBeNull();
+});

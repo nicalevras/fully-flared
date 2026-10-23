@@ -1,8 +1,8 @@
 import { useAvailability } from '../../lib/availability';
-import { absoluteUrl, seoMeta } from '../../lib/seo';
+import { absoluteUrl, pagedPath, seoMeta } from '../../lib/seo';
 import { getStorefrontLayout } from '../../server/catalog-read';
 import { withRequestCanonicalBase } from '../../server/canonical-base';
-import { createFileRoute, Link, notFound } from '@tanstack/react-router';
+import { createFileRoute, Link, notFound, stripSearchParams } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import { getPublishedCollection } from '../../server/catalog-discovery';
 import { validateServerInput } from '../../server/function-boundary';
@@ -25,6 +25,7 @@ const getCollection = createServerFn({ method: 'GET' })
 
 export const Route = createFileRoute('/_shop/collections/$slug')({
   validateSearch: collectionSearchSchema,
+  search: { middlewares: [stripSearchParams({ page: 1 })] },
   loaderDeps: ({ search: { page } }) => ({ page }),
   loader: async ({ params, deps }) =>
     getCollection({ data: { slug: params.slug, page: deps.page } }),
@@ -33,31 +34,23 @@ export const Route = createFileRoute('/_shop/collections/$slug')({
     'CDN-Cache-Control': 'max-age=300, stale-while-revalidate=600',
   }),
   notFoundComponent: CollectionNotFound,
-  head: ({ loaderData }) => ({
-    meta: loaderData
-      ? seoMeta({
-          title:
-            loaderData.collection.seoTitle ||
-            `${loaderData.collection.title} · ${loaderData.layout.storeName}`,
-          description: loaderData.collection.seoDescription || loaderData.collection.description,
-          url: absoluteUrl(
-            loaderData.layout.canonicalBaseUrl,
-            `/collections/${loaderData.collection.slug}`
-          ),
-        })
-      : [],
-    links: loaderData
-      ? [
-          {
-            rel: 'canonical',
-            href: absoluteUrl(
-              loaderData.layout.canonicalBaseUrl,
-              `/collections/${loaderData.collection.slug}`
-            ),
-          },
-        ]
-      : [],
-  }),
+  head: ({ loaderData }) => {
+    if (!loaderData) return { meta: [], links: [] };
+    const url = absoluteUrl(
+      loaderData.layout.canonicalBaseUrl,
+      pagedPath(`/collections/${loaderData.collection.slug}`, loaderData.page)
+    );
+    return {
+      meta: seoMeta({
+        title:
+          loaderData.collection.seoTitle ||
+          `${loaderData.collection.title} · ${loaderData.layout.storeName}`,
+        description: loaderData.collection.seoDescription || loaderData.collection.description,
+        url,
+      }),
+      links: [{ rel: 'canonical', href: url }],
+    };
+  },
   staleTime: 20_000,
   component: CollectionPage,
 });
