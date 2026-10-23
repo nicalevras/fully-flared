@@ -64,7 +64,7 @@ beforeEach(async () => {
       .bind(userId),
     db
       .prepare(
-        "INSERT INTO staff_two_factor_sessions(session_token_hash,user_id,verified_at) VALUES('marker',?,'2026')"
+        "INSERT INTO staff_two_factor_sessions(session_id,user_id,verified_at) SELECT id,user_id,'2026' FROM session WHERE user_id=? LIMIT 1"
       )
       .bind(userId),
   ]);

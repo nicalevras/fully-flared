@@ -52,7 +52,7 @@ export async function calculateDiscount(
   db: D1Database,
   code: string,
   subtotalCents: number,
-  email: string
+  email: string | null
 ): Promise<{ id: string; code: string; type: string; value: number; amountCents: number } | null> {
   const d = await db
     .prepare(
@@ -80,13 +80,15 @@ export async function calculateDiscount(
   if (d.expires_at && d.expires_at < nowIso) return null;
   if (subtotalCents < d.min_purchase_cents) return null;
   if (d.usage_limit != null && d.usage_count >= d.usage_limit) return null;
-  const prior = await db
-    .prepare(
-      'SELECT COUNT(*) AS c FROM discount_usage WHERE discount_id = ? AND customer_email = ?'
-    )
-    .bind(d.id, email.toLowerCase())
-    .first<{ c: number }>();
-  if ((prior?.c ?? 0) >= d.usage_per_customer) return null;
+  if (email !== null) {
+    const prior = await db
+      .prepare(
+        'SELECT COUNT(*) AS c FROM discount_usage WHERE discount_id = ? AND customer_email = ?'
+      )
+      .bind(d.id, email.toLowerCase())
+      .first<{ c: number }>();
+    if ((prior?.c ?? 0) >= d.usage_per_customer) return null;
+  }
   let amount =
     d.type === 'percentage'
       ? Math.floor((subtotalCents * d.value) / 100)
@@ -761,7 +763,7 @@ async function applyStripeEvent(
       data.payment_intent === null
     ) {
       // Checkout always creates a PaymentIntent, so this dispute is not for one of our orders.
-      console.log(
+      console.warn(
         JSON.stringify({ event: 'webhook_dispute_unmatched', type: event.type, eventId: event.id })
       );
     } else if (event.type === 'charge.dispute.closed' || event.type === 'charge.dispute.created') {
@@ -834,7 +836,7 @@ async function applyStripeEvent(
       // Not one of the subscribed payment events: ack-and-ignore is
       // correct (Stripe endpoints can receive account-level noise), but
       // it must be visible, never silent.
-      console.log(
+      console.warn(
         JSON.stringify({ event: 'webhook_event_ignored', type: event.type, eventId: event.id })
       );
     }
@@ -1050,7 +1052,7 @@ export async function markOrderPaid(
       SELECT 1 FROM discounts d WHERE d.id=orders.discount_id AND d.value>=0 AND (d.type!='percentage' OR d.value<=100)
       AND (EXISTS(SELECT 1 FROM discount_usage WHERE order_id=orders.id AND discount_id=d.id)
         OR ((d.usage_limit IS NULL OR d.usage_count<d.usage_limit)
-          AND (SELECT COUNT(*) FROM discount_usage WHERE discount_id=d.id AND lower(customer_email)=lower(orders.customer_email))<d.usage_per_customer))))
+          AND (SELECT COUNT(*) FROM discount_usage WHERE discount_id=d.id AND customer_email=orders.customer_email)<d.usage_per_customer))))
     AND NOT EXISTS (SELECT 1 FROM order_items i LEFT JOIN stock s ON s.sku = i.sku LEFT JOIN variants v ON v.sku = i.sku
       WHERE i.order_id = orders.id AND (s.sku IS NULL OR (v.continue_selling = 0 AND s.on_hand - s.reserved < i.qty - COALESCE((SELECT SUM(qty) FROM reservations WHERE order_id = orders.id AND sku = i.sku AND status = 'active'),0))))`
       )

@@ -39,6 +39,27 @@ export async function deleteAccountAtomically(
         .bind(userId, userId),
       db
         .prepare(
+          "UPDATE discount_usage SET customer_email='deleted@invalid' WHERE order_id IN(SELECT id FROM orders WHERE user_id=?)"
+        )
+        .bind(userId),
+      db
+        .prepare(
+          "UPDATE outbox SET payload_json='{}', status=CASE WHEN status='sent' THEN 'sent' ELSE 'failed' END, attempts=CASE WHEN status='sent' THEN attempts ELSE MAX(attempts,3) END WHERE json_extract(payload_json,'$.to')=(SELECT email FROM user WHERE id=?)"
+        )
+        .bind(userId),
+      // Pending events still have to be processed; retention removes them afterwards.
+      db
+        .prepare(
+          "UPDATE webhook_inbox SET payload_json='{}' WHERE status IN ('processed','dead') AND instr(lower(payload_json),lower((SELECT email FROM user WHERE id=?)))>0"
+        )
+        .bind(userId),
+      db
+        .prepare(
+          'DELETE FROM verification WHERE value=? OR instr(value,json_quote((SELECT email FROM user WHERE id=?)))>0'
+        )
+        .bind(userId, userId),
+      db
+        .prepare(
           "UPDATE orders SET user_id=NULL,customer_email='deleted@invalid',shipping_name=NULL,shipping_address_json=NULL,customer_ip=NULL WHERE user_id=?"
         )
         .bind(userId),

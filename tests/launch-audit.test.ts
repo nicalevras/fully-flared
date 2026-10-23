@@ -54,12 +54,13 @@ it('denies customer, order and sales exports before querying data, in CSV and JS
     }
     expect(prepare).not.toHaveBeenCalled();
     prepare.mockRestore();
-    expect((await report('inventory')).status).toBe(200);
+    expect((await report('inventory')).status).toBe(403);
   }
   for (const role of ['manager', 'owner']) {
     actor.role = role;
     for (const format of ['json', 'csv'])
       expect((await report('customers', format)).status).toBe(200);
+    expect((await report('inventory')).status).toBe(200);
   }
 });
 it('retains old committed sales for restocking, but prunes old released holds', async () => {

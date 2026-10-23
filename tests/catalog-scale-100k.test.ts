@@ -88,7 +88,7 @@ it(
             .bind(json),
         ]);
       }
-      console.log(`100k seed: ${Date.now() - seedStart}ms`);
+      console.warn(`100k seed: ${Date.now() - seedStart}ms`);
       // Images on the first 100 products, one manual collection
       // (3 products) and one rule collection (title contains
       // 'bulk-1'), so the gate covers variants, images and both
@@ -149,7 +149,7 @@ it(
       const cardCount = await db
         .prepare('SELECT COUNT(*) AS n FROM catalog_cards')
         .first<{ n: number }>();
-      console.log(
+      console.warn(
         `100k build: products=${cardCount?.n} invocations=${invocations} maxKvOpsPerInvocation=${kv.maxInvocationOps} ms=${Date.now() - buildStart}`
       );
       expect(cardCount?.n).toBe(100_000);
@@ -170,7 +170,7 @@ it(
       // whole catalogue in one value.
       let maxValue = 0;
       for (const v of kv.map.values()) maxValue = Math.max(maxValue, v.length);
-      console.log(`100k max KV value bytes: ${maxValue}`);
+      console.warn(`100k max KV value bytes: ${maxValue}`);
       expect(maxValue).toBeLessThan(128 * 1024);
 
       // Bootstrap must acknowledge its captured revisions itself.
@@ -195,7 +195,7 @@ it(
         if (work?.processed_revision === work?.target_revision) break;
       }
       const processed = { processed: 1, kvPuts: kv.puts - before };
-      console.log(
+      console.warn(
         `100k single-edit pass: processed=${processed.processed} kvPuts=${processed.kvPuts}`
       );
       // Bounded per affected listing (all + the manual collection
@@ -232,7 +232,7 @@ it(
       expect(
         await db.prepare('SELECT publication_seq FROM catalog_publication_state').first()
       ).toEqual(publicationBefore);
-      console.log(`100k no-op wake-up puts: ${kv.puts}`);
+      console.warn(`100k no-op wake-up puts: ${kv.puts}`);
     } finally {
       await dispose();
     }

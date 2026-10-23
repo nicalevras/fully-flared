@@ -1,4 +1,4 @@
-import { betterAuth } from 'better-auth';
+import { betterAuth, type BetterAuthPlugin } from 'better-auth';
 import { drizzleAdapter } from '@better-auth/drizzle-adapter';
 import { admin, captcha, magicLink, twoFactor } from 'better-auth/plugins';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
@@ -7,7 +7,6 @@ import { getDb, schema } from '../db/client';
 import { queueEmail } from '../server/email';
 import { waitUntil } from '../server/exec-context';
 import { ac, roles } from './permissions';
-import { sha256Hex } from './hash';
 import { AccountDeletionError, deleteAccountAtomically } from '../server/account-deletion';
 
 // ownerEmails comes from the OWNER_EMAIL Worker variable (comma-separated).
@@ -16,18 +15,37 @@ import { AccountDeletionError, deleteAccountAtomically } from '../server/account
 // hook is what grants the role: a verified account created with a listed
 // email is created as `owner` only while no owner exists; every other
 // sign-up is a customer. Staff below owner are created in the admin.
-export const hashSessionToken = sha256Hex;
-
-async function markTwoFactorPassed(db: D1Database, userId: string, sessionToken: string) {
-  const sessionTokenHash = await hashSessionToken(sessionToken);
+async function markTwoFactorPassed(db: D1Database, userId: string, sessionId: string) {
   await db
     .prepare(
-      `INSERT INTO staff_two_factor_sessions (session_token_hash, user_id, verified_at)
+      `INSERT INTO staff_two_factor_sessions (session_id, user_id, verified_at)
        VALUES (?, ?, ?)
-       ON CONFLICT(session_token_hash) DO UPDATE SET verified_at = excluded.verified_at`
+       ON CONFLICT(session_id) DO UPDATE SET verified_at = excluded.verified_at`
     )
-    .bind(sessionTokenHash, userId, new Date().toISOString())
+    .bind(sessionId, userId, new Date().toISOString())
     .run();
+}
+
+/** Listed after twoFactor(): plugin after-hooks run in plugin order, so a
+ *  pending challenge has already nulled newSession here. A live session
+ *  on a 2FA account means a trusted device passed the gate. */
+function trustedDeviceMarker(db: D1Database) {
+  return {
+    id: 'trusted-device-marker',
+    hooks: {
+      after: [
+        {
+          matcher: (ctx) => ctx.path === '/sign-in/email',
+          handler: createAuthMiddleware(async (ctx) => {
+            const data = ctx.context.newSession;
+            if (data?.user.twoFactorEnabled && data.session.id) {
+              await markTwoFactorPassed(db, data.user.id, data.session.id);
+            }
+          }),
+        },
+      ],
+    },
+  } satisfies BetterAuthPlugin;
 }
 
 async function tokenFromReturned(returned: unknown): Promise<string | null> {
@@ -93,6 +111,8 @@ export function createAuth(
         '/two-factor/verify-totp': { window: 60, max: 10 },
         '/two-factor/verify-otp': { window: 60, max: 10 },
         '/two-factor/verify-backup-code': { window: 60, max: 10 },
+        '/request-password-reset': { window: 60, max: 3 },
+        '/get-session': false,
       },
     },
     user: {
@@ -148,25 +168,14 @@ export function createAuth(
         }
       }),
       after: createAuthMiddleware(async (ctx) => {
-        if (ctx.path === '/sign-in/email') {
-          // Password sign-in only reaches a live session without a 2FA
-          // challenge when a trusted device was already verified. The
-          // two-factor plugin nulls newSession while a challenge is in
-          // flight, so a non-null session here has passed the gate.
-          const data = ctx.context.newSession;
-          if (data?.user.twoFactorEnabled && data.session?.token) {
-            await markTwoFactorPassed(db, data.user.id, data.session.token);
-          }
-          return;
-        }
         if (ctx.path.startsWith('/two-factor/verify-')) {
           const token = await tokenFromReturned(ctx.context.returned);
           if (!token) return;
           const session = await db
-            .prepare('SELECT user_id FROM session WHERE token = ?')
+            .prepare('SELECT id, user_id FROM session WHERE token = ?')
             .bind(token)
-            .first<{ user_id: string }>();
-          if (session) await markTwoFactorPassed(db, session.user_id, token);
+            .first<{ id: string; user_id: string }>();
+          if (session) await markTwoFactorPassed(db, session.user_id, session.id);
         }
       }),
     },
@@ -200,7 +209,19 @@ export function createAuth(
         },
       },
     },
-    emailAndPassword: { enabled: true, requireEmailVerification: true },
+    emailAndPassword: {
+      enabled: true,
+      requireEmailVerification: true,
+      revokeSessionsOnPasswordReset: true,
+      sendResetPassword: async ({ user, url }) => {
+        await queueEmail(db, {
+          to: user.email,
+          subject: 'Reset your password',
+          text: `Reset your password using this link (expires in 1 hour): ${url}`,
+          html: `<p>Reset your password using this link (expires in 1 hour):</p><p><a href="${url}">${url}</a></p>`,
+        });
+      },
+    },
     emailVerification: {
       // Sent through the transactional outbox (Cloudflare Email Service).
       // Not awaited: Better Auth's docs warn that awaiting the send leaks
@@ -223,6 +244,7 @@ export function createAuth(
         ? [captcha({ provider: 'cloudflare-turnstile', secretKey: turnstileSecretKey })]
         : []),
       twoFactor({ issuer: appName }),
+      trustedDeviceMarker(db),
       magicLink({
         // Better Auth 1.7.10 awaits sendMagicLink inline (it is not routed
         // through backgroundTasks; verified in the installed dist and the

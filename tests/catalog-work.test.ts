@@ -309,4 +309,3 @@ it('archiving a product removes it from listings and its document', async () => 
     .first<{ n: number }>();
   expect(card?.n).toBe(0);
 });
-import { buildCatalogReadModels } from './helpers/catalog-driver';

@@ -3,7 +3,6 @@ import { deliverStripeEvent } from './helpers/webhook';
 import { readFileSync } from 'node:fs';
 import { createTestDb, seedProduct } from './helpers/d1';
 import { addCartLine, ensureCart } from '../web/src/server/cart';
-import { adjustStock } from '../web/src/server/inventory';
 import { createPendingOrder } from '../web/src/server/checkout';
 import { attachStripeSession } from './helpers/attach-session';
 import { enqueueOutboxRecoveryPage, processOutboxRow } from '../web/src/server/email';

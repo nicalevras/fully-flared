@@ -153,6 +153,11 @@ export const Route = createFileRoute('/api/reports')({
         if (!parsedQuery.success)
           return Response.json({ error: 'Unknown report type' }, { status: 400 });
         const { type, format } = parsedQuery.data;
+        try {
+          requireStaffPermission(staff, 'report', 'view');
+        } catch {
+          return Response.json({ error: 'Report permission required' }, { status: 403 });
+        }
         if (type === 'customers' || type === 'orders' || type === 'sales') {
           try {
             requireStaffPermission(staff, 'customer', 'export');
