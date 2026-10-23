@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import Stripe from '../web/node_modules/stripe';
-import { StripeProvider } from '../web/src/server/payments';
+import { StripeProvider, WebhookSignatureError } from '../web/src/server/payments';
 import { inboxStripeEvent } from '../web/src/server/checkout';
 import { REQUIRED_STRIPE_EVENTS, stripeListenArguments } from '../web/src/server/stripe-events';
 import { createTestDb } from './helpers/d1';
@@ -46,4 +46,11 @@ it('forwards every required event and verifies signed deliveries without provide
   expect(
     (await db.prepare('SELECT COUNT(*) AS n FROM webhook_inbox').first<{ n: number }>())?.n
   ).toBe(REQUIRED_STRIPE_EVENTS.length);
+});
+
+it('a delivery with a bad signature is rejected as a signature error', async () => {
+  const payload = JSON.stringify({ id: 'evt_forged', object: 'event', type: 'refund.updated' });
+  await expect(provider.verifyWebhook(payload, 't=1,v1=forged')).rejects.toBeInstanceOf(
+    WebhookSignatureError
+  );
 });

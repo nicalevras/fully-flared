@@ -7,7 +7,7 @@ import { normalizeNetwork } from './server/network';
 import entry from '@tanstack/react-start/server-entry';
 import { processOutboxRow, type JobMessage } from './server/email';
 import { failInboxEvent, processInboxEvent } from './server/checkout';
-import { getStripeProvider } from './server/payments';
+import { getStripeProvider, providerWithBudget } from './server/payments';
 import { runCatalogUnit } from './server/catalog-publisher';
 import { CatalogBudget, countedDb } from './server/catalog-exec';
 import { requireStaff } from './server/session';
@@ -280,12 +280,24 @@ async function handleQueue(
       if (job.type === 'email.send') {
         await processOutboxRow(env.DB, job.outboxId);
       } else if (job.type === 'webhook.process') {
-        await processInboxEvent(env.DB, job.eventId, getStripeProvider(env) ?? undefined);
+        const provider = getStripeProvider(env);
+        await processInboxEvent(
+          env.DB,
+          job.eventId,
+          provider ? providerWithBudget(provider, Date.now() + 30_000, async () => {}) : undefined
+        );
       } else if (job.type === 'checkout.recover') {
         const provider = getStripeProvider(env);
         if (!provider) throw Error('Payment provider unavailable');
+        const deadline = Date.now() + 30_000;
         const { runAuthorizedCheckout } = await import('./server/authorized-checkout');
-        await runAuthorizedCheckout(env.DB, provider, job.intentId, env.CHECKOUT_ADMISSION);
+        await runAuthorizedCheckout(
+          env.DB,
+          providerWithBudget(provider, deadline, async () => {}),
+          job.intentId,
+          env.CHECKOUT_ADMISSION,
+          deadline
+        );
       } else if (job.type === 'maintenance.run') {
         const { runMaintenance } = await import('./server/maintenance');
         await runMaintenance(env, job.runId);

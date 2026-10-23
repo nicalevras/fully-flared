@@ -599,7 +599,7 @@ CREATE TRIGGER refunds_attempt_limit BEFORE UPDATE OF attempts ON refunds
 WHEN NEW.attempts>OLD.attempts AND NEW.attempts>COALESCE(CAST((SELECT value FROM settings WHERE key='refund_retry_cap') AS INTEGER),5)
 BEGIN SELECT RAISE(ABORT,'refund retry limit exceeded'); END;
 CREATE TRIGGER refunds_balance_guard BEFORE INSERT ON refunds
-WHEN NEW.amount_cents <= 0 OR NEW.amount_cents + COALESCE((SELECT SUM(amount_cents) FROM refunds WHERE order_id = NEW.order_id AND status NOT IN ('failed','canceled')),0) > (SELECT total_cents FROM orders WHERE id = NEW.order_id)
+WHEN NEW.amount_cents <= 0 OR (NEW.purpose != 'external' AND NEW.amount_cents + COALESCE((SELECT SUM(amount_cents) FROM refunds WHERE order_id = NEW.order_id AND status NOT IN ('failed','canceled')),0) > (SELECT total_cents FROM orders WHERE id = NEW.order_id))
 BEGIN SELECT RAISE(ABORT, 'refund exceeds remaining balance'); END;
 CREATE TRIGGER refunds_status_guard_insert BEFORE INSERT ON refunds
 WHEN NEW.status NOT IN ('pending','requires_action','uncertain','succeeded','failed','canceled')

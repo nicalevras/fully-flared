@@ -756,12 +756,24 @@ async function applyStripeEvent(
       await handleRefundEvent(db, event.type, data, provider);
     } else if (event.type === 'charge.refunded') {
       await syncChargeRefund(db, data, provider);
+    } else if (
+      (event.type === 'charge.dispute.closed' || event.type === 'charge.dispute.created') &&
+      data.payment_intent === null
+    ) {
+      // Checkout always creates a PaymentIntent, so this dispute is not for one of our orders.
+      console.log(
+        JSON.stringify({ event: 'webhook_dispute_unmatched', type: event.type, eventId: event.id })
+      );
     } else if (event.type === 'charge.dispute.closed' || event.type === 'charge.dispute.created') {
       const pi = typeof data.payment_intent === 'string' ? data.payment_intent : null;
       if (!pi || !(await resolvePaymentOrder(db, pi, provider)))
         throw new Error('Dispute order has not arrived yet');
       if (event.type === 'charge.dispute.closed') {
-        if (data.status === 'won' || data.status === 'warning_closed') {
+        if (
+          data.status === 'won' ||
+          data.status === 'warning_closed' ||
+          data.status === 'prevented'
+        ) {
           await db.batch([
             db
               .prepare(
@@ -786,7 +798,7 @@ async function applyStripeEvent(
           const { enqueueJob } = await import('./email');
           for (const row of due.results)
             await enqueueJob({ type: 'webhook.process', eventId: row.event_id });
-        } else {
+        } else if (data.status === 'lost') {
           const recipients = await operationalRecipients(db);
           await commitWithEmails(
             db,
@@ -807,6 +819,8 @@ async function applyStripeEvent(
             ],
             recipients.map((to) => `dispute-lost-${String(data.id)}-${to}`)
           );
+        } else {
+          throw new Error(`Unhandled dispute status ${String(data.status)}`);
         }
       } else {
         await db
@@ -1134,7 +1148,7 @@ export async function markOrderPaid(
   statements.push(
     db
       .prepare(
-        `UPDATE carts SET status='converted',updated_at=? WHERE status='open' AND EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=? AND ci.flow='manual_capture' AND ci.cart_id=carts.id AND ci.cart_revision=carts.revision AND ci.id=carts.active_checkout_id) AND ${gate}`
+        `UPDATE carts SET status='converted',updated_at=? WHERE status='open' AND EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=? AND ci.flow='manual_capture' AND ci.cart_id=carts.id AND ci.id=carts.active_checkout_id) AND ${gate}`
       )
       .bind(at, order.id, order.id, transition)
   );

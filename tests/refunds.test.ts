@@ -5,7 +5,7 @@ import {
   createOrderAccessToken,
   verifyOrderAccessToken,
 } from '../web/src/server/checkout';
-import { settleRefund } from '../web/src/server/refunds';
+import { handleRefundEvent, settleRefund } from '../web/src/server/refunds';
 vi.mock('../web/src/server/payments', () => ({
   getStripeProvider: (env: { STRIPE_SECRET_KEY?: string }) => ({
     async refund(_pi: string, _amount: number, key: string) {
@@ -141,5 +141,41 @@ describe('cumulative refunds with restock', () => {
     expect(refunds).toEqual({ c: 3, s: 4000 });
     const counters = await expectLedgerMatchesCounters(db, 'TEE-1');
     expect(counters.on_hand).toBe(4);
+  });
+});
+
+describe('Dashboard refunds', () => {
+  it('records a Dashboard refund while an unsent local refund holds the balance', async () => {
+    const at = new Date().toISOString();
+    await db
+      .prepare(
+        `INSERT INTO orders(id,number,customer_email,status,payment_status,subtotal_cents,discount_cents,shipping_cents,tax_cents,total_cents,currency,stripe_payment_intent_id,created_at,updated_at)
+      VALUES('o-dash','ORD-DASH','a@example.invalid','paid','paid',1000,0,0,0,1000,'USD','pi_dash',?,?)`
+      )
+      .bind(at, at)
+      .run();
+    await db
+      .prepare(
+        `INSERT INTO refunds(id,request_id,order_id,amount_cents,purpose,status,created_at) VALUES('local-dash','local-dash','o-dash',700,'staff','uncertain',?)`
+      )
+      .bind(at)
+      .run();
+    await handleRefundEvent(db, 'refund.updated', {
+      id: 're_dash',
+      amount: 1000,
+      payment_intent: 'pi_dash',
+      status: 'succeeded',
+    });
+    expect(
+      await db.prepare("SELECT purpose,status FROM refunds WHERE id='re_dash'").first()
+    ).toMatchObject({ purpose: 'external', status: 'succeeded' });
+    await expect(
+      db
+        .prepare(
+          `INSERT INTO refunds(id,request_id,order_id,amount_cents,purpose,status,created_at) VALUES('extra-dash','extra-dash','o-dash',1,'staff','pending',?)`
+        )
+        .bind(at)
+        .run()
+    ).rejects.toThrow(/exceeds/);
   });
 });

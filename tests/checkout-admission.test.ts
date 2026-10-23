@@ -129,24 +129,30 @@ it('config parsing is bounded: defaults for missing or malformed rows, never unl
 });
 
 it('client helper fails closed: missing binding or RPC error is unavailable, full budget is busy', async () => {
-  expect(await acquireCheckoutPermit(undefined)).toEqual({ kind: 'unavailable' });
+  expect(await acquireCheckoutPermit(undefined, 'start')).toEqual({ kind: 'unavailable' });
   expect(
-    await acquireCheckoutPermit({
-      getByName: () => ({
-        acquire: async () => {
-          throw new Error('controller down');
-        },
-        release: async () => {},
-      }),
-    })
+    await acquireCheckoutPermit(
+      {
+        getByName: () => ({
+          acquire: async () => {
+            throw new Error('controller down');
+          },
+          release: async () => {},
+        }),
+      },
+      'start'
+    )
   ).toEqual({ kind: 'unavailable' });
   expect(
-    await acquireCheckoutPermit({
-      getByName: () => ({
-        acquire: async () => ({ ok: false as const, retryAfterSeconds: 7 }),
-        release: async () => {},
-      }),
-    })
+    await acquireCheckoutPermit(
+      {
+        getByName: () => ({
+          acquire: async () => ({ ok: false as const, retryAfterSeconds: 7 }),
+          release: async () => {},
+        }),
+      },
+      'start'
+    )
   ).toEqual({ kind: 'busy', retryAfterSeconds: 7 });
 });
 
@@ -284,4 +290,16 @@ it('replays of an existing intent never consume admission capacity', async () =>
   expect(replay.status).toBe(200);
   expect((await replay.json()).state).toBe('review_ready');
   expect(provider.createCheckoutSession).toHaveBeenCalledTimes(1);
+});
+
+it('checkout starts and paid-order settlement draw on separate admission budgets', async () => {
+  const fake = fakeAdmissionNamespace({
+    admission_starts_per_second: 1,
+    admission_burst: 1,
+    admission_max_active: 1,
+  });
+  expect((await acquireCheckoutPermit(fake.namespace, 'start')).kind).toBe('acquired');
+  expect((await acquireCheckoutPermit(fake.namespace, 'start')).kind).toBe('busy');
+  expect((await acquireCheckoutPermit(fake.namespace, 'settle')).kind).toBe('acquired');
+  expect((await acquireCheckoutPermit(fake.namespace, 'settle')).kind).toBe('busy');
 });

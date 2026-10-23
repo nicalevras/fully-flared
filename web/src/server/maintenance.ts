@@ -185,7 +185,7 @@ export async function runMaintenance(env: WorkerEnv, runId: string) {
         if (!provider) throw Error('Payment provider unavailable');
         limit = 1;
         if (run.task === 'webhook-recovery') {
-          const permit = await acquireCheckoutPermit(env.CHECKOUT_ADMISSION);
+          const permit = await acquireCheckoutPermit(env.CHECKOUT_ADMISSION, 'settle');
           if (permit.kind !== 'acquired') checked = -1;
           else
             try {
@@ -212,7 +212,7 @@ export async function runMaintenance(env: WorkerEnv, runId: string) {
             context
           );
         else {
-          const permit = await acquireCheckoutPermit(env.CHECKOUT_ADMISSION);
+          const permit = await acquireCheckoutPermit(env.CHECKOUT_ADMISSION, 'settle');
           if (permit.kind !== 'acquired') checked = -1;
           else
             try {
@@ -248,7 +248,7 @@ export async function runMaintenance(env: WorkerEnv, runId: string) {
         (progress.checked ?? 0) + Object.values(results).reduce((a, b) => a + b, 0);
     } else if (run.task === 'reconciliation') {
       if (!provider) throw Error('Provider unavailable for reconciliation');
-      const permit = await acquireCheckoutPermit(env.CHECKOUT_ADMISSION);
+      const permit = await acquireCheckoutPermit(env.CHECKOUT_ADMISSION, 'settle');
       if (permit.kind !== 'acquired') throw Error('Reconciliation admission unavailable');
       try {
         const stages = ['sessions', 'orders', 'refunds', 'stock', 'totals'] as const;

@@ -4,6 +4,7 @@ import { fakeAdmissionNamespace } from './helpers/admission';
 import { createPendingOrder, quoteOrder } from '../web/src/server/checkout';
 import { loadIntent } from '../web/src/server/checkout-intents';
 import { runAuthorizedCheckout } from '../web/src/server/authorized-checkout';
+import { addCartLine, cartIdentity, ensureCart } from '../web/src/server/cart';
 import type { PaymentProvider, PaymentIntentDetails } from '../web/src/server/payments';
 
 let db: D1Database, dispose: () => Promise<void>;
@@ -28,7 +29,8 @@ afterEach(async () => {
   await dispose();
 });
 
-async function attempt(discountCode?: string) {
+type CartRef = { cartId: string; cartRevision: number };
+async function pending(discountCode?: string, cart?: CartRef) {
   const id = crypto.randomUUID();
   const input = {
     email: `${id}@example.invalid`,
@@ -49,7 +51,12 @@ async function attempt(discountCode?: string) {
     holdExpiresAt: null,
     sessionExpiresAt: new Date(Date.now() + 3600000).toISOString(),
     payloadFor: async () => ({}),
+    ...cart,
   });
+  return { id, quote, order };
+}
+async function attempt(discountCode?: string, cart?: CartRef) {
+  const { id, quote, order } = await pending(discountCode, cart);
   const frozen = {
     subtotalCents: quote.subtotalCents,
     discountCents: quote.discountCents,
@@ -218,4 +225,113 @@ it('zero-total completion allocates once without a monetary capture or refund', 
   expect((await db.prepare('SELECT usage_count FROM discounts').first())?.usage_count).toBe(1);
   expect(a.capture).not.toHaveBeenCalled();
   expect(a.refund).not.toHaveBeenCalled();
+});
+
+async function shopperCart() {
+  const { creds } = await ensureCart(db, null);
+  await addCartLine(db, creds, 'TEE-1', 1);
+  const revision = (await cartIdentity(db, creds))?.revision ?? -1;
+  return { creds, ref: { cartId: creds.id, cartRevision: revision } };
+}
+const idleProvider: PaymentProvider = {
+  createCheckout: vi.fn(),
+  verifyWebhook: vi.fn(),
+  refund: vi.fn(),
+};
+async function cancelEmails(id: string) {
+  return (
+    await db
+      .prepare('SELECT COUNT(*) n FROM outbox WHERE id=?')
+      .bind(`authorization-canceled-${id}`)
+      .first()
+  )?.n;
+}
+
+it('a replaced checkout that never reached Stripe ends canceled without emailing the shopper', async () => {
+  const { ref } = await shopperCart();
+  const first = await pending(undefined, ref);
+  await pending(undefined, ref);
+  await runAuthorizedCheckout(db, idleProvider, first.id, admission.namespace);
+  expect(await loadIntent(db, first.id)).toMatchObject({
+    payment_state: 'canceled',
+    state: 'canceled',
+  });
+  expect(
+    await db.prepare('SELECT status FROM orders WHERE id=?').bind(first.order.orderId).first()
+  ).toMatchObject({ status: 'canceled' });
+  expect(await cancelEmails(first.id)).toBe(0);
+  await runAuthorizedCheckout(db, idleProvider, first.id, admission.namespace);
+  expect((await loadIntent(db, first.id))?.payment_state).toBe('canceled');
+});
+
+it('a canceled checkout whose Stripe page may still be payable waits for that page to expire', async () => {
+  const a = await pending();
+  await db
+    .prepare(
+      "UPDATE checkout_intents SET cancel_requested=1,provider_step='session',session_expires_at=? WHERE id=?"
+    )
+    .bind(new Date(Date.now() + 600_000).toISOString(), a.id)
+    .run();
+  await runAuthorizedCheckout(db, idleProvider, a.id, admission.namespace);
+  const waiting = await loadIntent(db, a.id);
+  expect(waiting?.payment_state).not.toBe('canceled');
+  expect(Date.parse(waiting?.payment_next_at ?? '')).toBeGreaterThan(Date.now());
+  await db
+    .prepare('UPDATE checkout_intents SET session_expires_at=? WHERE id=?')
+    .bind(new Date(Date.now() - 1000).toISOString(), a.id)
+    .run();
+  await runAuthorizedCheckout(db, idleProvider, a.id, admission.namespace);
+  expect((await loadIntent(db, a.id))?.payment_state).toBe('canceled');
+  expect(await cancelEmails(a.id)).toBe(1);
+});
+
+it('a canceled checkout keeps waiting while its Stripe page is still being created', async () => {
+  const a = await pending();
+  await db
+    .prepare(
+      "UPDATE checkout_intents SET cancel_requested=1,state='session_creating',claim_expires_at=? WHERE id=?"
+    )
+    .bind(new Date(Date.now() + 60_000).toISOString(), a.id)
+    .run();
+  await runAuthorizedCheckout(db, idleProvider, a.id, admission.namespace);
+  expect((await loadIntent(db, a.id))?.payment_state).not.toBe('canceled');
+});
+
+it('editing the cart after the shopper approved payment still captures the approved order', async () => {
+  const { creds, ref } = await shopperCart();
+  const a = await attempt(undefined, ref);
+  await addCartLine(db, creds, 'TEE-1', 1);
+  await run(a);
+  expect(a.capture).toHaveBeenCalledTimes(1);
+  expect(a.cancel).not.toHaveBeenCalled();
+  expect((await loadIntent(db, a.id))?.payment_state).toBe('finalized');
+  expect(
+    await db.prepare('SELECT status FROM carts WHERE id=?').bind(ref.cartId).first()
+  ).toMatchObject({ status: 'converted' });
+});
+
+it('a capture for a paid shopper goes through while new checkouts hold every start permit', async () => {
+  const a = await attempt();
+  const start = admission.namespace.getByName('store');
+  for (let i = 0; i < 10; i++) expect((await start.acquire()).ok).toBe(true);
+  expect((await start.acquire()).ok).toBe(false);
+  await run(a);
+  expect(a.capture).toHaveBeenCalledTimes(1);
+  expect((await loadIntent(db, a.id))?.payment_state).toBe('finalized');
+});
+
+it('a busy settle lane retries after the controller hint plus a little jitter', async () => {
+  const tight = fakeAdmissionNamespace({
+    admission_starts_per_second: 1,
+    admission_burst: 1,
+    admission_max_active: 10,
+  });
+  expect((await tight.namespace.getByName('settle').acquire()).ok).toBe(true);
+  const a = await attempt();
+  const before = Date.now();
+  await runAuthorizedCheckout(db, a.provider, a.id, tight.namespace);
+  expect(a.capture).not.toHaveBeenCalled();
+  const wait = Date.parse((await loadIntent(db, a.id))?.payment_next_at ?? '') - before;
+  expect(wait).toBeGreaterThanOrEqual(1000);
+  expect(wait).toBeLessThan(6000);
 });

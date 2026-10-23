@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { inboxStripeEvent } from '../../../server/checkout';
-import { getStripeProvider } from '../../../server/payments';
+import { WebhookSignatureError, getStripeProvider } from '../../../server/payments';
 import { enqueueJob } from '../../../server/email';
 
 export const Route = createFileRoute('/api/webhooks/stripe')({
@@ -18,8 +18,15 @@ export const Route = createFileRoute('/api/webhooks/stripe')({
         try {
           ({ eventId, duplicate } = await inboxStripeEvent(env.DB, provider, payload, signature));
         } catch (err) {
-          console.error('stripe webhook verify/inbox failed', err);
-          return new Response('Webhook verification failed', { status: 400 });
+          if (err instanceof WebhookSignatureError)
+            return new Response('Webhook verification failed', { status: 400 });
+          console.error(
+            JSON.stringify({
+              event: 'stripe_webhook_inbox_failed',
+              error: err instanceof Error ? err.name : 'unknown',
+            })
+          );
+          return new Response('Webhook could not be recorded', { status: 500 });
         }
         if (duplicate) return Response.json({ ok: true, duplicate: true });
         // Processing is queued so spikes smooth out in the Queue instead
