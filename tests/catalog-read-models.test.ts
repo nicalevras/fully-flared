@@ -260,7 +260,7 @@ it(
     }
     const t0 = Date.now();
     const result = await buildCatalogReadModels(db, kv);
-    console.log(
+    console.warn(
       `10k build: products=${result.products} pages=${result.pages} kvPuts=${result.kvPuts} ms=${Date.now() - t0}`
     );
     expect(result.products).toBe(10_000);

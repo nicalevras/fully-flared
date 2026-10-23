@@ -16,6 +16,7 @@ export default tseslint.config(
       'web/.wrangler',
       'web/node_modules',
       'web/src/routeTree.gen.ts',
+      'web/worker-configuration.d.ts',
     ],
   },
   {

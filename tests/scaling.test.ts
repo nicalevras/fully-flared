@@ -25,7 +25,6 @@ class FakeKv {
 let db: D1Database;
 let dispose: () => Promise<void>;
 const kv = new FakeKv();
-const env = { CATALOG_KV: kv as unknown as KVNamespace };
 
 beforeAll(async () => {
   const t = await createTestDb();
