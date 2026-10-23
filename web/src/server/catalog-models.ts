@@ -12,6 +12,11 @@ export const MAX_RAILS = 4;
 export const RAIL_SIZE = 8;
 export const FEATURED_INDEX = '@featured';
 
+/** Largest serialized catalogue artifact the publisher stores. */
+export const ARTIFACT_BYTE_LIMIT = 1_500_000;
+/** Largest editorial HTML accepted at save time, leaving room for the document envelope. */
+export const EDITORIAL_HTML_BYTE_LIMIT = 1_400_000;
+
 export const catalogCardSchema = z.object({
   id: z.string(),
   slug: z.string(),
@@ -80,7 +85,7 @@ export function serializeListingPage(page: ListingPage): string {
     pageSize: page.pageSize,
     cards: page.cards,
   });
-  if (new TextEncoder().encode(value).byteLength > 1_500_000)
+  if (new TextEncoder().encode(value).byteLength > ARTIFACT_BYTE_LIMIT)
     throw new Error('Catalog page exceeds artifact byte budget');
   return value;
 }

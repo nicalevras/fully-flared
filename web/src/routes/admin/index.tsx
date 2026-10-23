@@ -7,6 +7,7 @@ import { useStoreCurrency } from '../../lib/use-store-currency';
 import { createServerFn } from '@tanstack/react-start';
 import { getSettings } from '../../server/settings';
 import { paidRevenueByCurrency, type CurrencyRevenue } from '../../server/reports';
+import { failingCatalogWork, type FailingCatalogWork } from '../../server/catalog-operations';
 import { ArrowRightIcon } from '../../components/icons';
 import { formatMoney } from '../../components/ProductCard';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -25,6 +26,7 @@ type Stats = {
   deadWebhooks: Array<{ event_id: string; type: string; attempts: number; received_at: string }>;
   deadWebhookCount: number;
   canReplay: boolean;
+  catalogFailures: FailingCatalogWork;
   recent: Array<{
     id: string;
     number: string;
@@ -44,38 +46,45 @@ const getData = createServerFn({ method: 'GET' })
     const { env } = await import('cloudflare:workers');
     const db = env.DB;
     const role = roles[context.staff.role as StaffRole];
-    const [settings, revenue, pending, products, low, returns, recent, deadWebhooks, deadCount] =
-      await Promise.all([
-        getSettings(db),
-        paidRevenueByCurrency(db),
-        db
-          .prepare("SELECT COUNT(*) AS n FROM orders WHERE status='pending_payment'")
-          .first<{ n: number }>(),
-        db
-          .prepare("SELECT COUNT(*) AS n FROM products WHERE status='active'")
-          .first<{ n: number }>(),
-        db
-          .prepare('SELECT COUNT(*) AS n FROM stock WHERE on_hand - reserved <= 5')
-          .first<{ n: number }>(),
-        db
-          .prepare(
-            "SELECT COUNT(*) AS n FROM returns WHERE status IN ('requested','refund_failed')"
-          )
-          .first<{ n: number }>(),
-        db
-          .prepare(
-            'SELECT id, number, customer_email, total_cents, currency, status, payment_status, created_at FROM orders ORDER BY created_at DESC LIMIT 5'
-          )
-          .all<Stats['recent'][number]>(),
-        db
-          .prepare(
-            "SELECT event_id, type, attempts, received_at FROM webhook_inbox WHERE status IN ('dead','failed') ORDER BY received_at ASC LIMIT 10"
-          )
-          .all<Stats['deadWebhooks'][number]>(),
-        db
-          .prepare("SELECT COUNT(*) AS n FROM webhook_inbox WHERE status IN ('dead','failed')")
-          .first<{ n: number }>(),
-      ]);
+    const [
+      settings,
+      revenue,
+      pending,
+      products,
+      low,
+      returns,
+      recent,
+      deadWebhooks,
+      deadCount,
+      catalogFailures,
+    ] = await Promise.all([
+      getSettings(db),
+      paidRevenueByCurrency(db),
+      db
+        .prepare("SELECT COUNT(*) AS n FROM orders WHERE status='pending_payment'")
+        .first<{ n: number }>(),
+      db.prepare("SELECT COUNT(*) AS n FROM products WHERE status='active'").first<{ n: number }>(),
+      db
+        .prepare('SELECT COUNT(*) AS n FROM stock WHERE on_hand - reserved <= 5')
+        .first<{ n: number }>(),
+      db
+        .prepare("SELECT COUNT(*) AS n FROM returns WHERE status IN ('requested','refund_failed')")
+        .first<{ n: number }>(),
+      db
+        .prepare(
+          'SELECT id, number, customer_email, total_cents, currency, status, payment_status, created_at FROM orders ORDER BY created_at DESC LIMIT 5'
+        )
+        .all<Stats['recent'][number]>(),
+      db
+        .prepare(
+          "SELECT event_id, type, attempts, received_at FROM webhook_inbox WHERE status IN ('dead','failed') ORDER BY received_at ASC LIMIT 10"
+        )
+        .all<Stats['deadWebhooks'][number]>(),
+      db
+        .prepare("SELECT COUNT(*) AS n FROM webhook_inbox WHERE status IN ('dead','failed')")
+        .first<{ n: number }>(),
+      failingCatalogWork(db),
+    ]);
     return {
       storeName: settings.storeName,
       revenues: revenue,
@@ -88,6 +97,7 @@ const getData = createServerFn({ method: 'GET' })
       deadWebhooks: deadWebhooks.results,
       deadWebhookCount: deadCount?.n ?? 0,
       canReplay: role?.authorize({ webhook: ['replay'] }).success ?? false,
+      catalogFailures,
     };
   });
 
@@ -136,6 +146,15 @@ function AdminHome() {
       ? ([
           ['Webhook failures', String(s.deadWebhookCount), 'Dead-lettered events awaiting replay'],
         ] as Array<[string, string, string]>)
+      : []),
+    ...(s.catalogFailures.count
+      ? [
+          [
+            'Publishing failures',
+            String(s.catalogFailures.count),
+            'Storefront changes that keep failing to publish',
+          ] satisfies [string, string, string],
+        ]
       : []),
   ];
   return (
@@ -189,6 +208,32 @@ function AdminHome() {
                     {replaying === w.event_id ? 'Replaying…' : 'Replay'}
                   </button>
                 )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {s.catalogFailures.items.length > 0 && (
+        <section className={`${cardCls} mt-5 p-5`}>
+          <h2 className="text-sm font-medium text-zinc-950">Publishing failures</h2>
+          <p className="mt-1 text-[13px] text-zinc-500">
+            These changes are saved but not yet live on the storefront. Publishing retries
+            automatically, waiting longer after each failure.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {s.catalogFailures.items.map((w) => (
+              <li
+                key={`${w.entity_type}:${w.entity_id}`}
+                className="flex flex-wrap items-center gap-3 text-[13px]"
+              >
+                <span className="font-medium text-zinc-950">
+                  {w.entity_type} {w.entity_id}
+                </span>
+                <span className="text-zinc-500">
+                  {w.last_error} · {w.retry_count} attempts
+                  {w.next_attempt_at ? ` · next ${w.next_attempt_at}` : ''}
+                </span>
               </li>
             ))}
           </ul>

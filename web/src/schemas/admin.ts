@@ -1,6 +1,6 @@
 import * as z from 'zod';
 import { centsInt, emailString, idString, nonEmptyString, slugString } from './common';
-import { MAX_RAILS } from '../server/catalog-models';
+import { EDITORIAL_HTML_BYTE_LIMIT, MAX_RAILS } from '../server/catalog-models';
 
 // Every admin action is one member of this discriminated union. The action
 // switch receives only parsed, typed payloads — no str()/num() coercion of
@@ -8,6 +8,12 @@ import { MAX_RAILS } from '../server/catalog-models';
 const text = (max = 500) => z.string().max(max);
 const optText = (max = 500) => z.string().max(max).optional().default('');
 const nullableCents = z.number().int().min(0).nullable().optional();
+const editorialHtml = (max: number) =>
+  text(max).refine(
+    (html) =>
+      new TextEncoder().encode(JSON.stringify(html)).byteLength <= EDITORIAL_HTML_BYTE_LIMIT,
+    'Content is too large to publish. Shorten it or split it into several pages.'
+  );
 const featuredRank = z.number().int().min(1).max(MAX_RAILS).nullable();
 
 const variantInput = z.object({
@@ -181,7 +187,7 @@ export const adminActionSchema = z.discriminatedUnion('action', [
     id: z.string().max(100).optional().default(''),
     slug: slugString,
     title: nonEmptyString(300),
-    contentHtml: text(200_000),
+    contentHtml: editorialHtml(200_000),
     seoTitle: optText(300),
     seoDescription: optText(500),
   }),
@@ -191,7 +197,7 @@ export const adminActionSchema = z.discriminatedUnion('action', [
     slug: slugString,
     title: nonEmptyString(300),
     excerpt: text(2_000).optional().default(''),
-    contentHtml: text(500_000),
+    contentHtml: editorialHtml(500_000),
     contentJson: optText(1_000_000),
     status: z.enum(['draft', 'published', 'scheduled']),
     seoTitle: optText(300),

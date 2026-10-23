@@ -21,6 +21,31 @@ export async function catalogWorkDue(db: D1Database) {
   );
 }
 
+export type FailingCatalogWork = {
+  count: number;
+  items: Array<{
+    entity_type: string;
+    entity_id: string;
+    last_error: string;
+    retry_count: number;
+    next_attempt_at: string | null;
+  }>;
+};
+
+/** Unpublished catalogue work whose last attempt failed, most recently retried first. */
+export async function failingCatalogWork(db: D1Database): Promise<FailingCatalogWork> {
+  const failing = 'last_error IS NOT NULL AND processed_revision<target_revision';
+  const [count, items] = await Promise.all([
+    db.prepare(`SELECT COUNT(*) AS n FROM catalog_work WHERE ${failing}`).first<{ n: number }>(),
+    db
+      .prepare(
+        `SELECT entity_type,entity_id,last_error,retry_count,next_attempt_at FROM catalog_work WHERE ${failing} ORDER BY next_attempt_at DESC LIMIT 10`
+      )
+      .all<FailingCatalogWork['items'][number]>(),
+  ]);
+  return { count: count?.n ?? 0, items: items.results };
+}
+
 /** Verify only changed mutable references here. The daily replica sweep covers
  * immutable artifacts independently. Exact payloads never come from live source. */
 export async function verifyChangedReferences(

@@ -325,6 +325,7 @@ export const catalogWork = sqliteTable(
     checkpoint: text('checkpoint'),
     retryCount: integer('retry_count').notNull().default(0),
     nextAttemptAt: text('next_attempt_at'),
+    lastError: text('last_error'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },

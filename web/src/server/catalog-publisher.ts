@@ -37,6 +37,7 @@ import {
   DIRECTORY_FANOUT,
   FEATURED_INDEX,
   MAX_RAILS,
+  ARTIFACT_BYTE_LIMIT,
   type CatalogCard,
   type DirectoryNode,
   type ListingPage,
@@ -297,7 +298,7 @@ export async function mirrorDocument(
   revision: string,
   payloadJson: string
 ): Promise<void> {
-  if (new TextEncoder().encode(payloadJson).byteLength > 1_500_000)
+  if (new TextEncoder().encode(payloadJson).byteLength > ARTIFACT_BYTE_LIMIT)
     throw new Error('Catalog document exceeds artifact byte budget');
   await db
     .prepare(
@@ -316,7 +317,7 @@ async function publishDocument(
   base: string,
   value: string
 ): Promise<void> {
-  if (new TextEncoder().encode(value).byteLength > 1_500_000)
+  if (new TextEncoder().encode(value).byteLength > ARTIFACT_BYTE_LIMIT)
     throw new Error('Catalog artifact exceeds byte budget');
   const revision = contentRevision(value),
     key = immutableDocumentKey(base, revision);
@@ -2017,6 +2018,10 @@ export async function processCatalogBuild(
   }
 }
 
+/** Failed work retries after 60 s, doubling per attempt up to an hour. */
+const WORK_RETRY_BASE_SECONDS = 60;
+const WORK_RETRY_MAX_SECONDS = 3_600;
+
 /** Delay before retrying while another invocation holds the catalogue lease. */
 export const BUSY_RETRY_SECONDS = 5;
 
@@ -3678,7 +3683,7 @@ export async function processCatalogWork(
                 .bind(now(), row.id, token)
             : db
                 .prepare(
-                  'UPDATE catalog_work SET processed_revision = ?, build_token = NULL, retry_count = 0, next_attempt_at = NULL WHERE id = ? AND build_token = ?'
+                  'UPDATE catalog_work SET processed_revision = ?, build_token = NULL, retry_count = 0, next_attempt_at = NULL, last_error = NULL WHERE id = ? AND build_token = ?'
                 )
                 .bind(row.target_revision, row.id, token)
         ),
@@ -3708,20 +3713,25 @@ export async function processCatalogWork(
       );
       return { processed: 0, productsPublished: 0, listingsRefreshed: [], kvPuts, more: true };
     }
+    const message = (error instanceof Error ? error.message : 'unknown').slice(0, 500);
     for (const row of claimed)
       await db
         .prepare(
-          'UPDATE catalog_work SET build_token = NULL, retry_count = retry_count + 1, next_attempt_at = ? WHERE id = ? AND build_token = ?'
+          `UPDATE catalog_work SET build_token = NULL, retry_count = retry_count + 1, last_error = ?,
+           next_attempt_at = strftime('%Y-%m-%dT%H:%M:%fZ', ?, '+' || MIN(?, ? << MIN(retry_count, 6)) || ' seconds')
+           WHERE id = ? AND build_token = ?`
         )
-        .bind(new Date(Date.now() + 60_000).toISOString(), row.id, token)
+        .bind(
+          message,
+          new Date().toISOString(),
+          WORK_RETRY_MAX_SECONDS,
+          WORK_RETRY_BASE_SECONDS,
+          row.id,
+          token
+        )
         .run()
         .catch(() => undefined);
-    console.error(
-      JSON.stringify({
-        event: 'catalog_work_failed',
-        error: error instanceof Error ? error.message : 'unknown',
-      })
-    );
+    console.error(JSON.stringify({ event: 'catalog_work_failed', error: message }));
     throw error;
   }
 }

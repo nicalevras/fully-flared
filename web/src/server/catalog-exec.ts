@@ -1,3 +1,5 @@
+import { ARTIFACT_BYTE_LIMIT } from './catalog-models';
+
 // Bounded catalog execution: production units share one invocation
 // budget and each runs under a fenced publisher lease. The budget covers D1 statements, KV operations,
 // combined external operations, source rows and materialized payload
@@ -244,7 +246,7 @@ export function countedKv<
       if (prop === 'put')
         return async (key: string, value: string) => {
           const bytes = new TextEncoder().encode(value).byteLength;
-          if (bytes > 1_500_000) throw new Error('Catalog artifact exceeds byte budget');
+          if (bytes > ARTIFACT_BYTE_LIMIT) throw new Error('Catalog artifact exceeds byte budget');
           budget.kvOp();
           budget.addBytes(bytes);
           return target.put(key, value);
