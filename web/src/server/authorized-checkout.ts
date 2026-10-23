@@ -227,6 +227,7 @@ async function cancelAuthorizationLocally(
     .prepare('SELECT customer_email,number FROM orders WHERE id=?')
     .bind(intent.order_id)
     .first<{ customer_email: string; number: string }>();
+  const emailed = !intent.superseded_by && order && order.customer_email !== 'deleted@invalid';
   await commitWithEmails(
     db,
     [
@@ -250,7 +251,7 @@ async function cancelAuthorizationLocally(
           "UPDATE orders SET status='canceled',updated_at=? WHERE id=? AND status='pending_payment' AND payment_status IN ('unpaid','failed')"
         )
         .bind(now(), intent.order_id),
-      ...(order && order.customer_email !== 'deleted@invalid'
+      ...(emailed
         ? [
             emailStatement(
               db,
@@ -266,9 +267,7 @@ async function cancelAuthorizationLocally(
           ]
         : []),
     ],
-    order && order.customer_email !== 'deleted@invalid'
-      ? [`authorization-canceled-${intent.id}`]
-      : []
+    emailed ? [`authorization-canceled-${intent.id}`] : []
   );
 }
 
@@ -302,7 +301,7 @@ async function allocate(db: D1Database, intent: CheckoutIntentRow, claim: Paymen
     guard(db, claim),
     db
       .prepare(
-        `INSERT INTO batch_guard SELECT 1 WHERE NOT EXISTS(SELECT 1 FROM checkout_intents ci JOIN orders o ON o.id=ci.order_id WHERE ci.id=? AND ci.cancel_requested=0 AND ci.superseded_by IS NULL AND ci.quote_confirmed_at IS NOT NULL AND ci.allocation_id IS NULL AND o.status='pending_payment' AND o.currency=COALESCE((SELECT value FROM settings WHERE key='currency'),'USD') AND (ci.cart_id IS NULL OR EXISTS(SELECT 1 FROM carts WHERE id=ci.cart_id AND active_checkout_id=ci.id AND revision=ci.cart_revision)) AND NOT EXISTS(SELECT 1 FROM order_items i LEFT JOIN variants v ON v.sku=i.sku LEFT JOIN products p ON p.id=v.product_id WHERE i.order_id=o.id AND (v.status IS NOT 'active' OR p.status IS NOT 'active')) AND (o.discount_id IS NULL OR EXISTS(SELECT 1 FROM discounts d WHERE d.id=o.discount_id AND d.status='active' AND d.value>=0 AND (d.starts_at IS NULL OR d.starts_at<=?) AND (d.expires_at IS NULL OR d.expires_at>=?) AND (d.type!='percentage' OR d.value<=100) AND (d.usage_limit IS NULL OR d.usage_count<d.usage_limit) AND (SELECT COUNT(*) FROM discount_usage WHERE discount_id=d.id AND lower(customer_email)=lower(o.customer_email))<d.usage_per_customer)))`
+        `INSERT INTO batch_guard SELECT 1 WHERE NOT EXISTS(SELECT 1 FROM checkout_intents ci JOIN orders o ON o.id=ci.order_id WHERE ci.id=? AND ci.cancel_requested=0 AND ci.superseded_by IS NULL AND ci.quote_confirmed_at IS NOT NULL AND ci.allocation_id IS NULL AND o.status='pending_payment' AND o.currency=COALESCE((SELECT value FROM settings WHERE key='currency'),'USD') AND (ci.cart_id IS NULL OR EXISTS(SELECT 1 FROM carts WHERE id=ci.cart_id AND active_checkout_id=ci.id)) AND NOT EXISTS(SELECT 1 FROM order_items i LEFT JOIN variants v ON v.sku=i.sku LEFT JOIN products p ON p.id=v.product_id WHERE i.order_id=o.id AND (v.status IS NOT 'active' OR p.status IS NOT 'active')) AND (o.discount_id IS NULL OR EXISTS(SELECT 1 FROM discounts d WHERE d.id=o.discount_id AND d.status='active' AND d.value>=0 AND (d.starts_at IS NULL OR d.starts_at<=?) AND (d.expires_at IS NULL OR d.expires_at>=?) AND (d.type!='percentage' OR d.value<=100) AND (d.usage_limit IS NULL OR d.usage_count<d.usage_limit) AND (SELECT COUNT(*) FROM discount_usage WHERE discount_id=d.id AND lower(customer_email)=lower(o.customer_email))<d.usage_per_customer)))`
       )
       .bind(intent.id, at, at),
     ...stmts,
@@ -358,16 +357,20 @@ export async function runAuthorizedCheckout(
   admission: { getByName(name: string): AdmissionStub } | undefined,
   deadline = Date.now() + 30_000
 ): Promise<void> {
-  const permit = await acquireCheckoutPermit(admission);
+  const permit = await acquireCheckoutPermit(admission, 'settle');
   if (permit.kind !== 'acquired') {
+    const delaySeconds =
+      permit.kind === 'busy'
+        ? Math.min(60, permit.retryAfterSeconds + Math.floor(Math.random() * 5))
+        : 60;
     await db
       .prepare(
         "UPDATE checkout_intents SET payment_next_at=? WHERE id=? AND payment_state NOT IN ('finalized','canceled')"
       )
-      .bind(later(), intentId)
+      .bind(new Date(Date.now() + delaySeconds * 1000).toISOString(), intentId)
       .run();
     if (permit.kind === 'busy')
-      await enqueueJob({ type: 'checkout.recover', intentId }, { delaySeconds: 60 });
+      await enqueueJob({ type: 'checkout.recover', intentId }, { delaySeconds });
     return;
   }
   let claim: PaymentClaim | undefined;
@@ -395,6 +398,14 @@ export async function runAuthorizedCheckout(
       return { timeoutMs: Math.min(10_000, remaining) };
     };
     if (!intent.stripe_session_id) {
+      const creating =
+        intent.state === 'session_creating' && (intent.claim_expires_at ?? '') > now();
+      const payable =
+        intent.provider_step === 'session' && Date.parse(intent.session_expires_at) > Date.now();
+      if ((intent.cancel_requested || intent.superseded_by) && !creating && !payable) {
+        await cancelAuthorizationLocally(db, intent, claim);
+        return;
+      }
       // Session creation may already be in flight. Initiation recovery retains
       // its idempotency identity and the provider scan can attach a late result.
       await db

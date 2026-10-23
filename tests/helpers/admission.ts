@@ -5,12 +5,7 @@ import {
 } from '../../web/src/server/checkout-admission';
 import type { AdmissionConfig } from '../../web/src/schemas/limits';
 
-// Test double for the CheckoutAdmissionDO namespace, backed by the
-// real admission core over in-memory storage, so route tests exercise
-// the production decision logic rather than a re-implemented fake.
-export function fakeAdmissionNamespace(
-  config: AdmissionConfig = parseAdmissionConfigFromDefaults()
-) {
+function admissionObject(config: AdmissionConfig) {
   const bucket = { tokens: null as number | null, updatedAtMs: 0 };
   const permits = new Map<string, number>();
   const storage: AdmissionStorage = {
@@ -45,9 +40,29 @@ export function fakeAdmissionNamespace(
       admission.release(permitId);
     },
   };
+  return { admission, permits, stub };
+}
+
+// Test double for the CheckoutAdmissionDO namespace, backed by the
+// real admission core over in-memory storage, so route tests exercise
+// the production decision logic rather than a re-implemented fake.
+// Each name is its own object, like getByName on a real namespace;
+// `admission` and `permits` belong to the checkout-start object.
+export function fakeAdmissionNamespace(
+  config: AdmissionConfig = parseAdmissionConfigFromDefaults()
+) {
+  const objects = new Map<string, ReturnType<typeof admissionObject>>();
+  const byName = (name: string) => {
+    const existing = objects.get(name);
+    if (existing) return existing;
+    const created = admissionObject(config);
+    objects.set(name, created);
+    return created;
+  };
+  const store = byName('store');
   return {
-    namespace: { getByName: (_name: string) => stub },
-    admission,
-    permits,
+    namespace: { getByName: (name: string) => byName(name).stub },
+    admission: store.admission,
+    permits: store.permits,
   };
 }

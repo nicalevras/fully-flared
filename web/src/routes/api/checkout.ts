@@ -283,7 +283,7 @@ async function prepareCheckoutRequest(
   // replays of an existing intent returned above without a permit.
   // Denied starts create no intent or order, reserve no stock and
   // never reach the provider.
-  const permit = await acquireCheckoutPermit(env.CHECKOUT_ADMISSION);
+  const permit = await acquireCheckoutPermit(env.CHECKOUT_ADMISSION, 'start');
   if (permit.kind === 'busy') {
     console.log(
       JSON.stringify({
@@ -491,7 +491,7 @@ async function respondForIntent(
   // read-only responses are permit-free.
   let release: (() => Promise<void>) | null = null;
   if (!opts.permitHeld) {
-    const permit = await acquireCheckoutPermit(opts.admission);
+    const permit = await acquireCheckoutPermit(opts.admission, 'start');
     if (permit.kind === 'busy') {
       console.log(
         JSON.stringify({

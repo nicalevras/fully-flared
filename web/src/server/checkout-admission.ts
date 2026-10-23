@@ -105,15 +105,18 @@ export type AdmissionPermit =
   | { kind: 'busy'; retryAfterSeconds: number }
   | { kind: 'unavailable' };
 
-/** Acquires one initiation permit from the per-store controller.
+/** Acquires one permit from the lane's controller. `start` admits new
+ *  checkouts; `settle` serves already-authorized payments and refunds,
+ *  so a rush of new checkouts can't starve them. Both use the same limits.
  *  A missing binding or a failed RPC is `unavailable` (the caller
  *  fails closed with 503); a full budget is `busy` (429). */
 export async function acquireCheckoutPermit(
-  namespace: { getByName(name: string): AdmissionStub } | undefined
+  namespace: { getByName(name: string): AdmissionStub } | undefined,
+  lane: 'start' | 'settle'
 ): Promise<AdmissionPermit> {
   if (!namespace) return { kind: 'unavailable' };
   try {
-    const stub = namespace.getByName('store');
+    const stub = namespace.getByName(lane === 'settle' ? 'settle' : 'store');
     const result = await stub.acquire();
     if (!result.ok) return { kind: 'busy', retryAfterSeconds: result.retryAfterSeconds };
     const permitId = result.permitId;

@@ -3,6 +3,8 @@ import { createTestDb } from './helpers/d1';
 import { env } from './helpers/cloudflare-workers-stub';
 import { Route } from '../web/src/routes/api/webhooks/stripe';
 import { reprocessStaleInbox } from '../web/src/server/checkout';
+import { WebhookSignatureError, type PaymentProvider } from '../web/src/server/payments';
+import { deliverStripeEvent } from './helpers/webhook';
 
 // Phase 6 durable webhook delivery. Replaces webhook-inline.test.ts:
 // the queue-unavailable inline fallback is gone by design — the inbox
@@ -11,7 +13,10 @@ const provider = vi.hoisted(() => ({
   verifyWebhook: vi.fn(async (payload: string) => JSON.parse(payload)),
   retrieveRefund: vi.fn(async (id: string) => ({ id, status: 'succeeded' })),
 }));
-vi.mock('../web/src/server/payments', () => ({ getStripeProvider: () => provider }));
+vi.mock('../web/src/server/payments', async (original) => ({
+  ...(await original<typeof import('../web/src/server/payments')>()),
+  getStripeProvider: () => provider,
+}));
 vi.mock('../web/src/server/email', async (original) => ({
   ...(await original<typeof import('../web/src/server/email')>()),
   enqueueJob: async () => false,
@@ -24,6 +29,7 @@ beforeEach(async () => {
   provider.retrieveRefund.mockClear();
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
   delete env.DB;
   await dispose();
 });
@@ -91,4 +97,91 @@ it('queue failure defers to durable recovery: acked, not processed inline, compl
   expect(await inboxStatus()).toBe('processed');
   // A second sweep has nothing left to do.
   expect(await reprocessStaleInbox(db, provider as never, 10)).toBe(0);
+});
+
+function postWebhook(body: string) {
+  const handler = Route.options.server!.handlers!.POST!;
+  return (handler as (ctx: { request: Request }) => Promise<Response>)({
+    request: new Request('http://localhost/api/webhooks/stripe', {
+      method: 'POST',
+      headers: { 'stripe-signature': 'sig_fixture' },
+      body,
+    }),
+  });
+}
+
+it('a bad signature is a 400; a failed inbox write is a 500 so Stripe retries', async () => {
+  const body = JSON.stringify({ id: 'evt_inbox', type: 'refund.updated', data: { object: {} } });
+  provider.verifyWebhook.mockRejectedValueOnce(new WebhookSignatureError());
+  expect((await postWebhook(body)).status).toBe(400);
+  await db.prepare('DROP TABLE webhook_inbox').run();
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  expect((await postWebhook(body)).status).toBe(500);
+  expect(console.error).toHaveBeenCalledWith(
+    expect.stringContaining('stripe_webhook_inbox_failed')
+  );
+});
+
+const disputeProvider: PaymentProvider = {
+  createCheckout: vi.fn(),
+  refund: vi.fn(),
+  verifyWebhook: async (payload) => JSON.parse(payload),
+};
+async function deliverDispute(id: string, type: string, object: Record<string, unknown>) {
+  const payload = JSON.stringify({ id, type, data: { object } });
+  return deliverStripeEvent(db, disputeProvider, payload, 'sig_fixture').catch(() => false);
+}
+async function inboxRow(id: string) {
+  return db.prepare('SELECT status FROM webhook_inbox WHERE event_id=?').bind(id).first();
+}
+async function disputedOrder() {
+  await db
+    .prepare(
+      "INSERT INTO orders(id,number,customer_email,subtotal_cents,total_cents,status,payment_status,stripe_payment_intent_id,created_at,updated_at) VALUES('od','od','fixture@example.invalid',1000,1000,'paid','disputed','pi_d','2026','2026')"
+    )
+    .run();
+}
+
+it('a dispute closed as prevented clears the dispute', async () => {
+  await disputedOrder();
+  await deliverDispute('evt_prevented', 'charge.dispute.closed', {
+    id: 'dp_prevented',
+    payment_intent: 'pi_d',
+    status: 'prevented',
+  });
+  expect(await inboxRow('evt_prevented')).toMatchObject({ status: 'processed' });
+  expect(await db.prepare("SELECT payment_status FROM orders WHERE id='od'").first()).toMatchObject(
+    { payment_status: 'paid' }
+  );
+});
+
+it('a dispute without a PaymentIntent is logged and skipped without emailing anyone', async () => {
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  await deliverDispute('evt_unmatched_open', 'charge.dispute.created', {
+    id: 'dp_unmatched',
+    payment_intent: null,
+  });
+  await deliverDispute('evt_unmatched_closed', 'charge.dispute.closed', {
+    id: 'dp_unmatched',
+    payment_intent: null,
+    status: 'lost',
+  });
+  expect(await inboxRow('evt_unmatched_open')).toMatchObject({ status: 'processed' });
+  expect(await inboxRow('evt_unmatched_closed')).toMatchObject({ status: 'processed' });
+  expect(log).toHaveBeenCalledWith(expect.stringContaining('webhook_dispute_unmatched'));
+  expect((await db.prepare('SELECT COUNT(*) n FROM outbox').first())?.n).toBe(0);
+});
+
+it('a dispute closed with an unknown status is retried, never silently processed', async () => {
+  await disputedOrder();
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  await deliverDispute('evt_unknown', 'charge.dispute.closed', {
+    id: 'dp_unknown',
+    payment_intent: 'pi_d',
+    status: 'under_review',
+  });
+  expect(await inboxRow('evt_unknown')).toMatchObject({ status: 'failed' });
+  expect(await db.prepare("SELECT payment_status FROM orders WHERE id='od'").first()).toMatchObject(
+    { payment_status: 'disputed' }
+  );
 });

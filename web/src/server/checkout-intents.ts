@@ -560,7 +560,7 @@ export async function reconcileCheckoutIntents(
   let advanced = 0;
   for (const r of rows.results) {
     // Recovery fails closed when admission is missing, unavailable or full.
-    const permit = await acquireCheckoutPermit(admission);
+    const permit = await acquireCheckoutPermit(admission, 'start');
     if (permit.kind !== 'acquired') {
       await db
         .prepare(

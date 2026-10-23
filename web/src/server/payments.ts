@@ -486,11 +486,13 @@ export class StripeProvider implements PaymentProvider {
   }
 
   async verifyWebhook(payload: string, signature: string) {
-    const event = await this.stripe.webhooks.constructEventAsync(
-      payload,
-      signature,
-      this.webhookSecret
-    );
+    const event = await this.stripe.webhooks
+      .constructEventAsync(payload, signature, this.webhookSecret)
+      .catch((error: unknown) => {
+        if (error instanceof Stripe.errors.StripeSignatureVerificationError)
+          throw new WebhookSignatureError();
+        throw error;
+      });
     return { id: event.id, type: event.type, data: event.data.object };
   }
 
@@ -591,6 +593,13 @@ export function providerWithBudget(
       };
     },
   });
+}
+
+export class WebhookSignatureError extends Error {
+  constructor() {
+    super('Webhook signature verification failed');
+    this.name = 'WebhookSignatureError';
+  }
 }
 
 export function getStripeProvider(env: WorkerEnv): StripeProvider | null {

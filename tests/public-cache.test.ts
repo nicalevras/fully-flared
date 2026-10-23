@@ -366,11 +366,35 @@ it('a same-tag invalidation recorded while a purge is in flight survives that pa
       ]);
       return {};
     });
-    expect(await drainCatalogInvalidations(db, purge)).toMatchObject({ drained: 3 });
+    expect(await drainCatalogInvalidations(db, purge)).toMatchObject({ drained: 2 });
     expect(purge).toHaveBeenCalledTimes(1);
-    // late-delivered points at a version already in KV before the purge, so
-    // that purge covered it; the other two need a later pass.
-    expect(await pendingIds(db)).toEqual(['late-pending', 'late-trigger']);
+    expect(await pendingIds(db)).toEqual(['late-delivered', 'late-pending', 'late-trigger']);
+  } finally {
+    await dispose();
+  }
+});
+
+it('rows inserted during a purge survive it even when the database clock lags the Worker', async () => {
+  const { db, dispose } = await createTestDb();
+  try {
+    await seedInvalidations(
+      db,
+      [{ tag: 'tee' }, { tag: 'tee', ref: 'listing:a', seq: 1 }],
+      [{ key: 'listing:a', delivered: 1, lastWriteAt: '2026-01-01T00:00:00.000Z' }]
+    );
+    const purge = vi.fn(async () => {
+      await db.batch([
+        db.prepare(
+          "INSERT INTO catalog_invalidations (id, scope, scope_id, created_at) VALUES ('skewed-trigger', 'product', 'tee', '2000-01-01T00:00:00.000Z')"
+        ),
+        db.prepare(
+          "INSERT INTO catalog_invalidations (id, scope, scope_id, ref_key, ref_seq, created_at) VALUES ('skewed-delivered', 'product', 'tee', 'listing:a', 1, '2000-01-01T00:00:00.000Z')"
+        ),
+      ]);
+      return {};
+    });
+    expect(await drainCatalogInvalidations(db, purge)).toMatchObject({ drained: 2 });
+    expect(await pendingIds(db)).toEqual(['skewed-delivered', 'skewed-trigger']);
   } finally {
     await dispose();
   }

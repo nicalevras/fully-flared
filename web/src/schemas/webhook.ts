@@ -82,10 +82,10 @@ export const handledStripeSchemas: Record<string, z.ZodType> = {
     payment_intent: z.string(),
     amount_refunded: z.number().int().nonnegative(),
   }),
-  'charge.dispute.created': identity.extend({ payment_intent: z.string() }),
+  'charge.dispute.created': identity.extend({ payment_intent: z.string().nullable() }),
   'charge.dispute.closed': identity.extend({
-    payment_intent: z.string(),
-    status: z.enum(['won', 'lost', 'warning_closed']),
+    payment_intent: z.string().nullable(),
+    status: z.string(),
   }),
 };
 

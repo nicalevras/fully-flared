@@ -147,6 +147,11 @@ cleanly rejected the rest; deployed throughput targets (for example 25
 initiations/second) are not established by local tests and remain a
 deployment acceptance item.
 
+Captures, cancels, refunds and reconciliation for shoppers who already
+authorized use a separate `settle` controller with the same configured
+numbers, so a rush of new checkouts cannot starve them; size the
+defaults knowing each lane gets the full budget.
+
 ## Queues, email and recovery
 
 Queues are separated by failure mode (Phase 5): `JOBS` carries financial

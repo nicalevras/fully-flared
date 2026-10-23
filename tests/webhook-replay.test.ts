@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createTestDb } from './helpers/d1';
 import { env } from './helpers/cloudflare-workers-stub';
 import { runAdminAction } from '../web/src/server/admin-actions';
@@ -11,6 +11,17 @@ import { processInboxEvent } from '../web/src/server/checkout';
 const provider = {
   retrieveRefund: async (id: string) => ({ id, status: 'succeeded' }),
 };
+const queueProvider = vi.hoisted(() => ({
+  current: null as import('../web/src/server/payments').PaymentProvider | null,
+}));
+vi.mock('../web/src/server/payments', async (original) => {
+  const actual = await original<typeof import('../web/src/server/payments')>();
+  return {
+    ...actual,
+    getStripeProvider: (e: Parameters<typeof actual.getStripeProvider>[0]) =>
+      queueProvider.current ?? actual.getStripeProvider(e),
+  };
+});
 
 let db: D1Database, dispose: () => Promise<void>;
 let queue: Array<Record<string, unknown>> = [];
@@ -27,6 +38,7 @@ beforeEach(async () => {
   env.CATALOG_JOBS = env.JOBS;
 });
 afterEach(async () => {
+  queueProvider.current = null;
   delete env.DB;
   delete env.JOBS;
   delete env.NOTIFICATIONS;
@@ -153,4 +165,41 @@ it('queue failure leaves the event quarantined; a later replay recovers it', asy
     .prepare("SELECT status FROM refunds WHERE id = 'rf'")
     .first<{ status: string }>();
   expect(refund?.status).toBe('succeeded');
+});
+
+it('a webhook job whose Stripe lookup hangs gives up at the provider deadline and retries', async () => {
+  await seedDeadRefundEvent('evt_hung');
+  await db
+    .prepare("UPDATE webhook_inbox SET status='pending',attempts=0 WHERE event_id='evt_hung'")
+    .run();
+  queueProvider.current = {
+    createCheckout: vi.fn(),
+    verifyWebhook: vi.fn(),
+    refund: vi.fn(),
+    retrieveRefund: () => new Promise(() => {}),
+  };
+  const { default: worker } = await import('../web/src/server');
+  const ack = vi.fn(),
+    retry = vi.fn();
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  const started = Date.now();
+  const delivered = worker.queue(
+    {
+      queue: 'money',
+      messages: [{ body: { type: 'webhook.process', eventId: 'evt_hung' }, ack, retry }],
+    } as never,
+    {
+      ...env,
+      QUEUE_NAMES: { JOBS: 'money', NOTIFICATIONS: 'mail', CATALOG_JOBS: 'catalog' },
+    } as never,
+    {} as never
+  );
+  const outcome = await Promise.race([
+    delivered.then(() => 'returned'),
+    new Promise((resolve) => setTimeout(() => resolve('hung'), 20_000)),
+  ]);
+  expect(outcome).toBe('returned');
+  expect(Date.now() - started).toBeLessThan(15_000);
+  expect(retry).toHaveBeenCalledTimes(1);
+  expect(ack).not.toHaveBeenCalled();
 });
