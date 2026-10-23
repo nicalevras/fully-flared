@@ -14,10 +14,11 @@ export const statement = {
   discount: ['create', 'toggle', 'delete'],
   collection: ['create', 'update', 'delete', 'set-products', 'toggle-product'],
   shipping: ['create-zone', 'add-rate'],
-  order: ['ship', 'refund'],
+  order: ['view', 'ship', 'refund'],
   return: ['approve', 'reject'],
   webhook: ['replay'],
-  settings: ['set'],
+  settings: ['view', 'set'],
+  report: ['view'],
   page: ['save'],
   post: ['save'],
   import: ['products-csv'],
@@ -38,7 +39,7 @@ export const roles = {
   support: ac.newRole({
     user: ['get', 'list'],
     session: [],
-    order: ['ship'],
+    order: ['view', 'ship'],
     return: ['approve', 'reject'],
   }),
   warehouse: ac.newRole({
@@ -46,7 +47,7 @@ export const roles = {
     session: [],
     product: ['update-status'],
     stock: ['adjust'],
-    order: ['ship'],
+    order: ['view', 'ship'],
   }),
   manager: ac.newRole({
     user: ['get', 'list'],
@@ -55,8 +56,9 @@ export const roles = {
     discount: ['create', 'toggle', 'delete'],
     collection: ['create', 'update', 'delete', 'set-products', 'toggle-product'],
     shipping: ['create-zone', 'add-rate'],
-    order: ['ship'],
+    order: ['view', 'ship'],
     return: ['approve', 'reject'],
+    report: ['view'],
     page: ['save'],
     post: ['save'],
     import: ['products-csv'],
@@ -72,10 +74,11 @@ export const roles = {
     discount: ['create', 'toggle', 'delete'],
     collection: ['create', 'update', 'delete', 'set-products', 'toggle-product'],
     shipping: ['create-zone', 'add-rate'],
-    order: ['ship', 'refund'],
+    order: ['view', 'ship', 'refund'],
     return: ['approve', 'reject'],
     webhook: ['replay'],
-    settings: ['set'],
+    settings: ['view', 'set'],
+    report: ['view'],
     customer: ['export', 'delete'],
     page: ['save'],
     post: ['save'],
@@ -93,10 +96,11 @@ export const roles = {
     discount: ['create', 'toggle', 'delete'],
     collection: ['create', 'update', 'delete', 'set-products', 'toggle-product'],
     shipping: ['create-zone', 'add-rate'],
-    order: ['ship', 'refund'],
+    order: ['view', 'ship', 'refund'],
     return: ['approve', 'reject'],
     webhook: ['replay'],
-    settings: ['set'],
+    settings: ['view', 'set'],
+    report: ['view'],
     customer: ['export', 'delete'],
     page: ['save'],
     post: ['save'],
@@ -105,6 +109,15 @@ export const roles = {
 };
 
 export type StaffRole = keyof typeof roles;
+
+export function roleCan(
+  role: string | null | undefined,
+  resource: keyof typeof statement,
+  action: string
+): boolean {
+  const granted = Object.entries(roles).find(([name]) => name === role)?.[1];
+  return granted?.authorize({ [resource]: [action] }).success ?? false;
+}
 
 /** The Better Auth permission pair guarding one admin action. */
 export const ACTION_PERMISSIONS: Record<

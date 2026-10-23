@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { env } from './helpers/cloudflare-workers-stub';
 import { createTestDb } from './helpers/d1';
-import { createAuth, hashSessionToken } from '../web/src/lib/auth';
+import { createAuth } from '../web/src/lib/auth';
 import { requireStaff } from '../web/src/server/session';
 
 let db: D1Database;
@@ -76,14 +76,12 @@ it('refuses staff without the session two-factor marker, admits with it', async 
     .prepare("SELECT id FROM user WHERE email='owner@example.com'")
     .first<{ id: string }>();
   const session = await db
-    .prepare('SELECT token FROM session WHERE user_id=? ORDER BY created_at DESC LIMIT 1')
+    .prepare('SELECT id FROM session WHERE user_id=? ORDER BY created_at DESC LIMIT 1')
     .bind(user!.id)
-    .first<{ token: string }>();
+    .first<{ id: string }>();
   await db
-    .prepare(
-      'INSERT INTO staff_two_factor_sessions(session_token_hash,user_id,verified_at) VALUES(?,?,?)'
-    )
-    .bind(await hashSessionToken(session!.token), user!.id, new Date().toISOString())
+    .prepare('INSERT INTO staff_two_factor_sessions(session_id,user_id,verified_at) VALUES(?,?,?)')
+    .bind(session!.id, user!.id, new Date().toISOString())
     .run();
   const staff = await requireStaff(db, request(cookie));
   expect(staff.email).toBe('owner@example.com');
