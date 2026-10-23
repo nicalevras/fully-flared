@@ -8,7 +8,7 @@ import { MAX_RAILS } from '../server/catalog-models';
 const text = (max = 500) => z.string().max(max);
 const optText = (max = 500) => z.string().max(max).optional().default('');
 const nullableCents = z.number().int().min(0).nullable().optional();
-const featuredRank = z.number().int().min(1).max(MAX_RAILS).nullable().optional().default(null);
+const featuredRank = z.number().int().min(1).max(MAX_RAILS).nullable();
 
 const variantInput = z.object({
   sku: nonEmptyString(100),

@@ -279,6 +279,37 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "cache_purge_gate": {
+      "name": "cache_purge_gate",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tokens": {
+          "name": "tokens",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "refilled_at": {
+          "name": "refilled_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "cart_items": {
       "name": "cart_items",
       "columns": {
@@ -2249,6 +2280,13 @@
         "seo_description": {
           "name": "seo_description",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "featured_rank": {
+          "name": "featured_rank",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

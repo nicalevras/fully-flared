@@ -1,1 +1,0 @@
-ALTER TABLE `collections` ADD `featured_rank` integer;

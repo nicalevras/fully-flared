@@ -127,20 +127,6 @@
       "when": 1792755628123,
       "tag": "0017_due_recovery_indexes",
       "breakpoints": true
-    },
-    {
-      "idx": 18,
-      "version": "6",
-      "when": 1792775767424,
-      "tag": "0018_cache_purge_gate",
-      "breakpoints": true
-    },
-    {
-      "idx": 19,
-      "version": "6",
-      "when": 1792780132952,
-      "tag": "0019_collection_featured",
-      "breakpoints": true
     }
   ]
 }

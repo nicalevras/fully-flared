@@ -1919,11 +1919,12 @@ export async function processCatalogBuild(
       if (phase === 'activate') {
         const next = await db
           .prepare(
-            `SELECT b.listing_id,b.generation,b.root_hash,b.page_count,b.total FROM catalog_build_listings b WHERE b.build_id=? AND (b.changed=1 OR (b.changed=0 AND ${metadataChangedSql})) ORDER BY b.listing_id LIMIT 1`
+            `SELECT b.listing_id,COALESCE(col.slug,b.listing_id) AS slug,b.generation,b.root_hash,b.page_count,b.total FROM catalog_build_listings b LEFT JOIN collections col ON col.id=b.listing_id WHERE b.build_id=? AND (b.changed=1 OR (b.changed=0 AND ${metadataChangedSql})) ORDER BY b.listing_id LIMIT 1`
           )
           .bind(build.id)
           .first<{
             listing_id: string;
+            slug: string;
             generation: number;
             root_hash: string;
             page_count: number;
@@ -1940,11 +1941,16 @@ export async function processCatalogBuild(
               total: next.total,
               pageCount: next.page_count,
             },
-            db
-              .prepare(
-                'UPDATE catalog_build_listings SET changed=2 WHERE build_id=? AND listing_id=?'
-              )
-              .bind(build.id, next.listing_id)
+            [
+              db
+                .prepare(
+                  'UPDATE catalog_build_listings SET changed=2 WHERE build_id=? AND listing_id=?'
+                )
+                .bind(build.id, next.listing_id),
+              ...invalidationStatements(db, [
+                { scope: 'listing', scopeId: next.slug, listingId: next.listing_id },
+              ]),
+            ]
           );
           await save();
           return { done: false, buildId: build.id, phase, opsUsed: ops };

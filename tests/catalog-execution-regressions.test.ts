@@ -650,6 +650,29 @@ it('a product edit purges / only through a featured collection, after its delive
   }
 });
 
+it('a featured collection rebuilt by a scoped build purges / only after its delivery', async () => {
+  const { db, dispose } = await createTestDb();
+  const kv = new Kv();
+  try {
+    await seedWithCaps(db, kv);
+    await db.prepare("UPDATE collections SET featured_rank=1 WHERE id='c'").run();
+    await drive(db, kv, 200);
+    await db.prepare('DELETE FROM catalog_invalidations').run();
+
+    await db
+      .prepare("DELETE FROM product_collections WHERE product_id='tee-0' AND collection_id='c'")
+      .run();
+    const { purged, held } = await driveAndDrain(db, kv);
+    expect(
+      await db.prepare("SELECT 1 FROM catalog_builds WHERE scope_listing_id='c'").first()
+    ).not.toBeNull();
+    expect(held).toContain('listing-@featured');
+    expect(purged).toContain('listing-@featured');
+  } finally {
+    await dispose();
+  }
+});
+
 it('a resumed catalogue publication purges only after its own delivery', async () => {
   const { db, dispose } = await createTestDb();
   const kv = new Kv();

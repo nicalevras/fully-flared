@@ -148,10 +148,7 @@ export const layoutModelSchema = z.object({
   collectionTeasers: z
     .array(z.object({ slug: z.string(), title: z.string(), description: z.string() }))
     .max(4),
-  featured: z
-    .array(z.object({ slug: z.string(), title: z.string() }))
-    .max(MAX_RAILS)
-    .default([]),
+  featured: z.array(z.object({ slug: z.string(), title: z.string() })).max(MAX_RAILS),
   posts: z
     .array(
       z.object({
