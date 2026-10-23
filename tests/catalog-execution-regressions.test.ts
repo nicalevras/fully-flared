@@ -27,121 +27,130 @@ class Kv {
     this.map.delete(k);
   }
 }
-it('48-product collection pages checkpoint within the physical statement budget', {timeout:180_000}, async () => {
-  const { db, dispose } = await createTestDb();
-  const kv = new Kv();
-  try {
-    const ids = JSON.stringify(Array.from({ length: 400 }, (_, i) => `rule-page-${i}`));
-    await db.batch([
-      db
-        .prepare(
-          "INSERT INTO products(id,slug,title,status,created_at,updated_at) SELECT value,value,value,'active','2026-01-01','2026-01-01' FROM json_each(?)"
-        )
-        .bind(ids),
-      db
-        .prepare(
-          "INSERT INTO variants(id,product_id,sku,title,price_cents,status,created_at) SELECT 'v-'||value,value,'s-'||value,'D',100,'active','2026-01-01' FROM json_each(?)"
-        )
-        .bind(ids),
-      db
-        .prepare(
-          "INSERT INTO collections(id,slug,title,kind,rule_json,created_at) VALUES('wide-rule','wide-rule','All 400','rule',?, '2026-01-01')"
-        )
-        .bind(JSON.stringify({ type: 'title_contains', value: 'rule-page-' })),
-    ]);
-    const queue = await catalogQueueHarness(db, kv);
-    let previous = '',
-      stagnant = 0,
-      done = false;
-    for (let unit = 0; unit < 300; unit++) {
-      const delivery = await queue.deliver();
-      expect(delivery.retried).toBe(false);
-      const build = await db
-        .prepare(
-          "SELECT state,phase,state_json FROM catalog_builds WHERE kind='full' ORDER BY created_at DESC LIMIT 1"
-        )
-        .first<{ state: string; phase: string; state_json: string }>();
-      if(unit%50===0) process.stdout.write(`catalog checkpoint unit=${unit} phase=${build?.phase}\n`);
-      if (build?.state === 'done') {
-        done = true;
-        break;
+it(
+  '48-product collection pages checkpoint within the physical statement budget',
+  { timeout: 180_000 },
+  async () => {
+    const { db, dispose } = await createTestDb();
+    const kv = new Kv();
+    try {
+      const ids = JSON.stringify(Array.from({ length: 400 }, (_, i) => `rule-page-${i}`));
+      await db.batch([
+        db
+          .prepare(
+            "INSERT INTO products(id,slug,title,status,created_at,updated_at) SELECT value,value,value,'active','2026-01-01','2026-01-01' FROM json_each(?)"
+          )
+          .bind(ids),
+        db
+          .prepare(
+            "INSERT INTO variants(id,product_id,sku,title,price_cents,status,created_at) SELECT 'v-'||value,value,'s-'||value,'D',100,'active','2026-01-01' FROM json_each(?)"
+          )
+          .bind(ids),
+        db
+          .prepare(
+            "INSERT INTO collections(id,slug,title,kind,rule_json,created_at) VALUES('wide-rule','wide-rule','All 400','rule',?, '2026-01-01')"
+          )
+          .bind(JSON.stringify({ type: 'title_contains', value: 'rule-page-' })),
+      ]);
+      const queue = await catalogQueueHarness(db, kv);
+      let previous = '',
+        stagnant = 0,
+        done = false;
+      for (let unit = 0; unit < 300; unit++) {
+        const delivery = await queue.deliver();
+        expect(delivery.retried).toBe(false);
+        const build = await db
+          .prepare(
+            "SELECT state,phase,state_json FROM catalog_builds WHERE kind='full' ORDER BY created_at DESC LIMIT 1"
+          )
+          .first<{ state: string; phase: string; state_json: string }>();
+        if (unit % 50 === 0)
+          process.stdout.write(`catalog checkpoint unit=${unit} phase=${build?.phase}\n`);
+        if (build?.state === 'done') {
+          done = true;
+          break;
+        }
+        if (build?.phase === 'pages') {
+          const state = JSON.parse(build.state_json) as { li: number; nextPage: number };
+          const cursor = `${state.li}:${state.nextPage}`;
+          stagnant = cursor === previous ? stagnant + 1 : 0;
+          expect(stagnant, `listing page checkpoint stuck at ${cursor}`).toBeLessThan(6);
+          previous = cursor;
+        }
       }
-      if (build?.phase === 'pages') {
-        const state = JSON.parse(build.state_json) as { li: number; nextPage: number };
-        const cursor = `${state.li}:${state.nextPage}`;
-        stagnant = cursor === previous ? stagnant + 1 : 0;
-        expect(stagnant, `listing page checkpoint stuck at ${cursor}`).toBeLessThan(6);
-        previous = cursor;
+      expect(done).toBe(true);
+      const listing = await db
+        .prepare(
+          "SELECT total,page_count FROM catalog_listings WHERE listing_id='wide-rule' AND active=1"
+        )
+        .first();
+      expect(listing).toEqual({ total: 400, page_count: 9 });
+      // Give this small fixture the same two-level directory path as
+      // the 100k catalog, without rebuilding 100k products to diagnose it.
+      const ref = JSON.parse(kv.map.get(listingRefKey('all'))!) as { rootHash: string };
+      const payload = JSON.stringify({
+        kind: 'index',
+        entries: [{ from: 1, to: 17, hash: ref.rootHash }],
+      });
+      const root = contentRevision(payload);
+      await db.batch([
+        db
+          .prepare(
+            "INSERT INTO catalog_ref_chunks(hash,listing_id,payload_json,created_at) VALUES(?,'all',?,datetime('now'))"
+          )
+          .bind(root, payload),
+        db
+          .prepare("UPDATE catalog_ref_state SET root_hash=? WHERE ref_key='listing:all'")
+          .bind(root),
+        db
+          .prepare("UPDATE catalog_listing_ref_history SET root_hash=? WHERE listing_id='all'")
+          .bind(root),
+      ]);
+      kv.map.set(directoryKey(root), payload);
+      kv.map.set(listingRefKey('all'), JSON.stringify({ ...ref, rootHash: root }));
+      kv.putKeys = [];
+      await db
+        .prepare("UPDATE products SET title='rule-page-renamed' WHERE id='rule-page-250'")
+        .run();
+      let processed = false;
+      for (let unit = 0; unit < 30; unit++) {
+        const delivery = await queue.deliver();
+        expect(delivery.retried).toBe(false);
+        const work = await db
+          .prepare(
+            "SELECT processed_revision,target_revision FROM catalog_work WHERE id='product:rule-page-250'"
+          )
+          .first<{ processed_revision: number; target_revision: number }>();
+        if (work?.processed_revision === work?.target_revision) {
+          processed = true;
+          break;
+        }
       }
+      expect(processed).toBe(true);
+      expect(kv.putKeys.length).toBeLessThanOrEqual(10);
+      // Membership changes must rebuild the complete listing in bounded
+      // units, rather than publishing a truncated membership probe.
+      await db.prepare("UPDATE products SET status='archived' WHERE id='rule-page-249'").run();
+      let resized = false;
+      for (let unit = 0; unit < 200; unit++) {
+        const delivery = await queue.deliver();
+        expect(delivery.retried).toBe(false);
+        const listings = await db
+          .prepare(
+            "SELECT listing_id,total FROM catalog_listings WHERE active=1 AND listing_id IN ('all','wide-rule') ORDER BY listing_id"
+          )
+          .all<{ listing_id: string; total: number }>();
+        if (listings.results.length === 2 && listings.results.every((row) => row.total === 399)) {
+          resized = true;
+          break;
+        }
+      }
+      expect(resized).toBe(true);
+    } finally {
+      await dispose();
     }
-    expect(done).toBe(true);
-    const listing = await db
-      .prepare(
-        "SELECT total,page_count FROM catalog_listings WHERE listing_id='wide-rule' AND active=1"
-      )
-      .first();
-    expect(listing).toEqual({ total: 400, page_count: 9 });
-    // Give this small fixture the same two-level directory path as
-    // the 100k catalog, without rebuilding 100k products to diagnose it.
-    const ref = JSON.parse(kv.map.get(listingRefKey('all'))!) as { rootHash: string };
-    const payload = JSON.stringify({
-      kind: 'index',
-      entries: [{ from: 1, to: 17, hash: ref.rootHash }],
-    });
-    const root = contentRevision(payload);
-    await db.batch([
-      db
-        .prepare(
-          "INSERT INTO catalog_ref_chunks(hash,listing_id,payload_json,created_at) VALUES(?,'all',?,datetime('now'))"
-        )
-        .bind(root, payload),
-      db.prepare("UPDATE catalog_ref_state SET root_hash=? WHERE ref_key='listing:all'").bind(root),
-      db
-        .prepare("UPDATE catalog_listing_ref_history SET root_hash=? WHERE listing_id='all'")
-        .bind(root),
-    ]);
-    kv.map.set(directoryKey(root), payload);
-    kv.map.set(listingRefKey('all'), JSON.stringify({ ...ref, rootHash: root }));
-    kv.putKeys = [];
-    await db
-      .prepare("UPDATE products SET title='rule-page-renamed' WHERE id='rule-page-250'")
-      .run();
-    let processed = false;
-    for (let unit = 0; unit < 30; unit++) {
-      const delivery = await queue.deliver();
-      expect(delivery.retried).toBe(false);
-      const work = await db
-        .prepare(
-          "SELECT processed_revision,target_revision FROM catalog_work WHERE id='product:rule-page-250'"
-        )
-        .first<{ processed_revision: number; target_revision: number }>();
-      if (work?.processed_revision === work?.target_revision) {
-        processed = true;
-        break;
-      }
-    }
-    expect(processed).toBe(true);
-    expect(kv.putKeys.length).toBeLessThanOrEqual(10);
-    // Membership changes must rebuild the complete listing in bounded
-    // units, rather than publishing a truncated membership probe.
-    await db.prepare("UPDATE products SET status='archived' WHERE id='rule-page-249'").run();
-    let resized = false;
-    for (let unit = 0; unit < 200; unit++) {
-      const delivery = await queue.deliver();
-      expect(delivery.retried).toBe(false);
-      const listings = await db
-        .prepare('SELECT listing_id,total FROM catalog_listings WHERE active=1 ORDER BY listing_id')
-        .all<{ listing_id: string; total: number }>();
-      if (listings.results.length === 2 && listings.results.every((row) => row.total === 399)) {
-        resized = true;
-        break;
-      }
-    }
-    expect(resized).toBe(true);
-  } finally {
-    await dispose();
   }
-});
+);
 it('repairs a large accepted editorial artifact without materializing its old KV value', async () => {
   const { db, dispose } = await createTestDb();
   const kv = new Kv();

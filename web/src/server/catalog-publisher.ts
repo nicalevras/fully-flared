@@ -1016,7 +1016,7 @@ export async function processCatalogBuild(
 
   let build = await db
     .prepare(
-      "SELECT id, kind, state, phase, state_json, scope_listing_id FROM catalog_builds WHERE state IN ('building', 'pending_delivery') AND kind NOT IN ('fanout','replica') ORDER BY created_at ASC LIMIT 1"
+      "SELECT id, kind, state, phase, state_json, scope_listing_id FROM catalog_builds WHERE state IN ('building', 'pending_delivery') AND kind NOT IN ('fanout','replica','index') ORDER BY created_at ASC LIMIT 1"
     )
     .first<{
       id: string;
@@ -2037,11 +2037,11 @@ export async function runCatalogUnit(
     if (opts?.maintenance && !(await catalogWorkDue(cdb))) {
       if (opts.maintenance === 'gc')
         return { done: (await runCatalogGcUnit(metered, kv, lease)) === null, busy: false };
-      return { done: await repairCatalogUnit(cdb, kv, lease), busy: false };
+      return { done: kv ? await repairCatalogUnit(cdb, kv, lease) : true, busy: false };
     }
     const open = await cdb
       .prepare(
-        "SELECT id,kind,scope_listing_id FROM catalog_builds WHERE state IN ('building', 'pending_delivery') AND kind NOT IN ('fanout') LIMIT 1"
+        "SELECT id,kind,scope_listing_id FROM catalog_builds WHERE state IN ('building', 'pending_delivery') AND kind NOT IN ('fanout') ORDER BY updated_at,id LIMIT 1"
       )
       .first<{ id: string; kind: string; scope_listing_id: string | null }>();
     if (open?.kind === 'index') {
@@ -3530,7 +3530,6 @@ export async function processCatalogWork(
               .prepare('SELECT publication_seq FROM catalog_publication_state WHERE id=1')
               .first<{ publication_seq: number }>())!.publication_seq + 1;
           await db.batch([
-            ...(lease ? [leaseGuardStatement(db, lease)] : []),
             db
               .prepare(
                 'INSERT INTO batch_guard SELECT 1 WHERE (SELECT publication_seq FROM catalog_publication_state WHERE id=1)<>?'
