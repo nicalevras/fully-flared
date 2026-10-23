@@ -292,10 +292,12 @@ async function handleQueue(
         // unit plus this handler's follow-up (invalidation drain and
         // realtime broadcast); when it is nearly spent the follow-up
         // is deferred — invalidations stay queued for the next unit.
+        // Purges wait for the finished run so a multi-unit publish
+        // spends one rate-limited request instead of one per unit.
         const budget = new CatalogBudget();
         const result = await runCatalogUnit(env.DB, env.CATALOG_KV, { budget });
         if (budget.remaining > 10 && budget.remainingStatements > 5) {
-          await drainPublicCacheInvalidations(env, ctx, budget);
+          if (result.done) await drainPublicCacheInvalidations(env, ctx, budget);
           budget.tickOp();
           const stub = env.REALTIME.getByName('admin');
           await stub

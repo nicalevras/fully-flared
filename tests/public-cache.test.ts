@@ -6,6 +6,7 @@ import {
   invalidationTags,
   publicCacheRequest,
   publicCacheResponse,
+  takePurgeToken,
 } from '../web/src/server/public-cache';
 import { processCatalogWork } from '../web/src/server/catalog-publisher';
 
@@ -84,12 +85,12 @@ it('strips private/forwarding headers and nonsemantic product parameters', () =>
 });
 
 it('derives cache tags from the route scope', () => {
-  expect(cacheTagsForPath('/')).toEqual(['layout', 'listing-all']);
+  expect(cacheTagsForPath('/')).toEqual(['layout', 'listing-all', 'listing-@collections']);
   expect(cacheTagsForPath('/products/tee')).toEqual(['layout', 'product-tee']);
   expect(cacheTagsForPath('/collections/shoes')).toEqual(['layout', 'listing-shoes']);
-  expect(cacheTagsForPath('/collections')).toEqual(['layout']);
+  expect(cacheTagsForPath('/collections')).toEqual(['layout', 'listing-@collections']);
   expect(cacheTagsForPath('/pages/about')).toEqual(['layout', 'editorial-about']);
-  expect(cacheTagsForPath('/blog')).toEqual(['layout', 'editorial-index']);
+  expect(cacheTagsForPath('/blog')).toEqual(['layout', 'editorial-index', 'listing-@posts']);
   expect(cacheTagsForPath('/blog/hello')).toEqual(['layout', 'editorial-hello']);
 });
 
@@ -174,6 +175,55 @@ it('drains invalidations only after a successful purge', async () => {
       (await db.prepare('SELECT COUNT(*) AS n FROM catalog_invalidations').first<{ n: number }>())
         ?.n
     ).toBe(0);
+  } finally {
+    await dispose();
+  }
+});
+
+it('purges at most 100 tags per call and keeps the rows of a rejected chunk', async () => {
+  const { db, dispose } = await createTestDb();
+  try {
+    await db
+      .prepare(
+        "INSERT INTO catalog_invalidations (id, scope, scope_id, created_at) SELECT 'i'||value, 'product', 'p'||value, '2026-01-01' FROM json_each(?)"
+      )
+      .bind(JSON.stringify(Array.from({ length: 150 }, (_, i) => i)))
+      .run();
+    const purge = vi
+      .fn<(tags: string[]) => Promise<unknown>>()
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new Error('rate limited'));
+    const result = await drainCatalogInvalidations(db, purge);
+    expect(purge.mock.calls.map(([tags]) => tags.length)).toEqual([100, 50]);
+    expect(result.drained).toBe(100);
+    const kept = await db
+      .prepare("SELECT 'product-'||scope_id AS tag FROM catalog_invalidations")
+      .all<{ tag: string }>();
+    expect(kept.results.map((r) => r.tag).sort()).toEqual(purge.mock.calls[1]?.[0].sort());
+  } finally {
+    await dispose();
+  }
+});
+
+it('gates purges with a durable 5-per-minute bucket of 25', async () => {
+  const { db, dispose } = await createTestDb();
+  try {
+    const start = Date.now();
+    const burst = [];
+    for (let i = 0; i < 26; i++) burst.push(await takePurgeToken(db, start));
+    expect(burst.filter(Boolean)).toHaveLength(25);
+    expect(burst.at(-1)).toBe(false);
+    expect(await takePurgeToken(db, start + 12_000)).toBe(true);
+    expect(await takePurgeToken(db, start + 12_000)).toBe(false);
+
+    await db
+      .prepare(
+        "INSERT INTO catalog_invalidations (id, scope, scope_id, created_at) VALUES ('i1', 'product', 'tee', '2026-01-01')"
+      )
+      .run();
+    const purge = vi.fn(async () => ({}));
+    expect((await drainCatalogInvalidations(db, purge)).drained).toBe(0);
+    expect(purge).not.toHaveBeenCalled();
   } finally {
     await dispose();
   }

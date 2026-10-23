@@ -98,36 +98,68 @@ it('gateway falls back to direct rendering when the storefront throws', async ()
   }
 });
 
-it('catalog queue jobs drain purges through the cache-owning entrypoint', async () => {
+async function runCatalogQueueToIdle(purged: string[][]) {
   const { default: worker } = await import('../web/src/server');
+  const storefront = Object.assign(() => ({ fetch: async () => new Response('x') }), {
+    purgeInvalidations: async (tags: string[]) => {
+      purged.push(tags);
+    },
+  });
+  for (let delivery = 0; delivery < 50; delivery++) {
+    let continued = false;
+    await worker.queue(
+      {
+        queue: 'store-catalog',
+        messages: [{ body: { type: 'catalog.rebuild' }, ack: () => {}, retry: () => {} }],
+      } as never,
+      {
+        QUEUE_NAMES: { CATALOG_JOBS: 'store-catalog', DLQ: 'store-jobs-dlq' },
+        DB: db,
+        CATALOG_JOBS: {
+          send: async () => {
+            continued = true;
+          },
+        },
+        REALTIME: { getByName: () => ({ broadcast: async () => {} }) },
+      } as never,
+      fakeCtx(storefront) as never
+    );
+    if (!continued) return;
+  }
+  throw new Error('catalog queue did not go idle');
+}
+
+const pendingInvalidations = async () =>
+  (await db.prepare('SELECT id FROM catalog_invalidations').all<{ id: string }>()).results.map(
+    (row) => row.id
+  );
+
+it('catalog queue jobs drain purges through the cache-owning entrypoint once the run finishes', async () => {
   await db
     .prepare(
       "INSERT INTO catalog_invalidations (id, scope, scope_id, created_at) VALUES ('i1', 'product', 'tee', '2026-01-01')"
     )
     .run();
   const purged: string[][] = [];
-  const storefront = Object.assign(() => ({ fetch: async () => new Response('x') }), {
-    purgeInvalidations: async (tags: string[]) => {
-      purged.push(tags);
-    },
-  });
-  await worker.queue(
-    {
-      queue: 'store-catalog',
-      messages: [{ body: { type: 'catalog.rebuild' }, ack: () => {}, retry: () => {} }],
-    } as never,
-    {
-      QUEUE_NAMES: { CATALOG_JOBS: 'store-catalog', DLQ: 'store-jobs-dlq' },
-      DB: db,
-      CATALOG_JOBS: { send: async () => {} },
-      REALTIME: { getByName: () => ({ broadcast: async () => {} }) },
-    } as never,
-    fakeCtx(storefront) as never
-  );
-  expect(purged).toEqual([['product-tee']]);
-  expect(
-    (await db.prepare('SELECT COUNT(*) AS n FROM catalog_invalidations').first<{ n: number }>())?.n
-  ).toBe(0);
+  await runCatalogQueueToIdle(purged);
+  expect(purged).toHaveLength(1);
+  expect(purged[0]).toContain('product-tee');
+  expect(await pendingInvalidations()).toEqual([]);
+});
+
+it('catalog queue purges wait on the durable purge gate shared with the cron drain', async () => {
+  const { takePurgeToken } = await import('../web/src/server/public-cache');
+  const closedForAMinute = Date.now() + 60_000;
+  for (let taken = 0; taken < 25; taken++) await takePurgeToken(db, closedForAMinute);
+  await db
+    .prepare(
+      "INSERT INTO catalog_invalidations (id, scope, scope_id, created_at) VALUES ('i1', 'product', 'tee', '2026-01-01')"
+    )
+    .run();
+  const purged: string[][] = [];
+  await runCatalogQueueToIdle(purged);
+  expect(purged).toEqual([]);
+  expect(await pendingInvalidations()).toContain('i1');
 });
 
 it('PublicStorefront purges through its own cache handle and refuses without one', async () => {

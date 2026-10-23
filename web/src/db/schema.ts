@@ -8,6 +8,7 @@ import {
   index,
   integer,
   primaryKey,
+  real,
   sqliteTable,
   text,
   uniqueIndex,
@@ -643,6 +644,13 @@ export const catalogInvalidations = sqliteTable(
   },
   (t) => [index('catalog_invalidations_created_idx').on(t.createdAt)]
 );
+
+// Durable token bucket mirroring the Workers Cache purge rate limit.
+export const cachePurgeGate = sqliteTable('cache_purge_gate', {
+  id: integer('id').primaryKey(),
+  tokens: real('tokens').notNull(),
+  refilledAt: integer('refilled_at').notNull(),
+});
 
 // ---------- Inventory: materialised counters + append-only ledger ----------
 export const stock = sqliteTable('stock', {

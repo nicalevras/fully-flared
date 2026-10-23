@@ -1,9 +1,15 @@
 import { it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createTestDb, seedProduct } from './helpers/d1';
 import { runCatalogUnit as productionUnit } from '../web/src/server/catalog-publisher';
-import { CatalogBudget } from '../web/src/server/catalog-exec';
+import { CATALOG_BUDGET_LIMITS, CatalogBudget } from '../web/src/server/catalog-exec';
+import { drainCatalogInvalidations } from '../web/src/server/public-cache';
 import { catalogQueueHarness } from './helpers/catalog-queue';
-import { contentRevision, directoryKey, listingRefKey } from '../web/src/server/catalog-models';
+import {
+  contentRevision,
+  directoryKey,
+  editorialKey,
+  listingRefKey,
+} from '../web/src/server/catalog-models';
 // Advance only Date between deliveries; actual D1 I/O and budget assertions remain real.
 beforeEach(() => vi.useFakeTimers({ toFake: ['Date'] }));
 afterEach(() => vi.useRealTimers());
@@ -342,5 +348,195 @@ it('delivered mutable reference is verified after a stale overwrite', async () =
     expect(kv.map.get(k!)).toBe(exact);
   } finally {
     await dispose();
+  }
+});
+
+class OverrunRecordingBudget extends CatalogBudget {
+  static overruns = 0;
+  override statement(n?: number): void {
+    try {
+      super.statement(n);
+    } catch (error) {
+      OverrunRecordingBudget.overruns++;
+      throw error;
+    }
+  }
+}
+
+async function seedTeesAndPost(db: D1Database, kv: Kv) {
+  const members = JSON.stringify(Array.from({ length: 48 }, (_, i) => `tee-${i}`));
+  await db.batch([
+    db
+      .prepare(
+        "INSERT INTO products(id,slug,title,status,created_at,updated_at) SELECT value,value,value,'active','2026-01-01','2026-01-01' FROM json_each(?)"
+      )
+      .bind(members),
+    db.prepare(
+      "INSERT INTO collections(id,slug,title,kind,created_at) VALUES('c','tees','Tees','manual','2026-01-01')"
+    ),
+    db
+      .prepare(
+        "INSERT INTO product_collections(product_id,collection_id) SELECT value,'c' FROM json_each(?)"
+      )
+      .bind(members),
+    db.prepare(
+      "INSERT INTO posts(id,slug,title,excerpt,content_html,status,published_at,created_at,updated_at) VALUES('po','hello','Hello','','<p>hi</p>','published','2026-01-01','2026-01-01','2026-01-01')"
+    ),
+  ]);
+  await drive(db, kv, 200);
+  await db.prepare('DELETE FROM catalog_invalidations').run();
+}
+
+const invalidated = async (db: D1Database) =>
+  (
+    await db
+      .prepare("SELECT scope||':'||scope_id AS key FROM catalog_invalidations")
+      .all<{ key: string }>()
+  ).results.map((r) => r.key);
+
+it('collection and post edits finish without overrunning the unit budget', async () => {
+  const { db, dispose } = await createTestDb();
+  const kv = new Kv();
+  try {
+    await seedTeesAndPost(db, kv);
+    for (const edit of [
+      "UPDATE collections SET title='Tees 2' WHERE id='c'",
+      "UPDATE posts SET title='Hello 2' WHERE id='po'",
+    ]) {
+      await db.prepare(edit).run();
+      OverrunRecordingBudget.overruns = 0;
+      let done = false;
+      for (let unit = 0; unit < 40 && !done; unit++)
+        done = (await runCatalogUnit(db, kv, { budget: new OverrunRecordingBudget() })).done;
+      expect(done, edit).toBe(true);
+      expect(OverrunRecordingBudget.overruns, edit).toBe(0);
+    }
+  } finally {
+    await dispose();
+  }
+});
+
+it('a post edit resumed at any headroom keeps its invalidations and publishes once', async () => {
+  const { db, dispose } = await createTestDb();
+  const kv = new Kv();
+  try {
+    await seedTeesAndPost(db, kv);
+    await db.prepare("UPDATE posts SET title='Hello 2' WHERE id='po'").run();
+    kv.putKeys = [];
+    const resumedAt = new Set<string>();
+    let done = false;
+    for (let unit = 0; unit < 80 && !done; unit++) {
+      const d1Statements = Math.min(12 + unit, CATALOG_BUDGET_LIMITS.d1Statements);
+      const budget = new CatalogBudget({ ...CATALOG_BUDGET_LIMITS, d1Statements });
+      done = (await runCatalogUnit(db, kv, { budget })).done;
+      const checkpoint = await db
+        .prepare(
+          "SELECT json_extract(state_json,'$.stage') AS stage FROM catalog_builds WHERE kind='work' AND state='waiting'"
+        )
+        .first<{ stage: string }>();
+      if (checkpoint) resumedAt.add(checkpoint.stage);
+    }
+    expect(done).toBe(true);
+    expect([...resumedAt].sort()).toEqual(['editorial', 'layout']);
+    expect(await invalidated(db)).toEqual(
+      expect.arrayContaining(['editorial:hello', 'editorial:index', 'layout:layout'])
+    );
+    expect(kv.putKeys.filter((key) => key === editorialKey('post', 'hello'))).toHaveLength(1);
+  } finally {
+    await dispose();
+  }
+});
+
+it('collection and post index invalidations drain only after their reference is delivered', async () => {
+  const { db, dispose } = await createTestDb();
+  const kv = new Kv();
+  try {
+    await seedTeesAndPost(db, kv);
+    await db.prepare("UPDATE collections SET title='Tees 2' WHERE id='c'").run();
+    await db.prepare("UPDATE posts SET title='Hello 2' WHERE id='po'").run();
+    const purged = new Set<string>();
+    const purge = async (tags: string[]) => tags.forEach((tag) => purged.add(tag));
+    let heldBeforeDelivery = false;
+    let done = false;
+    for (let unit = 0; unit < 80 && !done; unit++) {
+      done = (await runCatalogUnit(db, kv, { budget: new CatalogBudget() })).done;
+      const undelivered = await db
+        .prepare(
+          "SELECT 'listing-'||i.scope_id AS tag FROM catalog_invalidations i JOIN catalog_ref_state r ON r.ref_key=i.ref_key WHERE i.scope_id LIKE '@%' AND r.delivered_seq<i.ref_seq"
+        )
+        .all<{ tag: string }>();
+      if (!undelivered.results.length) continue;
+      const { tags } = await drainCatalogInvalidations(db, purge);
+      for (const { tag } of undelivered.results) expect(tags).not.toContain(tag);
+      heldBeforeDelivery = true;
+    }
+    expect(done).toBe(true);
+    await drainCatalogInvalidations(db, purge);
+    expect(heldBeforeDelivery).toBe(true);
+    expect([...purged]).toEqual(expect.arrayContaining(['listing-@collections', 'listing-@posts']));
+  } finally {
+    await dispose();
+  }
+});
+
+function expireLeaseOnPrepare(db: D1Database, fragment: string) {
+  const expiry = { reached: false };
+  const fenced = new Proxy(db, {
+    get(target, prop) {
+      if (prop === 'prepare')
+        return (sql: string) => {
+          if (!expiry.reached && sql.includes(fragment)) {
+            expiry.reached = true;
+            vi.setSystemTime(Date.now() + 10 * 60_000);
+          }
+          return target.prepare(sql);
+        };
+      const value: unknown = Reflect.get(target, prop);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  return { fenced, expiry };
+}
+
+it('an expired lease cannot commit listings, layouts or work checkpoints', async () => {
+  const count = (db: D1Database, sql: string) =>
+    db
+      .prepare(sql)
+      .first<{ n: number }>()
+      .then((row) => row?.n);
+  for (const [fragment, effect, edit] of [
+    [
+      'INSERT INTO catalog_listing_ref_history',
+      'SELECT COUNT(*) AS n FROM catalog_listing_ref_history',
+      null,
+    ],
+    [
+      "phase='deliver',state='pending_delivery'",
+      "SELECT COUNT(*) AS n FROM catalog_ref_state WHERE ref_key='layout'",
+      null,
+    ],
+    [
+      "'work','waiting','work'",
+      "SELECT COUNT(*) AS n FROM catalog_builds WHERE kind='work'",
+      "UPDATE products SET title='Tee 2' WHERE id='tee-0'",
+    ],
+  ] as const) {
+    const { db, dispose } = await createTestDb();
+    const kv = new Kv();
+    try {
+      if (edit) {
+        await seedTeesAndPost(db, kv);
+        await db.prepare(edit).run();
+      } else await seedProduct(db);
+      const { fenced, expiry } = expireLeaseOnPrepare(db, fragment);
+      for (let unit = 0; unit < 80 && !expiry.reached; unit++) {
+        const before = await count(db, effect);
+        await runCatalogUnit(fenced, kv, { budget: new CatalogBudget() }).catch(() => undefined);
+        if (expiry.reached) expect(await count(db, effect), fragment).toBe(before);
+      }
+      expect(expiry.reached, fragment).toBe(true);
+    } finally {
+      await dispose();
+    }
   }
 });

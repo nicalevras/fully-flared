@@ -11,7 +11,6 @@ import {
   countedDb,
   countedKv,
   fencedCatalogDb,
-  leaseGuardStatement,
   releaseCatalogLease,
   type CatalogLease,
 } from './catalog-exec';
@@ -62,6 +61,12 @@ type PostMetadata = {
 };
 // Leave two bind slots for listing/generation predicates.
 const CHUNK = 88;
+// Upper bounds on D1 statements (fenced writes count their guard) for
+// one build step outside the self-guarding cards phase, one published
+// editorial document, and one layout republish.
+const BUILD_STEP_STATEMENTS = 7;
+const EDITORIAL_DOC_STATEMENTS = 8;
+const LAYOUT_STATEMENTS = 13;
 
 type KvLike = ReclaimKv & {
   get(key: string): Promise<string | null>;
@@ -99,6 +104,16 @@ async function recordInvalidations(
   db: D1Database,
   entries: { scope: string; scopeId: string }[]
 ): Promise<void> {
+  const statements = invalidationStatements(db, entries);
+  if (statements.length) await db.batch(statements);
+}
+
+/** The inserts for `entries`, for commit batches that must record
+ *  their invalidations atomically with the state they invalidate. */
+function invalidationStatements(
+  db: D1Database,
+  entries: { scope: string; scopeId: string }[]
+): D1PreparedStatement[] {
   const seen = new Set<string>();
   const rows = entries.filter((e) => {
     const key = `${e.scope}:${e.scopeId}`;
@@ -106,18 +121,20 @@ async function recordInvalidations(
     seen.add(key);
     return true;
   });
-  if (!rows.length) return;
   const at = now();
+  const statements: D1PreparedStatement[] = [];
   for (let i = 0; i < rows.length; i += 500) {
-    await db
-      .prepare(
-        `WITH entries AS(SELECT json_extract(value,'$.scope') AS scope,json_extract(value,'$.scopeId') AS scope_id FROM json_each(?)), refs AS(SELECT *,CASE WHEN scope='layout' THEN 'layout' WHEN scope='listing' THEN 'listing:'||COALESCE((SELECT id FROM collections WHERE slug=scope_id),scope_id) ELSE NULL END AS ref FROM entries)
+    statements.push(
+      db
+        .prepare(
+          `WITH entries AS(SELECT json_extract(value,'$.scope') AS scope,json_extract(value,'$.scopeId') AS scope_id FROM json_each(?)), refs AS(SELECT *,CASE WHEN scope='layout' THEN 'layout' WHEN scope='listing' THEN 'listing:'||COALESCE((SELECT id FROM collections WHERE slug=scope_id),scope_id) ELSE NULL END AS ref FROM entries)
          INSERT INTO catalog_invalidations (id, scope, scope_id, created_at,ref_key,ref_seq)
          SELECT lower(hex(randomblob(16))),scope,scope_id,?,(SELECT ref_key FROM catalog_ref_state WHERE ref_key=ref),(SELECT committed_seq FROM catalog_ref_state WHERE ref_key=ref) FROM refs`
-      )
-      .bind(JSON.stringify(rows.slice(i, i + 500)), at)
-      .run();
+        )
+        .bind(JSON.stringify(rows.slice(i, i + 500)), at)
+    );
   }
+  return statements;
 }
 
 type PutFn = (key: string, value: string) => Promise<void>;
@@ -335,13 +352,12 @@ type IndexProgress = {
   at: string;
 };
 
-async function schedulePublishedIndex(db: D1Database, listingId: PublishedIndex): Promise<void> {
-  await db
+function publishedIndexSchedule(db: D1Database, listingId: PublishedIndex): D1PreparedStatement {
+  return db
     .prepare(
       "INSERT INTO catalog_builds(id,kind,state,phase,state_json,scope_listing_id,created_at,updated_at) VALUES(?,'index','building','index','{}',?,?,?) ON CONFLICT(id) DO UPDATE SET state='building',phase='index',state_json='{}',updated_at=excluded.updated_at WHERE state='done'"
     )
-    .bind(`index:${listingId}`, listingId, now(), now())
-    .run();
+    .bind(`index:${listingId}`, listingId, now(), now());
 }
 
 /** One index page, directory preparation, or activation per delivery. */
@@ -351,8 +367,7 @@ async function processPublishedIndex(
   put: PutFn,
   buildId: string,
   listingId: PublishedIndex,
-  parentId: string | null,
-  lease?: CatalogLease
+  parentId: string | null
 ): Promise<boolean> {
   const collection = listingId === COLLECTION_INDEX,
     pageSize = collection ? 48 : 50;
@@ -568,7 +583,6 @@ async function processPublishedIndex(
       pageCount: staged.page_count,
       rootHash: staged.root_hash,
     },
-    lease,
     [
       db
         .prepare(
@@ -581,6 +595,7 @@ async function processPublishedIndex(
       db
         .prepare('UPDATE catalog_build_listings SET changed=2 WHERE build_id=? AND listing_id=?')
         .bind(buildId, listingId),
+      ...invalidationStatements(db, [{ scope: 'listing', scopeId: listingId }]),
     ]
   );
   return true;
@@ -592,7 +607,6 @@ async function processPublishedIndex(
 async function commitListingPublication(
   db: D1Database,
   pub: ListingPublication,
-  lease?: CatalogLease,
   progress?: D1PreparedStatement | D1PreparedStatement[]
 ): Promise<number> {
   const state = await db
@@ -624,7 +638,6 @@ async function commitListingPublication(
     ...(metadataKey ? { metadataKey } : {}),
   } satisfies ListingReference);
   await db.batch([
-    ...(lease ? [leaseGuardStatement(db, lease)] : []),
     db
       .prepare(
         'INSERT INTO batch_guard SELECT 1 WHERE (SELECT publication_seq FROM catalog_publication_state WHERE id = 1) IS NOT ?'
@@ -1133,7 +1146,7 @@ export async function processCatalogBuild(
     while (true) {
       // Shared invocation budget (Round 2): when the caller's budget
       // is nearly spent, checkpoint and let a continuation resume.
-      if (budget && ops > 0 && (budget.spent() || budget.d1 >= 30)) {
+      if (budget && ops > 0 && (budget.spent() || !budget.fits(BUILD_STEP_STATEMENTS))) {
         await save();
         return { done: false, buildId: build!.id, phase, opsUsed: ops };
       }
@@ -1594,12 +1607,11 @@ export async function processCatalogBuild(
         if (budget) {
           // Reserve the complete group before writing KV: membership +
           // active revisions + card chunks, three mutations per page,
-          // the batch fence and the fenced checkpoint. Keep the final
-          // four statements available for checkpoint/release handling.
+          // the batch fence and the fenced checkpoint, keeping the
+          // finish reserve available for checkpoint/release handling.
           const groupStatements = (pages: number) =>
             5 + Math.ceil((pages * listing.pageSize) / CHUNK) + 3 * pages;
-          while (groupSize > 0 && groupStatements(groupSize) > budget.remainingStatements - 4)
-            groupSize--;
+          while (groupSize > 0 && !budget.fits(groupStatements(groupSize))) groupSize--;
           if (groupSize === 0) {
             await save();
             return { done: false, buildId: build.id, phase, opsUsed: ops };
@@ -1894,8 +1906,7 @@ export async function processCatalogBuild(
           put,
           `index:${build.id}:${listingId}`,
           listingId,
-          build.id,
-          opts?.lease
+          build.id
         );
         if (done) state.indexKind++;
         if (state.indexKind >= 2) phase = 'activate';
@@ -1927,7 +1938,6 @@ export async function processCatalogBuild(
               total: next.total,
               pageCount: next.page_count,
             },
-            opts?.lease,
             db
               .prepare(
                 'UPDATE catalog_build_listings SET changed=2 WHERE build_id=? AND listing_id=?'
@@ -1946,7 +1956,6 @@ export async function processCatalogBuild(
           state.layoutChanged = false;
           phase = 'deliver';
           await db.batch([
-            ...(opts?.lease ? [leaseGuardStatement(db, opts.lease)] : []),
             db
               .prepare(
                 'INSERT INTO batch_guard SELECT 1 WHERE (SELECT publication_seq FROM catalog_publication_state WHERE id=1)<>?'
@@ -2053,8 +2062,7 @@ export async function runCatalogUnit(
         },
         open.id,
         open.scope_listing_id as PublishedIndex,
-        null,
-        lease
+        null
       );
       return { done: false, busy: false };
     }
@@ -2467,7 +2475,7 @@ async function publishStagedGeneration(
     pageCount: staged.pageCount,
     rootHash,
   };
-  const seq = await commitListingPublication(db, pub, lease);
+  const seq = await commitListingPublication(db, pub);
   await deliverListingRef(db, kv, put, pub, seq, lease);
 }
 
@@ -2636,7 +2644,7 @@ async function refreshListing(
     pageCount,
     rootHash,
   };
-  const seq = await commitListingPublication(db, pub, lease);
+  const seq = await commitListingPublication(db, pub);
   await deliverListingRef(db, kv, put, pub, seq, lease);
   return { changed: true, generation: active.generation };
 }
@@ -2957,7 +2965,7 @@ async function refreshAffectedListing(
     await ctx.preparePublication(pub);
     return true;
   }
-  const seq = await commitListingPublication(db, pub, ctx.lease);
+  const seq = await commitListingPublication(db, pub);
   await deliverListingRef(db, kv, put, pub, seq, ctx.lease);
   return true;
 }
@@ -3008,65 +3016,73 @@ export async function processCatalogWork(
   }
   if (!claimed.length)
     return { processed: 0, productsPublished: 0, listingsRefreshed: [], kvPuts: 0 };
-
-  const checkpointId = budget && claimed.length === 1 ? `work-${claimed[0]!.id}` : null;
-  const checkpoint = checkpointId
-    ? await db
-        .prepare('SELECT source_revision,state_json FROM catalog_builds WHERE id=?')
-        .bind(checkpointId)
-        .first<{ source_revision: number; state_json: string }>()
-    : null;
-  const progress =
-    checkpoint && checkpoint.source_revision === claimed[0]!.target_revision
-      ? (JSON.parse(checkpoint.state_json) as {
-          stage: string;
-          lastListing: string;
-          cardChanged: boolean;
-        })
-      : null;
-  const saveWork = async (
-    stage: string,
-    lastListing: string,
-    cardChanged: boolean,
-    publication?: ListingPublication
-  ) => {
-    if (!checkpointId) return;
-    await db.batch([
-      ...(lease ? [leaseGuardStatement(db, lease)] : []),
-      ...(publication
-        ? [
-            db
-              .prepare(
-                'INSERT INTO catalog_build_listings(build_id,listing_id,generation,root_hash,page_count,total,changed) VALUES(?,?,?,?,?,?,1) ON CONFLICT(build_id,listing_id) DO UPDATE SET generation=excluded.generation,root_hash=excluded.root_hash,page_count=excluded.page_count,total=excluded.total,changed=1'
-              )
-              .bind(
-                checkpointId,
-                publication.listingId,
-                publication.generation,
-                publication.rootHash,
-                publication.pageCount,
-                publication.total
-              ),
-          ]
-        : []),
-      db
-        .prepare(
-          "INSERT INTO catalog_builds(id,kind,state,phase,state_json,source_revision,created_at,updated_at) VALUES(?,'work','waiting','work',?,?,?,?) ON CONFLICT(id) DO UPDATE SET state='waiting',state_json=excluded.state_json,source_revision=excluded.source_revision,updated_at=excluded.updated_at"
-        )
-        .bind(
-          checkpointId,
-          JSON.stringify({ stage, lastListing, cardChanged }),
-          claimed[0]!.target_revision,
-          now(),
-          now()
-        ),
-      db
-        .prepare('UPDATE catalog_work SET build_token=NULL WHERE id=? AND build_token=?')
-        .bind(claimed[0]!.id, token),
-    ]);
-  };
+  // The finish batch: fence guard, invalidations, both index schedules,
+  // one ack per claimed row and the done marker; then the lease release.
+  budget?.reserve(claimed.length + 6);
 
   try {
+    const checkpointId = budget && claimed.length === 1 ? `work-${claimed[0]!.id}` : null;
+    const checkpoint = checkpointId
+      ? await db
+          .prepare('SELECT source_revision,state_json FROM catalog_builds WHERE id=?')
+          .bind(checkpointId)
+          .first<{ source_revision: number; state_json: string }>()
+      : null;
+    const progress =
+      checkpoint && checkpoint.source_revision === claimed[0]!.target_revision
+        ? (JSON.parse(checkpoint.state_json) as {
+            stage: 'listings' | 'publication' | 'editorial' | 'layout';
+            lastListing: string;
+            cardChanged: boolean;
+          })
+        : null;
+    const invalidations: { scope: string; scopeId: string }[] = [];
+    // Checkpoints record the invalidations gathered so far: replayed work
+    // is content-addressed and would not gather them again.
+    const saveWork = async (
+      stage: NonNullable<typeof progress>['stage'],
+      lastListing: string,
+      cardChanged: boolean,
+      publication?: ListingPublication
+    ) => {
+      if (!checkpointId || !budget) return;
+      await budget.finalize(() =>
+        db.batch([
+          ...(publication
+            ? [
+                db
+                  .prepare(
+                    'INSERT INTO catalog_build_listings(build_id,listing_id,generation,root_hash,page_count,total,changed) VALUES(?,?,?,?,?,?,1) ON CONFLICT(build_id,listing_id) DO UPDATE SET generation=excluded.generation,root_hash=excluded.root_hash,page_count=excluded.page_count,total=excluded.total,changed=1'
+                  )
+                  .bind(
+                    checkpointId,
+                    publication.listingId,
+                    publication.generation,
+                    publication.rootHash,
+                    publication.pageCount,
+                    publication.total
+                  ),
+              ]
+            : []),
+          db
+            .prepare(
+              "INSERT INTO catalog_builds(id,kind,state,phase,state_json,source_revision,created_at,updated_at) VALUES(?,'work','waiting','work',?,?,?,?) ON CONFLICT(id) DO UPDATE SET state='waiting',state_json=excluded.state_json,source_revision=excluded.source_revision,updated_at=excluded.updated_at"
+            )
+            .bind(
+              checkpointId,
+              JSON.stringify({ stage, lastListing, cardChanged }),
+              claimed[0]!.target_revision,
+              now(),
+              now()
+            ),
+          ...invalidationStatements(db, invalidations),
+          db
+            .prepare('UPDATE catalog_work SET build_token=NULL WHERE id=? AND build_token=?')
+            .bind(claimed[0]!.id, token),
+        ])
+      );
+    };
+
     if (checkpointId && progress?.stage === 'publication') {
       const prepared = await db
         .prepare(
@@ -3094,7 +3110,6 @@ export async function processCatalogWork(
             pageCount: prepared.page_count,
             pageSize: prepared.listing_id === ALL_LISTING ? HOME_PAGE_SIZE : COLLECTION_PAGE_SIZE,
           },
-          lease,
           [
             db
               .prepare(
@@ -3209,7 +3224,6 @@ export async function processCatalogWork(
     );
     let productsPublished = 0;
     const cardChangedIds = new Set<string>();
-    const invalidations: { scope: string; scopeId: string }[] = [];
 
     // Publish affected products (cards + documents), removing stale ones.
     if (productIds.size && !progress) {
@@ -3288,111 +3302,122 @@ export async function processCatalogWork(
     }
 
     if (checkpointId && !progress && productIds.size) {
-      await recordInvalidations(db, invalidations);
       await saveWork('listings', '', cardChangedIds.size > 0);
       return { processed: 0, productsPublished, listingsRefreshed: [], kvPuts, more: true };
     }
-    const affected = new Set<string>(collectionIds);
-    let collections: { results: WorkCollection[] };
-    if (budget) {
-      if (productIds.size) {
-        const pid = [...productIds][0]!;
-        const next = await db
-          .prepare(
-            "SELECT id FROM (SELECT 'all' AS id UNION SELECT c.id FROM collections c WHERE c.kind='rule' OR EXISTS(SELECT 1 FROM product_collections pc WHERE pc.product_id=? AND pc.collection_id=c.id) OR EXISTS(SELECT 1 FROM catalog_page_products pp WHERE pp.product_id=? AND pp.listing_id=c.id)) WHERE id>? ORDER BY id LIMIT 1"
-          )
-          .bind(pid, pid, progress?.lastListing ?? '')
-          .first<{ id: string }>();
-        if (next) affected.add(next.id);
-      }
-      collections = await db
-        .prepare(
-          'SELECT id,slug,title,kind,rule_json FROM collections WHERE id IN (SELECT value FROM json_each(?)) ORDER BY id'
-        )
-        .bind(JSON.stringify([...affected]))
-        .all<WorkCollection>();
-    } else {
-      // Determine and refresh affected listings.
-
-      if (productIds.size) {
-        affected.add(ALL_LISTING);
-        const idList = [...productIds];
-        for (let i = 0; i < idList.length; i += CHUNK) {
-          const chunk = idList.slice(i, i + CHUNK);
-          const containing = await db
-            .prepare(
-              `SELECT DISTINCT listing_id FROM catalog_page_products WHERE product_id IN (${placeholders(chunk.length)})`
-            )
-            .bind(...chunk)
-            .all<{ listing_id: string }>();
-          for (const r of containing.results) affected.add(r.listing_id);
-          const manual = await db
-            .prepare(
-              `SELECT DISTINCT collection_id FROM product_collections WHERE product_id IN (${placeholders(chunk.length)})`
-            )
-            .bind(...chunk)
-            .all<{ collection_id: string }>();
-          for (const r of manual.results) affected.add(r.collection_id);
-        }
-        const ruleCols = await db
-          .prepare("SELECT id FROM collections WHERE kind = 'rule'")
-          .all<{ id: string }>();
-        for (const r of ruleCols.results) affected.add(r.id);
-      }
-
-      collections = await db
-        .prepare('SELECT id,slug,title,kind,rule_json FROM collections ORDER BY slug')
-        .all<WorkCollection>();
-    }
-    if (progress?.cardChanged) for (const id of productIds) cardChangedIds.add(id);
-    if (!budget || collectionIds.size)
-      await publishCollectionMeta(db, kv, put, budget ? [...collectionIds] : undefined);
+    const pastListings = progress?.stage === 'editorial' || progress?.stage === 'layout';
     const listingsRefreshed: string[] = [];
-    for (const listingId of [...affected].sort()) {
-      if (progress && listingId <= progress.lastListing) continue;
-      if (budget?.spent()) throw new BudgetExhausted('combined');
-      let prepared = false;
-      const changed = await refreshAffectedListing(db, kv, put, listingId, {
-        cardsById,
-        productIds,
-        cardChangedIds,
-        collectionEdited: collectionIds.has(listingId),
-        collections: collections.results,
-        ...(budget ? { budget } : {}),
-        ...(lease ? { lease } : {}),
-        ...(checkpointId && budget
-          ? {
-              preparePublication: async (publication: ListingPublication) => {
-                await budget.finalize(() =>
-                  saveWork('publication', listingId, cardChangedIds.size > 0, publication)
-                );
-                prepared = true;
-              },
-            }
-          : {}),
-      });
-      if (prepared)
-        return { processed: 0, productsPublished, listingsRefreshed: [], kvPuts, more: true };
-      if (changed) {
-        listingsRefreshed.push(listingId);
-        invalidations.push({
-          scope: 'listing',
-          scopeId:
-            listingId === ALL_LISTING
-              ? 'all'
-              : (collections.results.find((c) => c.id === listingId)?.slug ?? listingId),
-        });
+    if (!pastListings) {
+      const affected = new Set<string>(collectionIds);
+      let collections: { results: WorkCollection[] };
+      if (budget) {
+        if (productIds.size) {
+          const pid = [...productIds][0]!;
+          const next = await db
+            .prepare(
+              "SELECT id FROM (SELECT 'all' AS id UNION SELECT c.id FROM collections c WHERE c.kind='rule' OR EXISTS(SELECT 1 FROM product_collections pc WHERE pc.product_id=? AND pc.collection_id=c.id) OR EXISTS(SELECT 1 FROM catalog_page_products pp WHERE pp.product_id=? AND pp.listing_id=c.id)) WHERE id>? ORDER BY id LIMIT 1"
+            )
+            .bind(pid, pid, progress?.lastListing ?? '')
+            .first<{ id: string }>();
+          if (next) affected.add(next.id);
+        }
+        collections = await db
+          .prepare(
+            'SELECT id,slug,title,kind,rule_json FROM collections WHERE id IN (SELECT value FROM json_each(?)) ORDER BY id'
+          )
+          .bind(JSON.stringify([...affected]))
+          .all<WorkCollection>();
+      } else {
+        // Determine and refresh affected listings.
+
+        if (productIds.size) {
+          affected.add(ALL_LISTING);
+          const idList = [...productIds];
+          for (let i = 0; i < idList.length; i += CHUNK) {
+            const chunk = idList.slice(i, i + CHUNK);
+            const containing = await db
+              .prepare(
+                `SELECT DISTINCT listing_id FROM catalog_page_products WHERE product_id IN (${placeholders(chunk.length)})`
+              )
+              .bind(...chunk)
+              .all<{ listing_id: string }>();
+            for (const r of containing.results) affected.add(r.listing_id);
+            const manual = await db
+              .prepare(
+                `SELECT DISTINCT collection_id FROM product_collections WHERE product_id IN (${placeholders(chunk.length)})`
+              )
+              .bind(...chunk)
+              .all<{ collection_id: string }>();
+            for (const r of manual.results) affected.add(r.collection_id);
+          }
+          const ruleCols = await db
+            .prepare("SELECT id FROM collections WHERE kind = 'rule'")
+            .all<{ id: string }>();
+          for (const r of ruleCols.results) affected.add(r.id);
+        }
+
+        collections = await db
+          .prepare('SELECT id,slug,title,kind,rule_json FROM collections ORDER BY slug')
+          .all<WorkCollection>();
       }
-      if (checkpointId && productIds.size) {
-        await recordInvalidations(db, invalidations);
-        await saveWork('listings', listingId, cardChangedIds.size > 0);
-        return { processed: 0, productsPublished, listingsRefreshed, kvPuts, more: true };
+      if (progress?.cardChanged) for (const id of productIds) cardChangedIds.add(id);
+      if (!budget || (collectionIds.size && !progress))
+        await publishCollectionMeta(db, kv, put, budget ? [...collectionIds] : undefined);
+      for (const listingId of [...affected].sort()) {
+        if (progress && listingId <= progress.lastListing) continue;
+        if (budget?.spent()) throw new BudgetExhausted('combined');
+        let prepared = false;
+        const changed = await refreshAffectedListing(db, kv, put, listingId, {
+          cardsById,
+          productIds,
+          cardChangedIds,
+          collectionEdited: collectionIds.has(listingId),
+          collections: collections.results,
+          ...(budget ? { budget } : {}),
+          ...(lease ? { lease } : {}),
+          ...(checkpointId && budget
+            ? {
+                preparePublication: async (publication: ListingPublication) => {
+                  await saveWork('publication', listingId, cardChangedIds.size > 0, publication);
+                  prepared = true;
+                },
+              }
+            : {}),
+        });
+        if (prepared)
+          return { processed: 0, productsPublished, listingsRefreshed: [], kvPuts, more: true };
+        if (changed) {
+          listingsRefreshed.push(listingId);
+          invalidations.push({
+            scope: 'listing',
+            scopeId:
+              listingId === ALL_LISTING
+                ? 'all'
+                : (collections.results.find((c) => c.id === listingId)?.slug ?? listingId),
+          });
+        }
+        if (checkpointId) {
+          await saveWork('listings', listingId, cardChangedIds.size > 0);
+          return { processed: 0, productsPublished, listingsRefreshed, kvPuts, more: true };
+        }
       }
     }
 
     // Editorial documents for changed posts/pages. Slugs captured on
     // the work rows (migration 0006) let a hard delete still remove
     // and invalidate its slug-keyed document after the row is gone.
+    const pause = async (stage: 'editorial' | 'layout') => {
+      await saveWork(stage, '', cardChangedIds.size > 0);
+      return { processed: 0, productsPublished, listingsRefreshed, kvPuts, more: true };
+    };
+    const editorialIds = progress?.stage === 'layout' ? 0 : postIds.length + pageIds.length;
+    if (
+      editorialIds &&
+      checkpointId &&
+      budget &&
+      !budget.fits(EDITORIAL_DOC_STATEMENTS * editorialIds)
+    )
+      return pause('editorial');
     const slugById = new Map<string, string>();
     for (const row of claimed)
       if ((row.entity_type === 'post' || row.entity_type === 'page') && row.entity_slug)
@@ -3401,7 +3426,7 @@ export async function processCatalogWork(
       ['post', postIds],
       ['page', pageIds],
     ] as const) {
-      for (const id of ids) {
+      for (const id of editorialIds ? ids : []) {
         const row =
           kind === 'post'
             ? await db
@@ -3501,10 +3526,12 @@ export async function processCatalogWork(
       }
     }
 
-    if (
+    const layoutDue =
       !budget ||
-      claimed.some((r) => ['settings', 'post', 'page', 'collection'].includes(r.entity_type))
-    ) {
+      claimed.some((r) => ['settings', 'post', 'page', 'collection'].includes(r.entity_type));
+    if (layoutDue && checkpointId && budget && !budget.fits(LAYOUT_STATEMENTS))
+      return pause('layout');
+    if (layoutDue) {
       // Layout + navigation are content-addressed: republish only on change.
       const settings = await getSettings(db);
       const layout = await buildLayoutModel(db, settings);
@@ -3554,38 +3581,34 @@ export async function processCatalogWork(
       }
     }
 
-    await recordInvalidations(db, invalidations);
-
-    if (collectionIds.size) await schedulePublishedIndex(db, COLLECTION_INDEX);
-    if (postIds.length) await schedulePublishedIndex(db, POSTS_INDEX);
-
-    // Mark claimed revisions processed. Rows whose target advanced
-    // during this build keep processed < target and stay due; media
-    // rows whose fan-out cursor is unfinished stay due immediately.
-    let acked = 0;
-    for (const row of claimed) {
-      if (deferredWorkRows.has(row.id)) {
-        await db
-          .prepare(
-            'UPDATE catalog_work SET build_token = NULL, next_attempt_at = ? WHERE id = ? AND build_token = ?'
-          )
-          .bind(now(), row.id, token)
-          .run();
-        continue;
-      }
-      await db
-        .prepare(
-          'UPDATE catalog_work SET processed_revision = ?, build_token = NULL, retry_count = 0, next_attempt_at = NULL WHERE id = ? AND build_token = ?'
-        )
-        .bind(row.target_revision, row.id, token)
-        .run();
-      acked++;
-    }
-    if (checkpointId)
-      await db
-        .prepare("UPDATE catalog_builds SET state='done' WHERE id=?")
-        .bind(checkpointId)
-        .run();
+    // Mark claimed revisions processed together with what they publish.
+    // Rows whose target advanced during this build keep processed <
+    // target and stay due; media rows whose fan-out cursor is
+    // unfinished stay due immediately.
+    const finish = () =>
+      db.batch([
+        ...invalidationStatements(db, invalidations),
+        ...(collectionIds.size ? [publishedIndexSchedule(db, COLLECTION_INDEX)] : []),
+        ...(postIds.length ? [publishedIndexSchedule(db, POSTS_INDEX)] : []),
+        ...claimed.map((row) =>
+          deferredWorkRows.has(row.id)
+            ? db
+                .prepare(
+                  'UPDATE catalog_work SET build_token = NULL, next_attempt_at = ? WHERE id = ? AND build_token = ?'
+                )
+                .bind(now(), row.id, token)
+            : db
+                .prepare(
+                  'UPDATE catalog_work SET processed_revision = ?, build_token = NULL, retry_count = 0, next_attempt_at = NULL WHERE id = ? AND build_token = ?'
+                )
+                .bind(row.target_revision, row.id, token)
+        ),
+        ...(checkpointId
+          ? [db.prepare("UPDATE catalog_builds SET state='done' WHERE id=?").bind(checkpointId)]
+          : []),
+      ]);
+    await (budget ? budget.finalize(finish) : finish());
+    const acked = claimed.filter((row) => !deferredWorkRows.has(row.id)).length;
 
     return {
       processed: acked,

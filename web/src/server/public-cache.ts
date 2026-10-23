@@ -90,14 +90,15 @@ export function privateResponse(request: Request, response: Response): boolean {
 export function cacheTagsForPath(pathname: string): string[] {
   const tags = ['layout'];
   if (pathname === '/') {
-    tags.push('listing-all');
+    tags.push('listing-all', 'listing-@collections');
     return tags;
   }
   const [, section, slug] = pathname.split('/');
   if (section === 'products' && slug) tags.push(`product-${slug}`);
-  else if (section === 'collections' && slug) tags.push(`listing-${slug}`);
+  else if (section === 'collections') tags.push(slug ? `listing-${slug}` : 'listing-@collections');
   else if (section === 'pages' && slug) tags.push(`editorial-${slug}`);
-  else if (section === 'blog') tags.push(slug ? `editorial-${slug}` : 'editorial-index');
+  else if (section === 'blog')
+    tags.push(...(slug ? [`editorial-${slug}`] : ['editorial-index', 'listing-@posts']));
   return tags;
 }
 
@@ -150,10 +151,31 @@ export function invalidationTags(rows: CatalogInvalidation[]): string[] {
   return [...tags];
 }
 
+// Workers Cache purges always run under the Free plan limits: 5 requests
+// per minute refilling a bucket of 25, at most 100 tags per request.
+const PURGE_BUCKET = 25;
+const PURGE_REFILL_PER_MS = 5 / 60_000;
+const PURGE_TAG_LIMIT = 100;
+
+/** Takes one purge request from the durable bucket shared by every
+ *  drain. A single conditional UPDATE refills and spends atomically,
+ *  so concurrent drains can never overspend the account limit. */
+export async function takePurgeToken(db: D1Database, nowMs = Date.now()): Promise<boolean> {
+  const available = `MIN(${PURGE_BUCKET},tokens+MAX(0,?1-refilled_at)*${PURGE_REFILL_PER_MS})`;
+  const taken = await db
+    .prepare(
+      `UPDATE cache_purge_gate SET tokens=${available}-1,refilled_at=MAX(refilled_at,?1) WHERE id=1 AND ${available}>=1 RETURNING tokens`
+    )
+    .bind(nowMs)
+    .first();
+  return taken !== null;
+}
+
 /** Drains pending catalog invalidations through the cache-owning
- *  entrypoint. Rows are deleted only after a successful purge; on
- *  failure they stay pending for the next pass and the TTL remains
- *  the fallback, so a failed purge never loses the invalidation. */
+ *  entrypoint, at most 100 tags per purge and one gate token per
+ *  request. Rows are deleted only once their tag was purged; a refused
+ *  or failed request leaves the rest pending for the next pass and the
+ *  TTL remains the fallback, so a failed purge never loses one. */
 export async function drainCatalogInvalidations(
   db: D1Database,
   purge: (tags: string[]) => Promise<unknown>,
@@ -182,17 +204,27 @@ export async function drainCatalogInvalidations(
       })
     );
   const tags = invalidationTags(mapped);
-  if (tags.length) {
+  const purged = new Set<string>();
+  for (let i = 0; i < tags.length; i += PURGE_TAG_LIMIT) {
+    const chunk = tags.slice(i, i + PURGE_TAG_LIMIT);
+    if (!(await takePurgeToken(db))) {
+      console.warn(
+        JSON.stringify({ event: 'catalog_cache_purge_deferred', pending: tags.length - i })
+      );
+      break;
+    }
     try {
-      await purge(tags);
+      await purge(chunk);
     } catch (error) {
       console.error(JSON.stringify({ event: 'catalog_cache_purge_failed', error: String(error) }));
-      return { drained: 0, tags };
+      break;
     }
+    for (const tag of chunk) purged.add(tag);
   }
+  const done = mapped.filter((r) => purged.has(invalidationTag(r.scope, r.scopeId) ?? ''));
   let drained = 0;
-  for (let i = 0; i < mapped.length; i += 90) {
-    const chunk = mapped.slice(i, i + 90);
+  for (let i = 0; i < done.length; i += 90) {
+    const chunk = done.slice(i, i + 90);
     const removed = await db
       .prepare(
         `DELETE FROM catalog_invalidations WHERE EXISTS(SELECT 1 FROM json_each(?) x
@@ -205,5 +237,5 @@ export async function drainCatalogInvalidations(
       .run();
     drained += removed.meta.changes ?? 0;
   }
-  return { drained, tags };
+  return { drained, tags: [...purged] };
 }

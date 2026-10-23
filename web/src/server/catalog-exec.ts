@@ -25,8 +25,13 @@ export const CATALOG_BUDGET_LIMITS = {
 // enqueue its continuation.
 export const BUDGET_RESERVE = 60;
 
+// Statements held back for a unit's finishing writes (checkpoint and
+// lease release) unless the unit reserves its own exact finish.
+const FINISH_RESERVE = 4;
+
 export class CatalogBudget {
   private finishing = false;
+  private finish = FINISH_RESERVE;
   d1 = 0;
   kv = 0;
   other = 0;
@@ -53,10 +58,18 @@ export class CatalogBudget {
   // never exceeds the limits. The caller checkpoints and continues
   // in a later invocation; partial chunk writes are idempotent.
   statement(n = 1): void {
-    if (this.d1 + n > this.limits.d1Statements - (this.finishing ? 0 : 4))
+    if (this.d1 + n > this.limits.d1Statements - (this.finishing ? 0 : this.finish))
       throw new BudgetExhausted('d1');
     if (this.combined + n > this.limits.combinedOps) throw new BudgetExhausted('combined');
     this.d1 += n;
+  }
+  /** Sizes the reserve to the statements the unit's finish will spend. */
+  reserve(statements: number): void {
+    this.finish = statements;
+  }
+  /** True when `statements` more still leave the finish affordable. */
+  fits(statements: number): boolean {
+    return this.d1 + statements <= this.limits.d1Statements - this.finish;
   }
   async finalize<T>(operation: () => Promise<T>): Promise<T> {
     this.finishing = true;
