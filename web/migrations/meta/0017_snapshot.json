@@ -3330,12 +3330,6 @@
           "columns": ["status", "created_at"],
           "isUnique": false
         },
-        "outbox_retry_due_idx": {
-          "name": "outbox_retry_due_idx",
-          "columns": ["status", "retry_after", "created_at", "id"],
-          "isUnique": false,
-          "where": "\"outbox\".\"attempts\"<3"
-        },
         "outbox_claim_due_idx": {
           "name": "outbox_claim_due_idx",
           "columns": ["status", "claimed_at", "id"],
@@ -4078,11 +4072,6 @@
         "refunds_order_idx": {
           "name": "refunds_order_idx",
           "columns": ["order_id"],
-          "isUnique": false
-        },
-        "refunds_retry_due_idx": {
-          "name": "refunds_retry_due_idx",
-          "columns": ["status", "retry_after", "id"],
           "isUnique": false
         },
         "refunds_age_due_idx": {
@@ -5245,12 +5234,6 @@
           "name": "webhook_inbox_due_idx",
           "columns": ["status", "retry_after", "received_at"],
           "isUnique": false
-        },
-        "webhook_pending_received_idx": {
-          "name": "webhook_pending_received_idx",
-          "columns": ["received_at", "event_id"],
-          "isUnique": false,
-          "where": "\"webhook_inbox\".\"status\"='pending'"
         },
         "webhook_inbox_retention_idx": {
           "name": "webhook_inbox_retention_idx",

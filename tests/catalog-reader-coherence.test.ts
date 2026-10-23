@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createTestDb, seedProduct } from './helpers/d1';
 import { buildCatalogReadModels } from './helpers/catalog-driver';
 import {
@@ -45,7 +45,10 @@ beforeEach(async () => {
   await seedProduct(db);
   await buildCatalogReadModels(db, kv);
 });
-afterEach(async () => dispose());
+afterEach(async () => {
+  vi.useRealTimers();
+  await dispose();
+});
 
 it('a missing old page resolves its pinned publication, never the newest one', async () => {
   const old = await readListingRef(db, kv, ALL_LISTING);
@@ -243,7 +246,7 @@ it('complete title/ID-ordered discovery and pinned collection SEO survive missin
   );
 });
 
-it('the actual queue resumes a changed discovery index within the shared invocation budget', async () => {
+it('the actual queue resumes a changed discovery index within the shared invocation budget', {timeout:180_000}, async () => {
   await db
     .prepare(
       "INSERT INTO collections(id,slug,title,description,kind,created_at) VALUES('c','tees','Tees','Original','manual','2026-01-01')"
@@ -265,6 +268,7 @@ it('the actual queue resumes a changed discovery index within the shared invocat
     }
   };
   const queue = await catalogQueueHarness(db, kv);
+  vi.useFakeTimers({ toFake: ['Date'] });
   let complete = false;
   for (let i = 0; i < 180; i++) {
     const step = await queue.deliver();

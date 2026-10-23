@@ -15,6 +15,7 @@ import { setSetting } from '../web/src/server/settings';
 import * as settings from '../web/src/server/settings';
 import { handleCheckoutRequest } from '../web/src/routes/api/checkout';
 import { fakeAdmissionNamespace } from './helpers/admission';
+import { checkoutCart, reviewSession } from './helpers/checkout-review';
 import { addCartLine, cartCookieHeader, ensureCart } from '../web/src/server/cart';
 import { releaseExpiredReservations } from '../web/src/server/inventory';
 import { cancelExpiredPendingOrders } from '../web/src/server/checkout';
@@ -23,6 +24,8 @@ vi.mock('../web/src/server/turnstile', () => ({ verifyTurnstile: async () => tru
 
 const provider = {
   createCheckout: vi.fn(),
+  createCheckoutCustomer: vi.fn(async () => 'cus_fixture'),
+  retrieveCheckoutSession: (id: string) => reviewSession(db, id),
   async verifyWebhook(payload: string) {
     const event = JSON.parse(payload);
     return { ...event, data: event.data.object };
@@ -273,7 +276,7 @@ it('refunds a late paid order if coupon capacity is now exhausted, without commi
     .prepare('SELECT payload_json FROM outbox WHERE id=?')
     .bind(`refund-${refund!.id}`)
     .first<{ payload_json: string }>();
-  expect(email?.payload_json).toContain('expired checkout');
+  expect(email?.payload_json).toContain('could not be completed or was canceled');
   expect(email?.payload_json).not.toContain('items sold out');
 });
 
@@ -462,6 +465,7 @@ it('serializes payment and expiry with one coupon, receipt and inventory commitm
 });
 
 it('uses persisted order currency even if a subsequent settings read differs', async () => {
+  const cart = await checkoutCart(db);
   const original = settings.getSettings;
   vi.spyOn(settings, 'getSettings').mockImplementation(async (database) => {
     const result = await original(database);
@@ -474,9 +478,13 @@ it('uses persisted order currency even if a subsequent settings read differs', a
   const response = await handleCheckoutRequest(
     new Request('http://localhost:8799/api/checkout', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', cookie: 'guest_checkout=audit-route' },
+      headers: {
+        'content-type': 'application/json',
+        cookie: `guest_checkout=audit-route; ${cart.cookie}`,
+      },
       body: JSON.stringify({
         intentId: '123e4567-e89b-42d3-a456-426614174001',
+        ...cart,
         quoteRevision: (
           await quoteOrder(db, {
             email: 'route@example.invalid',
@@ -513,9 +521,13 @@ it('uses persisted order currency even if a subsequent settings read differs', a
   );
 });
 
-it('returns the checkout URL even when cart conversion fails after attach', async () => {
+it('preparing checkout preserves the cart and does not run conversion cleanup', async () => {
   const cart = await ensureCart(db, null);
   await addCartLine(db, cart.creds, 'TEE-1', 1);
+  const identity = await db
+    .prepare('SELECT revision FROM carts WHERE id=?')
+    .bind(cart.creds.id)
+    .first<{ revision: number }>();
   provider.createCheckout.mockResolvedValue({
     sessionId: 'cs_convert_fail',
     url: 'https://checkout.stripe.invalid/convert-fail',
@@ -524,8 +536,7 @@ it('returns the checkout URL even when cart conversion fails after attach', asyn
     get(target, key) {
       if (key === 'prepare')
         return (sql: string) => {
-          if (sql.includes('carts') || sql.includes('cart_items'))
-            throw new Error('cart store unavailable');
+          if (/UPDATE.*carts.*converted/i.test(sql)) throw new Error('cart store unavailable');
           return target.prepare(sql);
         };
       const value = Reflect.get(target, key);
@@ -541,6 +552,16 @@ it('returns the checkout URL even when cart conversion fails after attach', asyn
       },
       body: JSON.stringify({
         intentId: '123e4567-e89b-42d3-a456-426614174002',
+        cartId: cart.creds.id,
+        cartRevision: identity!.revision,
+        shippingAddress: {
+          name: 'Fixture',
+          line1: '1 Test St',
+          city: 'New York',
+          state: 'NY',
+          postalCode: '10001',
+          country: 'US',
+        },
         quoteRevision: (
           await quoteOrder(db, {
             email: 'route@example.invalid',
@@ -571,10 +592,12 @@ it('returns the checkout URL even when cart conversion fails after attach', asyn
     } as never
   );
   expect(response.status).toBe(200);
-  expect((await response.json()).checkoutUrl).toBe('https://checkout.stripe.invalid/convert-fail');
+  expect((await response.json()).state).toBe('review_ready');
   const cookies = response.headers.getSetCookie().join(';');
-  expect(cookies).toContain('cart=');
-  expect(cookies).toContain('cart_count=0');
+  expect(cookies).not.toContain('Max-Age=0');
+  expect(
+    await db.prepare('SELECT status FROM carts WHERE id=?').bind(cart.creds.id).first()
+  ).toMatchObject({ status: 'open' });
 });
 
 it('baseline keeps populated coupons and claims intact, and leaves invalid old coupons unredeemable', async () => {

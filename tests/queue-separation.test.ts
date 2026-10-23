@@ -24,7 +24,7 @@ import { jobMessageSchema } from '../web/src/schemas/queue';
 
 it('routes each message type to its separated queue', async () => {
   await enqueueJob({ type: 'webhook.process', eventId: 'evt_1' });
-  expect(sends.JOBS).toHaveBeenCalledWith({ type: 'webhook.process', eventId: 'evt_1' });
+  expect(sends.JOBS).toHaveBeenCalledWith({ type: 'webhook.process', eventId: 'evt_1' }, undefined);
   await enqueueJob({ type: 'email.send', outboxId: 'o1' });
   expect(sends.NOTIFICATIONS).toHaveBeenCalledTimes(1);
   await enqueueJob({ type: 'catalog.rebuild' });

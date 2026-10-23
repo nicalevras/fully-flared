@@ -119,6 +119,7 @@ describe('outbox claiming and abandoned reminders', () => {
   });
 
   it('claims and queues an abandoned reminder exactly once', async () => {
+    await db.prepare("UPDATE settings SET value='1' WHERE key='abandoned_reminders_enabled'").run();
     const now = new Date().toISOString();
     await db
       .prepare(
@@ -127,6 +128,7 @@ describe('outbox claiming and abandoned reminders', () => {
       )
       .bind(now, now)
       .run();
+    await db.prepare("UPDATE orders SET reminder_consent=1 WHERE id='ab-1'").run();
     await expect(
       queueAbandonedReminder(db, { id: 'ab-1', number: 'ORD-AB', customer_email: 'a@b.com' })
     ).resolves.toBe(true);
@@ -134,9 +136,9 @@ describe('outbox claiming and abandoned reminders', () => {
       queueAbandonedReminder(db, { id: 'ab-1', number: 'ORD-AB', customer_email: 'a@b.com' })
     ).resolves.toBe(false);
     const outbox = await db
-      .prepare("SELECT COUNT(*) AS c FROM outbox WHERE type = 'email.send'")
+      .prepare("SELECT COUNT(*) AS c FROM outbox WHERE id='abandoned-ab-1'")
       .first<{ c: number }>();
-    expect(outbox?.c).toBe(2); // one from this test plus out-1 above
+    expect(outbox?.c).toBe(1);
   });
 
   it('creates no reminder for an order already paid when the claim executes', async () => {
@@ -149,7 +151,9 @@ describe('outbox claiming and abandoned reminders', () => {
       .bind(now, now)
       .run();
     // Payment completes after the cron selection but before the claim.
-    await db.prepare("UPDATE orders SET payment_status = 'paid' WHERE id = 'ab-2'").run();
+    await db
+      .prepare("UPDATE orders SET payment_status = 'paid',reminder_consent=1 WHERE id = 'ab-2'")
+      .run();
     await expect(
       queueAbandonedReminder(db, { id: 'ab-2', number: 'ORD-AB2', customer_email: 'a@b.com' })
     ).resolves.toBe(false);

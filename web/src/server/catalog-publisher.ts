@@ -1,7 +1,7 @@
 import { loadDirectoryNode, resolveDirectoryRevision } from './catalog-read';
 import { runCatalogGcUnit, type ReclaimKv } from './catalog-gc';
 import { repairCatalogUnit } from './catalog-repair';
-import { verifyChangedReferences } from './catalog-operations';
+import { catalogWorkDue, verifyChangedReferences } from './catalog-operations';
 import { publishedMediaContent } from './media-delivery';
 import { listPublishedProductsByIds, parseRule } from './catalog';
 import {
@@ -2033,6 +2033,12 @@ export async function runCatalogUnit(
   if (!lease) return { done: false, busy: true };
   cdb = fencedCatalogDb(metered, lease);
   try {
+    // Idle maintenance needs its budget before publication bookkeeping consumes it.
+    if (opts?.maintenance && !(await catalogWorkDue(cdb))) {
+      if (opts.maintenance === 'gc')
+        return { done: (await runCatalogGcUnit(metered, kv, lease)) === null, busy: false };
+      return { done: await repairCatalogUnit(cdb, kv, lease), busy: false };
+    }
     const open = await cdb
       .prepare(
         "SELECT id,kind,scope_listing_id FROM catalog_builds WHERE state IN ('building', 'pending_delivery') AND kind NOT IN ('fanout') LIMIT 1"
@@ -2119,15 +2125,7 @@ export async function runCatalogUnit(
       )
       .bind(now())
       .first();
-    if (!openAfter && opts?.maintenance === 'gc' && budget.remainingStatements >= 20) {
-      // GC guards its own batches; use the metered DB so result offsets and
-      // the shared statement budget include exactly those guards.
-      const gc = await runCatalogGcUnit(metered, kv, lease);
-      if (gc !== null) return { done: false, busy: false };
-    }
     if (!openAfter && kv && budget.remainingStatements >= 20) {
-      if (opts?.maintenance === 'replica')
-        return { done: await repairCatalogUnit(cdb, kv, lease), busy: false };
       await verifyChangedReferences(cdb, kv);
       const waiting = await cdb
         .prepare(

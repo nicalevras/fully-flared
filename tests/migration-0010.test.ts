@@ -1,4 +1,7 @@
-import { Miniflare } from 'miniflare';
+import {
+  Miniflare,
+  convertV4MiniflareOptions,
+} from '../web/node_modules/miniflare/dist/src/index.js';
 import { describe, expect, it } from 'vitest';
 import { applyMigrationFile, createTestDb } from './helpers/d1';
 
@@ -38,12 +41,14 @@ describe('migration 0010 (disposable)', () => {
   });
 
   it('populated 0009 -> 0010: publication data preserved', async () => {
-    const mf = new Miniflare({
-      modules: true,
-      script: 'export default { fetch() { return new Response("ok"); } }',
-      compatibilityDate: '2025-09-06',
-      d1Databases: { DB: 'migration-0010-test' },
-    });
+    const mf = new Miniflare(
+      convertV4MiniflareOptions({
+        modules: true,
+        script: 'export default { fetch() { return new Response("ok"); } }',
+        compatibilityDate: '2025-09-06',
+        d1Databases: { DB: 'migration-0010-test' },
+      })
+    );
     const db = await mf.getD1Database('DB');
     try {
       // Historical fixture through 0009, then 0010.

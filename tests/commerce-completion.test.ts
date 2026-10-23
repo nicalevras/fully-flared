@@ -304,12 +304,14 @@ it('0009 upgrades populated 0008 without changing financial data and stops legac
   const old = await createTestDb({ through: '0008_publication_progress.sql' });
   try {
     await seedProduct(old.db);
-    const legacy = await createPendingOrder(old.db, {
-      email: 'legacy@example.invalid',
-      lines: [{ sku: 'TEE-1', qty: 1 }],
-      shippingCountry: 'US',
-      shippingRateId: 'test-rate',
-    });
+    // Seed the historical schema directly; current writers require later columns.
+    const legacy = { orderId: 'legacy-order' };
+    await old.db
+      .prepare(
+        `INSERT INTO orders(id,number,customer_email,subtotal_cents,total_cents,created_at,updated_at)
+      VALUES('legacy-order','LEGACY','legacy@example.invalid',2000,2000,'2026-01-01','2026-01-01')`
+      )
+      .run();
     await old.db
       .prepare(
         `INSERT INTO checkout_intents(id,order_id,owner_type,fingerprint,state,provider_payload_json,coupon_idempotency_key,session_idempotency_key,session_expires_at,created_at,updated_at)

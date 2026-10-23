@@ -10,7 +10,7 @@ import {
 } from './checkout';
 import { reservationStatementsSetBased, releaseOrderHoldsStmts } from './inventory';
 import { requestRefund } from './refunds';
-import { commitWithEmails, emailStatement, operationalRecipients, enqueueJob } from './email';
+import { commitWithEmails, emailStatement, enqueueJob } from './email';
 import type { PaymentProvider, PaymentIntentDetails, StripeSessionLite } from './payments';
 import {
   recoveryContext,

@@ -18,6 +18,7 @@ it('forwards every required event and verifies signed deliveries without provide
   const args = stripeListenArguments('http://localhost:8799');
   expect(args).toEqual([
     'listen',
+    '--latest',
     '--forward-to',
     'http://localhost:8799/api/webhooks/stripe',
     '--events',

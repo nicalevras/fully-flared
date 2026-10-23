@@ -11,6 +11,7 @@ import {
 } from '../web/src/server/checkout-intents';
 import { deleteAccountAtomically } from '../web/src/server/account-deletion';
 import { fakeAdmissionNamespace } from './helpers/admission';
+import { ensureCart, addCartLine, cartIdentity, type CartCreds } from '../web/src/server/cart';
 import {
   checkoutInputKey,
   classifyCheckoutResponse,
@@ -26,6 +27,8 @@ const provider = {
   createCheckout: vi.fn(),
   createCoupon: vi.fn(),
   createCheckoutSession: vi.fn(),
+  createCheckoutCustomer: vi.fn(async () => 'cus_fixture'),
+  retrieveCheckoutSession: vi.fn(),
   async verifyWebhook(payload: string) {
     const event = JSON.parse(payload);
     return { ...event, data: event.data.object };
@@ -37,6 +40,15 @@ vi.mock('../web/src/server/payments', () => ({ getStripeProvider: () => provider
 let db: D1Database, dispose: () => Promise<void>;
 let admission: ReturnType<typeof fakeAdmissionNamespace>;
 let guestCookie: string | undefined;
+let cart: CartCreds;
+const shippingAddress = {
+  name: 'Fixture',
+  line1: '1 Test Street',
+  city: 'New York',
+  state: 'NY',
+  postalCode: '10001',
+  country: 'US',
+};
 const INTENT = '123e4567-e89b-42d3-a456-426614174100';
 
 beforeEach(async () => {
@@ -48,6 +60,8 @@ beforeEach(async () => {
     admission_max_active: 200,
   });
   await seedProduct(db, { onHand: 10, priceCents: 2000 });
+  cart = (await ensureCart(db, null)).creds;
+  await addCartLine(db, cart, 'TEE-1', 1);
   await db
     .prepare(
       `INSERT INTO discounts (id, code, type, value, status, usage_per_customer, created_at) VALUES ('d1', 'SAVE10', 'percentage', 10, 'active', 1, ?)`
@@ -63,6 +77,35 @@ beforeEach(async () => {
   provider.createCheckoutSession.mockResolvedValue({
     sessionId: 'cs_intent',
     url: 'https://stripe.test/intent',
+  });
+  provider.retrieveCheckoutSession.mockImplementation(async (id: string) => {
+    const row = await db
+      .prepare(
+        'SELECT order_id,id,provider_payload_json FROM checkout_intents WHERE stripe_session_id=?'
+      )
+      .bind(id)
+      .first<{ order_id: string; id: string; provider_payload_json: string }>();
+    if (!row) return null;
+    const order = await db.prepare('SELECT * FROM orders WHERE id=?').bind(row.order_id).first<{
+      subtotal_cents: number;
+      discount_cents: number;
+      shipping_cents: number;
+      total_cents: number;
+    }>();
+    return {
+      id,
+      status: 'open',
+      url: 'https://stripe.test/intent',
+      payment_status: 'unpaid',
+      currency: 'usd',
+      amount_total: order!.total_cents,
+      subtotalCents: order!.subtotal_cents,
+      discountCents: order!.discount_cents,
+      shippingCents: order!.shipping_cents,
+      taxCents: 0,
+      payment_intent: null,
+      metadata: { order_id: row.order_id, attempt_id: row.id },
+    };
   });
 });
 afterEach(async () => {
@@ -117,10 +160,13 @@ async function post(
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        cookie: opts.cookie ?? guestCookie,
+        cookie: `${opts.cookie ?? guestCookie}; cart=${cart.id}.${cart.token}`,
       },
       body: JSON.stringify({
         intentId,
+        cartId: cart.id,
+        cartRevision: (await cartIdentity(db, cart))!.revision,
+        shippingAddress,
         email: 'guest@example.invalid',
         shippingCountry: 'US',
         shippingRateId: 'test-rate',
@@ -139,9 +185,12 @@ function postWithoutBootstrap(intentId: string) {
   return handleCheckoutRequest(
     new Request('http://localhost:8799/api/checkout', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', cookie: `cart=${cart.id}.${cart.token}` },
       body: JSON.stringify({
         intentId,
+        cartId: cart.id,
+        cartRevision: 1,
+        shippingAddress,
         email: 'guest@example.invalid',
         shippingCountry: 'US',
         shippingRateId: 'test-rate',
@@ -159,22 +208,22 @@ async function stock() {
   return db.prepare("SELECT on_hand, reserved FROM stock WHERE sku='TEE-1'").first();
 }
 
-it('duplicate submits yield one order, one reservation and one session operation', async () => {
+it('duplicate preparations yield one order, no reservation and one session operation', async () => {
   const first = await post(INTENT);
   expect(first.status).toBe(200);
   const body = await first.json();
-  expect(body.checkoutUrl).toBe('https://stripe.test/intent');
+  expect(body.state).toBe('review_ready');
   const cookie = guestCookie;
   expect(cookie).toBeTruthy();
 
   const second = await post(INTENT, { cookie });
   expect(second.status).toBe(200);
-  expect((await second.json()).checkoutUrl).toBe('https://stripe.test/intent');
+  expect((await second.json()).state).toBe('review_ready');
   expect(provider.createCheckoutSession).toHaveBeenCalledTimes(1);
   expect(await count('orders')).toBe(1);
   expect(await count('checkout_intents')).toBe(1);
-  expect(await count('reservations')).toBe(1);
-  expect(await stock()).toEqual({ on_hand: 10, reserved: 1 });
+  expect(await count('reservations')).toBe(0);
+  expect(await stock()).toEqual({ on_hand: 10, reserved: 0 });
 });
 
 it('bootstrap mints an HttpOnly capability cookie and creates no commerce state', async () => {
@@ -195,7 +244,7 @@ it('bootstrap mints an HttpOnly capability cookie and creates no commerce state'
   const first = await post(INTENT);
   expect(first.status).toBe(200);
   const cookies = first.headers.getSetCookie();
-  expect(cookies.some((c) => c.startsWith('cart=') && c.includes('Max-Age=0'))).toBe(true);
+  expect(cookies.some((c) => c.startsWith('cart=') && c.includes('Max-Age=0'))).toBe(false);
   expect(cookies.some((c) => c.startsWith('guest_checkout='))).toBe(false);
 });
 
@@ -212,7 +261,7 @@ it('bootstrap reuses an existing capability and never rotates ownership mid-chec
   // The original owner still replays its ready checkout.
   const retry = await post(INTENT, { cookie });
   expect(retry.status).toBe(200);
-  expect((await retry.json()).checkoutUrl).toBe('https://stripe.test/intent');
+  expect((await retry.json()).state).toBe('review_ready');
   expect(await count('orders')).toBe(1);
 });
 
@@ -260,7 +309,7 @@ it('ambiguous provider failure parks in reconciliation and recovers with the sam
   const intent = await loadIntent(db, INTENT);
   expect(intent?.state).toBe('reconciliation_required');
   expect(intent?.failure_code).toBe('provider_uncertain');
-  expect(await stock()).toEqual({ on_hand: 10, reserved: 1 });
+  expect(await stock()).toEqual({ on_hand: 10, reserved: 0 });
 
   await db
     .prepare("UPDATE checkout_intents SET next_reconcile_at='2000-01-01' WHERE id=?")
@@ -395,7 +444,7 @@ it('account deletion cancels open checkouts and releases their holds', async () 
   expect((await loadIntent(db, INTENT))?.state).toBe('canceled');
 });
 
-it('a 409 conflict is uncertain: holds stay and the intent parks for reconciliation', async () => {
+it('a 409 conflict stays uncertain without unpaid stock holds', async () => {
   provider.createCheckoutSession.mockRejectedValue(
     Object.assign(new Error('conflict'), { statusCode: 409 })
   );
@@ -404,7 +453,7 @@ it('a 409 conflict is uncertain: holds stay and the intent parks for reconciliat
   const intent = await loadIntent(db, INTENT);
   expect(intent?.state).toBe('reconciliation_required');
   expect(intent?.failure_code).toBe('provider_uncertain');
-  expect(await stock()).toEqual({ on_hand: 10, reserved: 1 });
+  expect(await stock()).toEqual({ on_hand: 10, reserved: 0 });
 });
 
 it('a stale worker cannot cancel after losing its claim', async () => {
@@ -423,7 +472,7 @@ it('a stale worker cannot cancel after losing its claim', async () => {
   const intent = await loadIntent(db, INTENT);
   expect(intent?.state).toBe('session_creating');
   expect(intent?.claim_token).toBe('newer');
-  expect(await stock()).toEqual({ on_hand: 10, reserved: 1 });
+  expect(await stock()).toEqual({ on_hand: 10, reserved: 0 });
 });
 
 it('existing-intent retries that reach the provider consume admission', async () => {
@@ -464,9 +513,29 @@ it('an exhausted deadline parks the retry instead of calling the provider', asyn
   const res = await handleCheckoutRequest(
     new Request('http://localhost:8799/api/checkout', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', cookie: cookie! },
+      headers: {
+        'content-type': 'application/json',
+        cookie: `${cookie}; cart=${cart.id}.${cart.token}`,
+      },
       body: JSON.stringify({
         intentId: INTENT,
+        cartId: cart.id,
+        cartRevision: (await cartIdentity(db, cart))!.revision,
+        shippingAddress,
+        quoteRevision: (
+          await quoteOrder(db, {
+            email: 'guest@example.invalid',
+            shippingCountry: 'US',
+            shippingRateId: 'test-rate',
+            lines: [{ sku: 'TEE-1', qty: 1 }],
+          })
+        ).configRevision,
+        confirmedQuote: await quoteOrder(db, {
+          email: 'guest@example.invalid',
+          shippingCountry: 'US',
+          shippingRateId: 'test-rate',
+          lines: [{ sku: 'TEE-1', qty: 1 }],
+        }),
         email: 'guest@example.invalid',
         shippingCountry: 'US',
         shippingRateId: 'test-rate',
@@ -491,7 +560,7 @@ it('recovery retrieves a known session instead of creating a new one', async () 
     .bind(INTENT)
     .run();
   provider.createCheckoutSession.mockClear();
-  (provider as { retrieveCheckoutSession?: unknown }).retrieveCheckoutSession = async () => ({
+  provider.retrieveCheckoutSession.mockResolvedValue({
     id: 'cs_known',
     status: 'open',
     url: 'https://stripe.test/known',
@@ -522,7 +591,7 @@ it('past the creation horizon an unresolved intent is preserved and alerted, nev
   expect(intent?.state).toBe('reconciliation_required');
   expect(intent?.failure_code).toBe('provider_unresolved');
   expect(provider.createCheckoutSession).not.toHaveBeenCalled();
-  expect(await stock()).toEqual({ on_hand: 10, reserved: 1 });
+  expect(await stock()).toEqual({ on_hand: 10, reserved: 0 });
 });
 
 it('expired frozen parameters preserve unresolved intent without calling Stripe', async () => {
@@ -534,6 +603,15 @@ it('expired frozen parameters preserve unresolved intent without calling Stripe'
     .bind(INTENT)
     .run();
   provider.createCheckoutSession.mockClear();
+  provider.retrieveCheckoutSession.mockResolvedValueOnce({
+    id: 'cs_intent',
+    status: 'expired',
+    url: null,
+    payment_status: 'unpaid',
+    amount_total: 2000,
+    currency: 'usd',
+    payment_intent: null,
+  });
   expect(await runIntentOperation(db, provider as never, INTENT)).toEqual({
     status: 'pending',
   });
@@ -757,7 +835,7 @@ it('a submission matching its confirmed quote proceeds', async () => {
     confirmedQuote: { subtotalCents: 2000, discountCents: 200, shippingCents: 0, totalCents: 1800 },
   });
   expect(res.status).toBe(200);
-  expect((await res.json()).checkoutUrl).toBe('https://stripe.test/intent');
+  expect((await res.json()).state).toBe('review_ready');
   const order = await db.prepare('SELECT total_cents FROM orders').first<{ total_cents: number }>();
   expect(order?.total_cents).toBe(1800);
 });

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { createTestDb, applyMigrationFile, seedProduct } from './helpers/d1';
 import { pruneRetention } from '../web/src/server/operations';
+import { runMaintenance } from '../web/src/server/maintenance';
 
 let db: D1Database, dispose: () => Promise<void>;
 beforeEach(async () => {
@@ -16,13 +17,22 @@ it('scrubs IPs in bounded pages without removing orders', async () => {
     )
     .bind(JSON.stringify(Array.from({ length: 1001 }, (_, i) => i)))
     .run();
-  await pruneRetention(db);
+  const env = { DB: db, JOBS: { send: async () => {} } } as never;
+  const now = new Date().toISOString();
+  await db
+    .prepare(
+      `INSERT INTO maintenance_runs(id,task,cutoff,next_at,started_at,updated_at)
+    VALUES('privacy-fixture','privacy',?,?,?,?)`
+    )
+    .bind(now, now, now, now)
+    .run();
+  await runMaintenance(env, 'privacy-fixture');
   expect(
     (await db
       .prepare('SELECT COUNT(*) AS n FROM orders WHERE customer_ip IS NOT NULL')
       .first<{ n: number }>())!.n
   ).toBe(1);
-  await pruneRetention(db);
+  await runMaintenance(env, 'privacy-fixture');
   expect((await db.prepare('SELECT COUNT(*) AS n FROM orders').first<{ n: number }>())!.n).toBe(
     1001
   );
@@ -208,8 +218,17 @@ it('runs idle reclamation through the actual queue handler and shares its invoca
     )
     .run();
   await kv.put('catalog:r1:listing:all:current', '{}');
+  await db.prepare('UPDATE catalog_work SET processed_revision=target_revision').run();
   const queue = await catalogQueueHarness(db, kv);
-  const result = await queue.deliver();
+  const now = new Date().toISOString();
+  await db
+    .prepare(
+      `INSERT INTO maintenance_runs(id,task,cutoff,next_at,started_at,updated_at)
+    VALUES('gc-fixture','gc',?,?,?,?)`
+    )
+    .bind(now, now, now, now)
+    .run();
+  const result = await queue.deliver({ type: 'maintenance.run', runId: 'gc-fixture' });
   expect(result.retried).toBe(false);
   expect(result.continued).toBe(true);
   expect(await db.prepare('SELECT phase FROM catalog_gc_state').first()).toMatchObject({
@@ -265,6 +284,15 @@ it('upgrades populated 0011 without reconstruction, preserving financial data an
       )
     );
     await applyMigrationFile(old.db, '0012_catalog_reclamation.sql');
+    // The current retention writer needs the later authorization columns.
+    for (const file of [
+      '0013_authorized_checkout.sql',
+      '0014_event_driven_operations.sql',
+      '0015_public_media_delivery.sql',
+      '0016_checkout_and_media_recovery.sql',
+      '0017_due_recovery_indexes.sql',
+    ])
+      await applyMigrationFile(old.db, file);
     await pruneRetention(old.db);
     expect(await old.db.prepare('SELECT id FROM reservations').all()).toMatchObject({
       results: [{ id: 'committed' }],
@@ -275,7 +303,13 @@ it('upgrades populated 0011 without reconstruction, preserving financial data an
           old.db
             .prepare(`SELECT * FROM ${t} ORDER BY id`)
             .all()
-            .then((r) => r.results)
+            .then((r) =>
+              r.results.map((row, index) =>
+                Object.fromEntries(
+                  Object.keys(before[tables.indexOf(t)]![index]!).map((key) => [key, row[key]])
+                )
+              )
+            )
         )
       )
     ).toEqual(before);

@@ -12,6 +12,12 @@ const attacks: [string, string][] = [
   ['<iframe src="https://evil.example"></iframe>', '<iframe'],
   ['<p onclick="alert(1)">ok</p>', 'onclick'],
   ['<img src="x" srcset="javascript:alert(1)">', 'javascript:'],
+  [
+    '<svg><animate attributeName="href" values="https://safe.example;javascript:alert(1)" /></svg>',
+    '<animate',
+  ],
+  ['<meta http-equiv="refresh" content="0;url=javascript:alert(1)">', '<meta'],
+  ['<noscript><p></noscript><img src=x onerror=alert(1)>', 'onerror'],
 ];
 
 describe('allowlist HTML sanitizer', () => {

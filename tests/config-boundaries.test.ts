@@ -62,7 +62,7 @@ it('failed media deletion preserves its database record and returns a generic er
       'media.delete',
       { mediaId: 'failed-media' }
     );
-    expect(result).toMatchObject({ ok: false, status: 500 });
+    expect(result).toMatchObject({ ok: false, status: 503 });
     expect(JSON.stringify(result)).not.toContain('secret internal');
     expect(await db.prepare("SELECT id FROM media WHERE id='failed-media'").first()).not.toBeNull();
   } finally {

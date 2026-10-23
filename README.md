@@ -6,6 +6,10 @@ R2 stores media,
 and Stripe Checkout collects payments. The realtime Durable Object is
 restricted to staff.
 
+Release verification and current evidence are tracked in
+[the production-hardening ledger](web/PRODUCTION-HARDENING.md). Ordinary CI excludes
+the isolated 100k catalog gate; run that gate at a release checkpoint.
+
 ## Run locally
 
 Use Node 24 and the committed lockfiles. From the repository root:

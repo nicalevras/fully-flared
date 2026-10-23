@@ -5,13 +5,13 @@ import { createTestDb } from './helpers/d1';
 let db: D1Database, dispose: () => Promise<void>;
 
 beforeAll(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, dispose } = await createTestDb({ through: '0007_admission_setting_guards.sql' }));
 });
 afterAll(async () => {
   await dispose();
 });
 
-describe('consolidated 0000_initial baseline', () => {
+describe('initial partitioned migration chain through 0007', () => {
   it('creates the final chain schema objects (tables, guards, FTS, indexes)', async () => {
     const objects = await db
       .prepare("SELECT type, name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")

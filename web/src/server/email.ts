@@ -24,8 +24,7 @@ export async function enqueueJob(
 ): Promise<boolean> {
   try {
     // Maintenance routing requires the durable run's task, not just its message type.
-    if (job.type === 'maintenance.run')
-      throw new Error('Use task-aware maintenance dispatch');
+    if (job.type === 'maintenance.run') throw new Error('Use task-aware maintenance dispatch');
     const { workerEnv } = await import('./env');
     // Separated queues (Phase 5): financial work, notifications and
     // catalog publication scale and fail independently, so a burst in

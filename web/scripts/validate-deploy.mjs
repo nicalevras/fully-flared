@@ -35,6 +35,19 @@ for (const binding of [...(selected.kv_namespaces ?? []), ...(selected.ratelimit
 }
 const catalogQueue = selected.queues?.producers?.find((q) => q.binding === 'CATALOG_JOBS')?.queue;
 const publisher = selected.queues?.consumers?.find((q) => q.queue === catalogQueue);
+for (const binding of ['JOBS', 'NOTIFICATIONS', 'CATALOG_JOBS']) {
+  const producer = selected.queues?.producers?.find((q) => q.binding === binding);
+  if (!producer || vars.QUEUE_NAMES?.[binding] !== producer.queue)
+    throw new Error(`QUEUE_NAMES.${binding} must match its producer queue`);
+}
+if (
+  !vars.QUEUE_NAMES?.DLQ ||
+  !selected.queues?.consumers?.some((q) => q.queue === vars.QUEUE_NAMES.DLQ) ||
+  selected.queues?.consumers?.some(
+    (q) => q.dead_letter_queue && q.dead_letter_queue !== vars.QUEUE_NAMES.DLQ
+  )
+)
+  throw new Error('QUEUE_NAMES.DLQ must match the shared dead-letter queue');
 if (publisher?.max_concurrency !== 1)
   throw new Error('Catalog queue consumer concurrency must be one');
 if (!(config.routes?.length || config.route))

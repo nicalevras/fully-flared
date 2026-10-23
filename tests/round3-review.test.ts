@@ -19,8 +19,19 @@ const valid = {
   vars: {
     BETTER_AUTH_URL: 'https://review.account.workers.dev',
     OWNER_EMAIL: 'owner@example.test',
+    QUEUE_NAMES: { JOBS: 'jobs', NOTIFICATIONS: 'mail', CATALOG_JOBS: 'catalog', DLQ: 'dead' },
   },
-  queues: { consumers: [{ queue: 'store-realtime', max_concurrency: 1 }] },
+  queues: {
+    producers: [
+      { binding: 'JOBS', queue: 'jobs' },
+      { binding: 'NOTIFICATIONS', queue: 'mail' },
+      { binding: 'CATALOG_JOBS', queue: 'catalog' },
+    ],
+    consumers: [
+      { queue: 'catalog', max_concurrency: 1, dead_letter_queue: 'dead' },
+      { queue: 'dead' },
+    ],
+  },
 };
 it('accepts workers.dev JSONC without a custom route and isolates named environment bindings', () => {
   const folder = mkdtempSync(join(tmpdir(), 'store-round3-config-'));

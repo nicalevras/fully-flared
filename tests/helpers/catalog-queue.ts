@@ -1,4 +1,5 @@
-import { expect } from 'vitest';
+import { expect, vi } from 'vitest';
+import type { JobMessage } from '../../web/src/schemas/queue';
 
 /** Real exported Worker handler; counters wrap the physical bindings. */
 export async function catalogQueueHarness(
@@ -82,7 +83,8 @@ export async function catalogQueueHarness(
     failNextSend() {
       failSend = true;
     },
-    async deliver() {
+    async deliver(job: JobMessage = { type: 'catalog.rebuild' }) {
+      if (vi.isFakeTimers()) vi.setSystemTime(Date.now() + 2000);
       kv.beginInvocation?.();
       d1 = 0;
       kvOps = 0;
@@ -96,7 +98,7 @@ export async function catalogQueueHarness(
           queue: 'store-catalog',
           messages: [
             {
-              body: { type: 'catalog.rebuild' },
+              body: job,
               ack() {
                 acked = true;
               },
@@ -107,6 +109,7 @@ export async function catalogQueueHarness(
           ],
         } as never,
         {
+          QUEUE_NAMES: { CATALOG_JOBS: 'store-catalog', DLQ: 'store-jobs-dlq' },
           DB: counted,
           CATALOG_KV: binding,
           CATALOG_JOBS: {

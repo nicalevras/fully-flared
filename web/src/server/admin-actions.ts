@@ -9,7 +9,7 @@ import { broadcastAdminRealtime } from './realtime';
 import { escapeHtml, sanitizeHtml } from './sanitize';
 import { adminActionSchema, csvProductRowSchema } from '../schemas/admin';
 import { z } from 'zod';
-import { settingKeySchema } from '../schemas/settings';
+import { settingKeySchema, validateSetting } from '../schemas/settings';
 import { zodIssues } from '../schemas/common';
 import { ACTION_PERMISSIONS, roles, type StaffRole } from '../lib/permissions';
 import type { Auth } from '../lib/auth';
@@ -756,6 +756,7 @@ export async function runAdminAction(
         if (!settingKeySchema.safeParse(key).success) {
           return { ok: false, error: `Setting ${key} cannot be changed here` };
         }
+        validateSetting(key, f.value);
         const settings = await getSettings(db);
         // The lock rejects actual currency changes only; an unchanged
         // value (the settings form always submits it) is a no-op write

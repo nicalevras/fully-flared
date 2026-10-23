@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { build } from 'esbuild';
+import { build } from '../web/node_modules/esbuild/lib/main.js';
 import { resolve } from 'node:path';
 import {
   Miniflare,

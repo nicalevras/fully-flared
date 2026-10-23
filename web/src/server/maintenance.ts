@@ -54,14 +54,16 @@ const isRecoveryFamily = (task: Task): task is RecoveryFamily =>
 const runnable = (run: MaintenanceRun, clock: string) =>
   run.next_at <= clock && (!run.claim_expires_at || run.claim_expires_at <= clock);
 const at = () => new Date().toISOString();
+export function maintenanceQueueBinding(task: string) {
+  return task === 'replica' || task === 'gc'
+    ? 'CATALOG_JOBS'
+    : task === 'outbox-recovery'
+      ? 'NOTIFICATIONS'
+      : 'JOBS';
+}
 async function dispatch(env: WorkerEnv, task: string, runId: string, delaySeconds = 0) {
   try {
-    const queue =
-      task === 'replica' || task === 'gc'
-        ? env.CATALOG_JOBS
-        : task === 'outbox-recovery'
-          ? env.NOTIFICATIONS
-          : env.JOBS;
+    const queue = env[maintenanceQueueBinding(task)];
     await queue.send(
       {
         type: 'maintenance.run',

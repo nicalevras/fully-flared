@@ -571,16 +571,17 @@ export async function reconcileCheckoutIntents(
       return -1;
     }
     try {
-      const result = await runIntentOperation(db, provider, r.id);
-      // Count only real progress: a row that stays exactly as it was
-      // (lost claim, not yet due) is not "advanced".
-      const after = await loadIntent(db, r.id);
-      if (result.status !== 'pending' || (after && after.state !== r.state)) advanced++;
+      await runIntentOperation(db, provider, r.id);
     } catch {
       console.warn(JSON.stringify({ event: 'checkout_intent_reconcile_failed', intentId: r.id }));
     } finally {
       await permit.release();
     }
+    const stillDue = await db
+      .prepare(`SELECT 1 FROM checkout_intents ci WHERE ci.id=? AND ${due.sql}`)
+      .bind(r.id, ...due.values)
+      .first();
+    if (!stillDue) advanced++;
   }
   return advanced;
 }

@@ -16,6 +16,8 @@ describe('checkout body', () => {
   it('accepts a valid checkout', () => {
     const r = checkoutBodySchema.safeParse({
       intentId: '123e4567-e89b-42d3-a456-426614174000',
+      cartId: '123e4567-e89b-42d3-a456-426614174001',
+      cartRevision: 1,
       email: 'a@b.com',
       shippingCountry: 'US',
       shippingRateId: 'test-rate',
@@ -149,6 +151,8 @@ describe('HTTP boundary parsing', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         intentId: '123e4567-e89b-42d3-a456-426614174000',
+        cartId: '123e4567-e89b-42d3-a456-426614174001',
+        cartRevision: 1,
         email: 'a@b.com',
         shippingCountry: 'US',
         shippingRateId: 'test-rate',

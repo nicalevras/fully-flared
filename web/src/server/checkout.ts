@@ -657,11 +657,15 @@ export async function reprocessStaleInbox(
   for (const r of rows.results) {
     try {
       await processInboxEvent(db, r.event_id, provider ?? undefined);
-      done++;
     } catch {
       // Row stays failed with attempts incremented; next sweep retries until cap.
       console.warn(JSON.stringify({ event: 'webhook_retry_failed' }));
     }
+    const stillDue = await db
+      .prepare(`SELECT 1 FROM webhook_inbox w WHERE w.event_id=? AND ${due.sql}`)
+      .bind(r.event_id, ...due.values)
+      .first();
+    if (!stillDue) done++;
   }
   return done;
 }
@@ -931,7 +935,8 @@ export const reconcileLateRefunds = reconcileRefundOperations;
 /** A verified capture refunded before fulfillment must terminate without another refund. */
 export async function compensateRefundedCheckout(
   db: D1Database,
-  orderId: string
+  orderId: string,
+  verifiedLegacyPayment?: { sessionId: string; amountCents: number }
 ): Promise<boolean> {
   const transition = crypto.randomUUID();
   const gate = {
@@ -943,14 +948,21 @@ export async function compensateRefundedCheckout(
       .prepare(
         `UPDATE orders SET status='canceled',payment_status=CASE WHEN payment_status='disputed' THEN 'disputed' ELSE 'refunded' END,transition_id=?,updated_at=?
       WHERE id=? AND status IN ('pending_payment','canceled') AND total_cents>0
-      AND COALESCE((SELECT SUM(amount_cents) FROM refunds WHERE order_id=orders.id AND status='succeeded'),0)>=total_cents
-      AND EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=orders.id AND ci.flow='manual_capture' AND ci.captured_at IS NOT NULL AND ci.payment_state='captured')
+      AND COALESCE((SELECT SUM(amount_cents) FROM refunds WHERE order_id=orders.id AND status='succeeded'),0)>=MAX(total_cents,COALESCE(?,total_cents))
+      AND (EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=orders.id AND ci.flow='manual_capture' AND ci.captured_at IS NOT NULL AND ci.payment_state='captured')
+        OR (stripe_checkout_session_id=? AND NOT EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=orders.id AND ci.flow='manual_capture')))
       AND NOT EXISTS(SELECT 1 FROM reservations WHERE order_id=orders.id AND status='committed')`
       )
-      .bind(transition, now(), orderId),
+      .bind(
+        transition,
+        now(),
+        orderId,
+        verifiedLegacyPayment?.amountCents ?? null,
+        verifiedLegacyPayment?.sessionId ?? null
+      ),
     db
       .prepare(
-        `UPDATE checkout_intents SET payment_state='finalized',payment_next_at=NULL,updated_at=? WHERE order_id=? AND flow='manual_capture' AND ${gate.sql}`
+        `UPDATE checkout_intents SET payment_state='finalized',state=CASE WHEN flow='legacy' THEN 'canceled' ELSE state END,payment_next_at=NULL,updated_at=? WHERE order_id=? AND ${gate.sql}`
       )
       .bind(now(), orderId, ...gate.values),
     ...releaseOrderHoldsStmts(db, orderId, gate),
@@ -1155,7 +1167,8 @@ export async function markOrderPaid(
     .bind(order.id)
     .first<{ status: string; payment_status: string }>();
   if (current && !['pending_payment', 'canceled'].includes(current.status)) return;
-  if (await compensateRefundedCheckout(db, order.id)) return;
+  if (await compensateRefundedCheckout(db, order.id, { sessionId, amountCents: amountTotal }))
+    return;
   if (amountTotal === 0) {
     await cancelOrderById(db, order.id, { expiredFree: true, recoveryReason });
     return;

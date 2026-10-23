@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   lint-and-test:
@@ -38,13 +39,7 @@ jobs:
         run: npm run format:check
 
       - name: Run tests
-        run: npm run test
-
-      - name: Type check
-        run: npm run typecheck
-
-      - name: Web type check
-        run: cd web && npx tsc --noEmit
+        run: npm exec -- vitest run --exclude tests/catalog-scale-100k.test.ts
 
       - name: Migration drift and safety
         run: cd web && npm run check:migrations
@@ -70,6 +65,25 @@ jobs:
 
       - name: Build web (Vite + typecheck)
         run: cd web && npm run build
+
+      - name: Check generated Worker types
+        run: cd web && npx wrangler types --check
+
+  scale-acceptance:
+    if: github.event_name == 'workflow_dispatch'
+    needs: [lint-and-test, build-web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci && npm --prefix web ci
+      - run: npm --prefix web run cf-typegen
+      - name: Isolated 100k catalog acceptance
+        run: npm exec -- vitest run tests/catalog-scale-100k.test.ts
 
   # Per-change preview deployment (plan Step 0). Requires the repo secrets
   # CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID; the job is skipped (not

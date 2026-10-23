@@ -21,7 +21,7 @@ const bounds = [
   ['cart_max_qty', 1, 999, 99],
   ['cart_max_lines', 1, 100, 50],
   ['order_max_units', 1, 10000, 500],
-  ['checkout_hold_minutes', 42, 1450, 42],
+  ['checkout_session_minutes', 32, 1440, 32],
   ['refund_retry_cap', 1, 20, 5],
   ['refund_stuck_minutes', 1, 10080, 60],
 ] as const;
@@ -31,7 +31,7 @@ it('enforces every limit bound in Zod and direct SQL, including invalid numeric 
       await expect(setSetting(db, key, value)).rejects.toThrow();
       await expect(
         db.prepare('UPDATE settings SET value=? WHERE key=?').bind(value, key).run()
-      ).rejects.toThrow(/setting|limit/i);
+      ).rejects.toThrow(/setting|limit|Session duration/i);
       await expect(
         db
           .prepare(
@@ -39,14 +39,14 @@ it('enforces every limit bound in Zod and direct SQL, including invalid numeric 
           )
           .bind(key, value, new Date().toISOString())
           .run()
-      ).rejects.toThrow(/setting|limit/i);
+      ).rejects.toThrow(/setting|limit|Session duration/i);
     }
     await setSetting(db, key, String(min));
     await setSetting(db, key, String(max));
     await setSetting(db, key, String(fallback));
   }
 });
-it('uses nondefault cart/checkout settings, preserves decreases, and snapshots the configured hold', async () => {
+it('uses nondefault limits and retains the legacy hold buffer around the configured Session', async () => {
   await setSetting(db, 'cart_max_qty', '150');
   const cart = await ensureCart(db, null);
   expect((await setCartLine(db, cart.creds, 'TEE-1', 120)).lines[0]?.qty).toBe(120);
@@ -55,7 +55,7 @@ it('uses nondefault cart/checkout settings, preserves decreases, and snapshots t
   await expect(setCartLine(db, cart.creds, 'TEE-1', 121)).rejects.toThrow(/limit|quantity/i);
   await setSetting(db, 'cart_max_qty', '99');
   await setSetting(db, 'checkout_email_cap', '1');
-  await setSetting(db, 'checkout_hold_minutes', '60');
+  await setSetting(db, 'checkout_session_minutes', '60');
   const input = {
     email: 'cap@example.test',
     shippingCountry: 'US',
@@ -69,14 +69,14 @@ it('uses nondefault cart/checkout settings, preserves decreases, and snapshots t
     .bind(order.orderId)
     .first<{ expires_at: string; created_at: string }>();
   expect(Date.parse(hold!.expires_at) - Date.parse(hold!.created_at)).toBeGreaterThan(
-    60 * 60000 - 1000
+    70 * 60000 - 1000
   );
   expect(Date.parse(hold!.expires_at) - Date.parse(hold!.created_at)).toBeLessThanOrEqual(
-    60 * 60000
+    70 * 60000
   );
   await cancelOrderById(db, order.orderId);
   await setSetting(db, 'checkout_email_cap', '5');
-  await setSetting(db, 'checkout_hold_minutes', '42');
+  await setSetting(db, 'checkout_session_minutes', '32');
 });
 it('configured refund retry caps and stuck thresholds affect reconciliation', async () => {
   await db
@@ -170,6 +170,13 @@ it('missing limit rows return defaults and leave SQL guards effective', async ()
 it('baseline carries the settings bounds/defaults in its guards and seeds', () => {
   const sql = readFileSync('web/migrations/0000_initial.sql', 'utf8');
   for (const key of LIMIT_KEYS) {
+    if (key === 'checkout_session_minutes') {
+      const forward = readFileSync('web/migrations/0013_authorized_checkout.sql', 'utf8');
+      expect(forward).toContain("NEW.key='checkout_session_minutes'");
+      expect(forward).toContain('AS INTEGER)<32');
+      expect(forward).toContain('AS INTEGER)>1440');
+      continue;
+    }
     const spec = LIMIT_DEFINITIONS[key];
     expect(sql).toContain(`WHEN '${key}' THEN ${spec.min}`);
     expect(sql).toContain(`WHEN '${key}' THEN ${spec.max}`);

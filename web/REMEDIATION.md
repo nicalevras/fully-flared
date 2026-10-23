@@ -2338,6 +2338,7 @@ and local-migration checkpoint.
 The implementation pauses before verification. CI and recovery correctness are not
 claimed as passing. Follow RECOVERY-WATCHDOG.md for the deferred checks and migration
 procedure; 0016 and 0017 remain unapplied by this checkpoint.
+
 # Recovery review follow-up — implementation only, 2026-10-23
 
 - Generic queue enqueueing now refuses maintenance messages; task-aware dispatch
@@ -2352,4 +2353,3 @@ procedure; 0016 and 0017 remain unapplied by this checkpoint.
   Six before-images matched their working-tree source hashes before editing.
 - No tests, builds, migration checks/application, commits, pushes or remote calls.
   Query-plan review for the six prepared 0017 indexes remains pending verification.
-

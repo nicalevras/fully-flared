@@ -49,7 +49,8 @@ it('gateway forwards only classified public HTML to the storefront with props an
   expect(seen.request?.headers.has('cookie')).toBe(false);
   const url = new URL(seen.request!.url);
   expect(url.searchParams.has('utm_source')).toBe(false);
-  expect(url.searchParams.get('page')).toBe('2');
+  // Product documents have no pagination; semantic cache keys omit irrelevant parameters.
+  expect(url.searchParams.has('page')).toBe(false);
   // Gateway security headers wrap the storefront response.
   expect(response.headers.get('content-security-policy')).toContain("default-src 'self'");
 
@@ -116,6 +117,7 @@ it('catalog queue jobs drain purges through the cache-owning entrypoint', async 
       messages: [{ body: { type: 'catalog.rebuild' }, ack: () => {}, retry: () => {} }],
     } as never,
     {
+      QUEUE_NAMES: { CATALOG_JOBS: 'store-catalog', DLQ: 'store-jobs-dlq' },
       DB: db,
       CATALOG_JOBS: { send: async () => {} },
       REALTIME: { getByName: () => ({ broadcast: async () => {} }) },
@@ -133,12 +135,16 @@ it('PublicStorefront purges through its own cache handle and refuses without one
   // in tests/public-cache.test.ts; the TanStack entry cannot render
   // under this harness, so this pins the purge RPC surface instead.
   const { PublicStorefront } = await import('../web/src/server/public-storefront');
-  const purge = vi.fn(async () => {});
+  const purge = vi.fn(async () => ({ success: true }));
   const ep = new PublicStorefront({ cache: { purge } } as never, {} as never);
   await ep.purgeInvalidations(['layout']);
   expect(purge).toHaveBeenCalledWith({ tags: ['layout'] });
   await ep.purgeInvalidations([]);
   expect(purge).toHaveBeenCalledTimes(1); // empty tag list is a no-op
+  purge.mockResolvedValueOnce({ success: false });
+  await expect(ep.purgeInvalidations(['layout'])).rejects.toThrow(
+    'Public cache purge was rejected'
+  );
 
   const noCache = new PublicStorefront({} as never, {} as never);
   await expect(noCache.purgeInvalidations(['layout'])).rejects.toThrow(

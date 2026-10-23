@@ -126,6 +126,7 @@ export const Route = createFileRoute('/api/media')({
               { status: 409 }
             );
           let publicUrl: string | null = null;
+          let uploadReady = false;
           try {
             await env.MEDIA.put(key, bytes, {
               httpMetadata: { contentType: detected.contentType },
@@ -154,7 +155,7 @@ export const Route = createFileRoute('/api/media')({
                 original.id
               )
               .run();
-            if (!saved.meta.changes) throw Error('Responsive upload claim lost');
+            uploadReady = Boolean(saved.meta.changes);
           } finally {
             await env.DB.prepare(
               'UPDATE media_variants SET upload_claim_until=NULL,upload_claim_token=NULL WHERE media_id=? AND width=? AND upload_claim_token=?'
@@ -179,6 +180,11 @@ export const Route = createFileRoute('/api/media')({
             }
             return Response.json({ error: 'Image is being deleted' }, { status: 409 });
           }
+          if (!uploadReady)
+            return Response.json(
+              { error: 'Responsive upload changed. Retry shortly.' },
+              { status: 409 }
+            );
           await enqueueCatalogRebuild(env);
           return Response.json({
             variant: true,

@@ -29,6 +29,12 @@
     "head_sampling_rate": 1,
   },
   "vars": {
+    "QUEUE_NAMES": {
+      "JOBS": "store-jobs",
+      "NOTIFICATIONS": "store-notifications",
+      "CATALOG_JOBS": "store-catalog",
+      "DLQ": "store-jobs-dlq",
+    },
     // Installer: set this to YOUR email before first deploy (comma-separate
     // for multiple owners). An account created with a listed email becomes
     // `owner` while no owner exists yet. Keep a valid owner email configured.
@@ -136,7 +142,16 @@
         "RealtimeDO": { "type": "durable-object", "storage": "sqlite" },
         "CheckoutAdmissionDO": { "type": "durable-object", "storage": "sqlite" },
       },
-      "vars": { "OWNER_EMAIL": "", "BETTER_AUTH_URL": "REPLACE_WITH_STORE_URL" },
+      "vars": {
+        "OWNER_EMAIL": "",
+        "BETTER_AUTH_URL": "REPLACE_WITH_STORE_URL",
+        "QUEUE_NAMES": {
+          "JOBS": "store-jobs-preview",
+          "NOTIFICATIONS": "store-notifications-preview",
+          "CATALOG_JOBS": "store-catalog-preview",
+          "DLQ": "store-jobs-preview-dlq",
+        },
+      },
       "triggers": { "crons": [] },
       "d1_databases": [
         {

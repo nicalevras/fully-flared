@@ -70,7 +70,7 @@ it('allows owner, legacy admin and manager uploads with database-derived variant
   for (const role of ['owner', 'admin', 'manager']) {
     const response = await upload(role, 'original.jpg');
     expect(response.status).toBe(200);
-    expect(put.mock.calls[0]?.[0]).toBe('original.w640.jpg');
+    expect(put.mock.calls[0]?.[0]).toMatch(/^original\.w640\.[a-f0-9]{16}\.jpg$/);
   }
   expect((await upload('manager')).status).toBe(200);
   expect(put.mock.calls[0]?.[0]).toMatch(/^[a-f0-9-]+\.jpg$/);
@@ -90,5 +90,5 @@ it('rejects pending originals and removes responsive writes that lose the deleti
     await db.prepare("UPDATE media SET deletion_pending=1 WHERE id='late'").run();
   });
   expect((await upload('manager', 'late.jpg')).status).toBe(409);
-  expect(remove).toHaveBeenCalledWith('late.w640.jpg');
+  expect(remove).toHaveBeenCalledWith(expect.stringMatching(/^late\.w640\.[a-f0-9]{16}\.jpg$/));
 });

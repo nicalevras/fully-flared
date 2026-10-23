@@ -43,6 +43,15 @@ Service with a verified sender domain and the `EMAIL` binding. Check the sending
 quota before launch and request an increase if expected email volume exceeds it.
 D1/R2/DO provisioning follows the installed Wrangler configuration.
 
+Keep each environment's `vars.QUEUE_NAMES` synchronized with its three producer
+queue names and shared dead-letter consumer. Deployment validation checks this
+mapping. Consumers forward misplaced messages to the correct queue before
+acknowledging them; a failed forward retries without executing the wrong handler.
+
+CI runs ordinary tests without `catalog-scale-100k.test.ts`. Use the manually
+dispatched CI workflow for the isolated release-scale gate. A successful build
+does not establish provider compatibility, deployed cache behavior or throughput.
+
 Configure the auth, Stripe and optional Turnstile secrets using Wrangler's secret
 prompt or a secret manager. Never place secret values in command history.
 Configure the matching Turnstile site key in the admin when enabling it.

@@ -11,6 +11,7 @@ import {
 } from '../web/src/server/checkout-admission';
 import { parseAdmissionConfig } from '../web/src/schemas/limits';
 import { fakeAdmissionNamespace } from './helpers/admission';
+import { checkoutCart, reviewSession } from './helpers/checkout-review';
 
 vi.mock('../web/src/server/session', () => ({ getSessionUser: async () => null }));
 vi.mock('../web/src/server/turnstile', () => ({ verifyTurnstile: async () => true }));
@@ -19,6 +20,8 @@ const provider = {
   createCheckout: vi.fn(),
   createCoupon: vi.fn(),
   createCheckoutSession: vi.fn(),
+  createCheckoutCustomer: vi.fn(async () => 'cus_fixture'),
+  retrieveCheckoutSession: (id: string) => reviewSession(db, id),
   async verifyWebhook(payload: string) {
     const event = JSON.parse(payload);
     return { ...event, data: event.data.object };
@@ -150,11 +153,13 @@ it('client helper fails closed: missing binding or RPC error is unavailable, ful
 // --------------------------------------------------------------- route
 
 let db: D1Database, dispose: () => Promise<void>;
+let cart: Awaited<ReturnType<typeof checkoutCart>>;
 const INTENT = '123e4567-e89b-42d3-a456-426614174200';
 
 beforeEach(async () => {
   ({ db, dispose } = await createTestDb());
   await seedProduct(db, { onHand: 10, priceCents: 2000 });
+  cart = await checkoutCart(db);
   vi.clearAllMocks();
   provider.createCheckout.mockResolvedValue({
     sessionId: 'cs_admission',
@@ -183,9 +188,10 @@ async function post(intentId: string, admission?: unknown) {
   return handleCheckoutRequest(
     new Request('http://localhost:8799/api/checkout', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', cookie: GUEST_COOKIE },
+      headers: { 'content-type': 'application/json', cookie: `${GUEST_COOKIE}; ${cart.cookie}` },
       body: JSON.stringify({
         intentId,
+        ...cart,
         quoteRevision: quoted.configRevision,
         confirmedQuote: quoted,
         email: 'guest@example.invalid',
@@ -249,9 +255,24 @@ it('replays of an existing intent never consume admission capacity', async () =>
   const replay = await handleCheckoutRequest(
     new Request('http://localhost:8799/api/checkout', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', cookie },
+      headers: { 'content-type': 'application/json', cookie: `${cookie}; ${cart.cookie}` },
       body: JSON.stringify({
         intentId: INTENT,
+        ...cart,
+        quoteRevision: (
+          await quoteOrder(db, {
+            email: 'guest@example.invalid',
+            lines: [{ sku: 'TEE-1', qty: 1 }],
+            shippingCountry: 'US',
+            shippingRateId: 'test-rate',
+          })
+        ).configRevision,
+        confirmedQuote: await quoteOrder(db, {
+          email: 'guest@example.invalid',
+          lines: [{ sku: 'TEE-1', qty: 1 }],
+          shippingCountry: 'US',
+          shippingRateId: 'test-rate',
+        }),
         email: 'guest@example.invalid',
         shippingCountry: 'US',
         shippingRateId: 'test-rate',
@@ -261,6 +282,6 @@ it('replays of an existing intent never consume admission capacity', async () =>
     { DB: db, CHECKOUT_ADMISSION: exhausted.namespace } as never
   );
   expect(replay.status).toBe(200);
-  expect((await replay.json()).checkoutUrl).toBe('https://stripe.test/admission');
+  expect((await replay.json()).state).toBe('review_ready');
   expect(provider.createCheckoutSession).toHaveBeenCalledTimes(1);
 });

@@ -227,7 +227,7 @@ async function handleQueue(
   env: Cloudflare.Env,
   ctx: ExecutionContext
 ): Promise<void> {
-  const isDlq = batch.queue.includes('dlq');
+  const isDlq = batch.queue === env.QUEUE_NAMES.DLQ;
   for (const message of batch.messages) {
     const parsedJob = jobMessageSchema.safeParse(message.body);
     if (!parsedJob.success) {
@@ -249,6 +249,31 @@ async function handleQueue(
       continue;
     }
     try {
+      let binding: 'JOBS' | 'NOTIFICATIONS' | 'CATALOG_JOBS';
+      if (job.type === 'maintenance.run') {
+        const run = await env.DB.prepare('SELECT task FROM maintenance_runs WHERE id=?')
+          .bind(job.runId)
+          .first<{ task: string }>();
+        if (!run) {
+          message.ack();
+          continue;
+        }
+        const { maintenanceQueueBinding } = await import('./server/maintenance');
+        binding = maintenanceQueueBinding(run.task);
+      } else {
+        binding =
+          job.type === 'email.send'
+            ? 'NOTIFICATIONS'
+            : job.type === 'catalog.rebuild'
+              ? 'CATALOG_JOBS'
+              : 'JOBS';
+      }
+      if (batch.queue !== env.QUEUE_NAMES[binding]) {
+        await env[binding].send(job);
+        console.warn(JSON.stringify({ event: 'queue_message_redirected', job: job.type, binding }));
+        message.ack();
+        continue;
+      }
       if (job.type === 'email.send') {
         await processOutboxRow(env.DB, job.outboxId);
       } else if (job.type === 'webhook.process') {

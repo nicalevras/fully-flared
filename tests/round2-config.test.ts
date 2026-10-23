@@ -27,14 +27,30 @@ it.each([
   const valid = {
     name: 'store-config-test',
     compatibility_date: '2026-10-17',
-    vars: { BETTER_AUTH_URL: 'https://store.example.com', OWNER_EMAIL: 'owner@example.com' },
+    vars: {
+      BETTER_AUTH_URL: 'https://store.example.com',
+      OWNER_EMAIL: 'owner@example.com',
+      QUEUE_NAMES: {
+        JOBS: 'jobs',
+        NOTIFICATIONS: 'mail',
+        CATALOG_JOBS: 'store-catalog',
+        DLQ: 'dead',
+      },
+    },
     routes: [{ pattern: 'store.example.com', custom_domain: true }],
     queues: {
-      producers: [{ binding: 'CATALOG_JOBS', queue: 'store-catalog' }],
-      consumers: [{ queue: 'store-catalog', max_concurrency: 1 }],
+      producers: [
+        { binding: 'JOBS', queue: 'jobs' },
+        { binding: 'NOTIFICATIONS', queue: 'mail' },
+        { binding: 'CATALOG_JOBS', queue: 'store-catalog' },
+      ],
+      consumers: [
+        { queue: 'store-catalog', max_concurrency: 1, dead_letter_queue: 'dead' },
+        { queue: 'dead' },
+      ],
     },
   };
-  const run = (vars: Record<string, string>) => {
+  const run = (vars: Record<string, unknown>) => {
     writeFileSync(config, JSON.stringify({ ...valid, vars }));
     return spawnSync(
       process.execPath,

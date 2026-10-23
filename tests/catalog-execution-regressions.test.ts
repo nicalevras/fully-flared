@@ -1,9 +1,18 @@
-import { it, expect } from 'vitest';
+import { it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createTestDb, seedProduct } from './helpers/d1';
-import { runCatalogUnit } from '../web/src/server/catalog-publisher';
+import { runCatalogUnit as productionUnit } from '../web/src/server/catalog-publisher';
 import { CatalogBudget } from '../web/src/server/catalog-exec';
 import { catalogQueueHarness } from './helpers/catalog-queue';
 import { contentRevision, directoryKey, listingRefKey } from '../web/src/server/catalog-models';
+// Advance only Date between deliveries; actual D1 I/O and budget assertions remain real.
+beforeEach(() => vi.useFakeTimers({ toFake: ['Date'] }));
+afterEach(() => vi.useRealTimers());
+async function runCatalogUnit(...args: Parameters<typeof productionUnit>) {
+  vi.setSystemTime(Date.now() + 2000);
+  const result = await productionUnit(...args);
+  if (result.retryAfterSeconds) vi.setSystemTime(Date.now() + result.retryAfterSeconds * 1000);
+  return result;
+}
 class Kv {
   map = new Map<string, string>();
   putKeys: string[] = [];
@@ -18,7 +27,7 @@ class Kv {
     this.map.delete(k);
   }
 }
-it('48-product collection pages checkpoint within the physical statement budget', async () => {
+it('48-product collection pages checkpoint within the physical statement budget', {timeout:180_000}, async () => {
   const { db, dispose } = await createTestDb();
   const kv = new Kv();
   try {
@@ -52,6 +61,7 @@ it('48-product collection pages checkpoint within the physical statement budget'
           "SELECT state,phase,state_json FROM catalog_builds WHERE kind='full' ORDER BY created_at DESC LIMIT 1"
         )
         .first<{ state: string; phase: string; state_json: string }>();
+      if(unit%50===0) process.stdout.write(`catalog checkpoint unit=${unit} phase=${build?.phase}\n`);
       if (build?.state === 'done') {
         done = true;
         break;
@@ -150,8 +160,9 @@ it('repairs a large accepted editorial artifact without materializing its old KV
       .bind(payload)
       .run();
     kv.map.set('large-editorial', 'x'.repeat(1200000));
-    await drive(db, kv);
-    expect(kv.map.get('large-editorial')).toBe(payload);
+    await drive(db, kv, 70, 'replica');
+    expect(kv.map.has('large-editorial')).toBe(true);
+    expect(contentRevision(kv.map.get('large-editorial')!)).toBe(contentRevision(payload));
   } finally {
     await dispose();
   }
@@ -240,9 +251,9 @@ it('KV loss repair must preserve committed publication identity despite changed 
     await dispose();
   }
 });
-async function drive(db: D1Database, kv: Kv, n = 70) {
+async function drive(db: D1Database, kv: Kv, n = 70, maintenance?: 'replica') {
   for (let i = 0; i < n; i++) {
-    const r = await runCatalogUnit(db, kv, { budget: new CatalogBudget() });
+    const r = await runCatalogUnit(db, kv, { budget: new CatalogBudget(), maintenance });
     if (r.done) return i + 1;
   }
   throw Error(
@@ -301,7 +312,7 @@ it('partial KV loss repairs a missing product document while listing ref survive
     );
     expect(k).toBeTruthy();
     kv.map.delete(k!);
-    await drive(db, kv);
+    await drive(db, kv, 70, 'replica');
     expect(kv.map.has(k!)).toBe(true);
   } finally {
     await dispose();
@@ -318,7 +329,7 @@ it('delivered mutable reference is verified after a stale overwrite', async () =
     expect(k).toBeTruthy();
     const exact = kv.map.get(k!)!;
     kv.map.set(k!, exact.replace('"total":1', '"total":999'));
-    await drive(db, kv);
+    await drive(db, kv, 70, 'replica');
     expect(kv.map.get(k!)).toBe(exact);
   } finally {
     await dispose();

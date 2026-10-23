@@ -87,7 +87,7 @@ it('logs outbox and webhook retry failures and missing request context without P
   const events = warn.mock.calls.map(([line]) => JSON.parse(line).event);
   expect(events).toEqual(
     expect.arrayContaining([
-      'outbox_drain_failed',
+      'outbox_delivery_failed',
       'webhook_retry_failed',
       'discount_request_context_unavailable',
     ])

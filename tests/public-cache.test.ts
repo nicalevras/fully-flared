@@ -60,7 +60,7 @@ it('classifies only ordinary public HTML GETs for the storefront', () => {
   ).toBeNull();
 });
 
-it('strips private and forwarding headers and tracking parameters only', () => {
+it('strips private/forwarding headers and nonsemantic product parameters', () => {
   const forwarded = publicCacheRequest(
     new Request('https://shop.test/products/tee?page=2&utm_source=news&gclid=abc', {
       headers: {
@@ -78,7 +78,7 @@ it('strips private and forwarding headers and tracking parameters only', () => {
   expect(forwarded!.headers.has('x-forwarded-host')).toBe(false);
   expect(forwarded!.headers.get('user-agent')).toBe('test-agent');
   const url = new URL(forwarded!.url);
-  expect(url.searchParams.get('page')).toBe('2');
+  expect(url.searchParams.has('page')).toBe(false);
   expect(url.searchParams.has('utm_source')).toBe(false);
   expect(url.searchParams.has('gclid')).toBe(false);
 });

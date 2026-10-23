@@ -142,6 +142,7 @@ it('enqueues a committed receipt immediately, and a queue failure leaves cron re
     'test'
   );
   expect(sent).toContain(`receipt-${o.orderId}`);
+  workerEnv.NOTIFICATIONS = { send: vi.fn() } as never;
   expect((await enqueueOutboxRecoveryPage(db, await recoveryContext(db))).queued).toBe(1);
   expect(emailSend).not.toHaveBeenCalled();
   expect(await processOutboxRow(db, `receipt-${o.orderId}`)).toBe(true);
@@ -368,7 +369,7 @@ it('instruments the combined nightly cron without a maintenance queue', async ()
   });
   const pending: Promise<unknown>[] = [];
   await worker.scheduled(
-    {} as never,
+    { cron: '0 3 * * *', scheduledTime: Date.now() } as never,
     {
       ...workerEnv,
       DB: traced,

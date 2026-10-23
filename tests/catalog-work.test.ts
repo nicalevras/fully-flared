@@ -157,7 +157,7 @@ it('readers serve identical results from D1 when KV is empty, and layout/search 
   expect(viaD1?.cards.map((c) => c.id)).toEqual(viaKv?.cards.map((c) => c.id));
   const layout = await getStorefrontLayout(db, env() as never);
   expect(layout.storeName).toBeTruthy();
-  expect(layout.limits.checkout_hold_minutes).toBeGreaterThan(0);
+  expect(layout.limits.checkout_session_minutes).toBeGreaterThan(0);
   const found = await searchCatalog(db, env() as never, 'alpha');
   expect(found.cards.map((c) => c.id)).toEqual(['p1']);
   expect(found.nextCursor).toBeNull();
