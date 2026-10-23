@@ -1,6 +1,5 @@
-// Bounded catalog execution (Round 2): one production unit per
-// queue invocation under a shared invocation budget and a fenced
-// publisher lease. The budget covers D1 statements, KV operations,
+// Bounded catalog execution: production units share one invocation
+// budget and each runs under a fenced publisher lease. The budget covers D1 statements, KV operations,
 // combined external operations, source rows and materialized payload
 // bytes — including bookkeeping and continuation headroom. Queries
 // are bounded before execution; counters never substitute for that.
@@ -12,14 +11,19 @@ export class BudgetExhausted extends Error {
   }
 }
 
+// Workers Paid allows 1,000 D1 queries and 1,000 KV operations per
+// invocation (d1/platform/limits, kv/platform/limits); Paid is required.
 export const CATALOG_BUDGET_LIMITS = {
-  d1Statements: 40,
+  d1Statements: 400,
   kvOps: 800,
   combinedOps: 900,
   sourceRows: 5_000,
   payloadBytes: 8 * 1024 * 1024,
   maxBinds: 90,
 } as const;
+
+/** Statements a further unit needs before an invocation starts it. */
+export const CATALOG_UNIT_FLOOR_STATEMENTS = 20;
 
 // Headroom reserved so an exhausted unit can still checkpoint and
 // enqueue its continuation.

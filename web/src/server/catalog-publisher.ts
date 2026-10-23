@@ -2026,8 +2026,7 @@ export const BUSY_RETRY_SECONDS = 5;
  *  repair, then one incremental work pass. Returns done=false when
  *  continuation is required; the queue handler enqueues the
  *  continuation before acking. A lost lease is a harmless no-op.
- *  There is deliberately no production loop here: successive units
- *  are separate queue invocations. Test drivers live in tests/. */
+ *  The queue handler may run several units under one budget. */
 export async function runCatalogUnit(
   db: D1Database,
   kv?: KvLike,

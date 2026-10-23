@@ -1,5 +1,6 @@
 import { expect, vi } from 'vitest';
 import type { JobMessage } from '../../web/src/schemas/queue';
+import { CATALOG_BUDGET_LIMITS } from '../../web/src/server/catalog-exec';
 
 /** Real exported Worker handler; counters wrap the physical bindings. */
 export async function catalogQueueHarness(
@@ -34,7 +35,7 @@ export async function catalogQueueHarness(
         if (['run', 'all', 'first', 'raw'].includes(String(prop)))
           return async (...args: unknown[]) => {
             d1++;
-            expect(d1).toBeLessThanOrEqual(40);
+            expect(d1).toBeLessThanOrEqual(CATALOG_BUDGET_LIMITS.d1Statements);
             const result = await (
               Reflect.get(target, prop) as (...a: unknown[]) => Promise<unknown>
             ).apply(target, args);
@@ -59,7 +60,7 @@ export async function catalogQueueHarness(
       if (prop === 'batch')
         return async (statements: D1PreparedStatement[]) => {
           d1 += statements.length;
-          expect(d1).toBeLessThanOrEqual(40);
+          expect(d1).toBeLessThanOrEqual(CATALOG_BUDGET_LIMITS.d1Statements);
           return target.batch(statements.map((s) => native.get(s) ?? s));
         };
       return Reflect.get(target, prop);

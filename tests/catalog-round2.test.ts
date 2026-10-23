@@ -11,6 +11,7 @@ import {
 } from '../web/src/server/catalog-publisher';
 import { readListingPage } from '../web/src/server/catalog-read';
 import {
+  CATALOG_BUDGET_LIMITS,
   CatalogBudget,
   claimCatalogLease,
   leaseGuardStatement,
@@ -106,7 +107,7 @@ async function driveUnits(max = 500): Promise<number> {
   for (; units < max; units++) {
     kv.beginInvocation();
     const res = await queue.deliver();
-    expect(res.d1).toBeLessThanOrEqual(40);
+    expect(res.d1).toBeLessThanOrEqual(CATALOG_BUDGET_LIMITS.d1Statements);
     expect(res.retried).toBe(false);
     if (!res.continued) return units + 1;
   }
@@ -189,7 +190,8 @@ describe('Round 2 bounded catalog execution', () => {
     await dispose();
   });
   it('retries a failed continuation send without acknowledging the message', async () => {
-    await seedProducts(3);
+    // Large enough that the first invocation cannot finish the publish.
+    await seedProducts(501);
     const queue = await catalogQueueHarness(db, kv);
     queue.failNextSend();
     const failed = await queue.deliver();
