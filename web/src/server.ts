@@ -5,26 +5,9 @@ import {
 } from './server/public-cache';
 import { normalizeNetwork } from './server/network';
 import entry from '@tanstack/react-start/server-entry';
-import {
-  drainOutbox,
-  processOutboxRow,
-  emailStatement,
-  operationalRecipients,
-  commitWithEmails,
-  type JobMessage,
-} from './server/email';
-import { releaseExpiredReservations } from './server/inventory';
-import {
-  cancelExpiredPendingOrders,
-  failInboxEvent,
-  processInboxEvent,
-  reconcileLateRefunds,
-  reprocessStaleInbox,
-} from './server/checkout';
+import { processOutboxRow, type JobMessage } from './server/email';
+import { failInboxEvent, processInboxEvent } from './server/checkout';
 import { getStripeProvider } from './server/payments';
-import { queueAbandonedReminder } from './server/email';
-import { reconcileStripe } from './server/reconcile';
-import { pruneRetention } from './server/operations';
 import { runCatalogUnit } from './server/catalog-publisher';
 import { CatalogBudget, countedDb } from './server/catalog-exec';
 import { requireStaff } from './server/session';
@@ -135,24 +118,6 @@ async function rateLimit(
     { ok: false, error: 'Too many requests. Please wait a minute and try again.' },
     { status: 429, headers: { 'Retry-After': '60' } }
   );
-}
-
-async function sendAbandonedReminders(db: D1Database): Promise<number> {
-  // Orders whose configured hold expired unpaid get one "still want it?" email.
-  const rows = await db
-    .prepare(
-      `SELECT id, number, customer_email FROM orders
-       WHERE status = 'canceled' AND payment_status = 'unpaid'
-         AND abandoned_reminded_at IS NULL
-         AND updated_at > datetime('now', '-48 hours')
-       ORDER BY updated_at LIMIT 10`
-    )
-    .all<{ id: string; number: string; customer_email: string }>();
-  let sent = 0;
-  for (const order of rows.results) {
-    if (await queueAbandonedReminder(db, order)) sent++;
-  }
-  return sent;
 }
 
 export default {
@@ -288,6 +253,14 @@ async function handleQueue(
         await processOutboxRow(env.DB, job.outboxId);
       } else if (job.type === 'webhook.process') {
         await processInboxEvent(env.DB, job.eventId, getStripeProvider(env) ?? undefined);
+      } else if (job.type === 'checkout.recover') {
+        const provider = getStripeProvider(env);
+        if (!provider) throw Error('Payment provider unavailable');
+        const { runAuthorizedCheckout } = await import('./server/authorized-checkout');
+        await runAuthorizedCheckout(env.DB, provider, job.intentId, env.CHECKOUT_ADMISSION);
+      } else if (job.type === 'maintenance.run') {
+        const { runMaintenance } = await import('./server/maintenance');
+        await runMaintenance(env, job.runId);
       } else if (job.type === 'catalog.rebuild') {
         // Bounded catalog execution (Round 2): exactly one unit per
         // invocation under the shared budget. The budget covers the
@@ -314,7 +287,10 @@ async function handleQueue(
           // already made stays recoverable.
           try {
             budget.tickOp();
-            await env.CATALOG_JOBS.send({ type: 'catalog.rebuild' });
+            await env.CATALOG_JOBS.send(
+              { type: 'catalog.rebuild' },
+              result.retryAfterSeconds ? { delaySeconds: result.retryAfterSeconds } : undefined
+            );
           } catch (sendError) {
             console.error(
               JSON.stringify({
@@ -341,115 +317,31 @@ async function handleQueue(
 }
 
 async function handleScheduled(
-  _event: ScheduledController,
+  event: ScheduledController,
   env: Cloudflare.Env,
   ctx: ExecutionContext
 ): Promise<void> {
   ctx.waitUntil(
     (async () => {
-      // Each maintenance task is independent: one failure is logged and
-      // counted, never allowed to starve the rest of the sweep.
-      const provider = getStripeProvider(env);
-      const tasks: Array<[string, () => Promise<unknown>]> = [
-        ['releaseExpiredReservations', () => releaseExpiredReservations(env.DB, 100)],
-        ['cancelExpiredPendingOrders', () => cancelExpiredPendingOrders(env.DB, 100)],
-        ['reprocessStaleInbox', () => reprocessStaleInbox(env.DB, provider, 20)],
-        [
-          'reconcileCheckoutIntents',
-          async () => {
-            const { reconcileCheckoutIntents } = await import('./server/checkout-intents');
-            return reconcileCheckoutIntents(env.DB, provider, 20, env.CHECKOUT_ADMISSION);
-          },
-        ],
-        ['drainOutbox', () => drainOutbox(env.DB, 25)],
-        ['reconcileLateRefunds', () => reconcileLateRefunds(env.DB, provider ?? undefined)],
-        ['abandonedReminders', () => sendAbandonedReminders(env.DB)],
-        // Cron only enqueues a wake-up; publication runs solely in
-        // the queue consumer (Round 2: no direct cron publishing).
-        [
-          'catalogWork',
-          async () => {
-            await env.CATALOG_JOBS.send({ type: 'catalog.rebuild' });
-            return { enqueued: true };
-          },
-        ],
-        // Backstop purge drain: queue jobs drain promptly after each
-        // publish; this keeps invalidations moving if a wake-up was lost.
-        ['catalogInvalidations', () => drainPublicCacheInvalidations(env, ctx)],
-        [
-          'reconcileStripe',
-          async () => {
-            if (!provider) return { skipped: 'stripe-not-configured' };
-            const report = await reconcileStripe(env.DB, provider);
-            if (report.mismatches.length > 0) {
-              console.error(
-                JSON.stringify({
-                  alert: 'reconciliation_mismatch',
-                  count: report.mismatches.length,
-                  mismatches: report.mismatches.slice(0, 20),
-                })
-              );
-              const recipients = await operationalRecipients(env.DB);
-              if (recipients.length)
-                await commitWithEmails(
-                  env.DB,
-                  recipients.map((to) =>
-                    emailStatement(
-                      env.DB,
-                      `reconcile-${new Date().toISOString().slice(0, 10)}-${to}`,
-                      {
-                        to,
-                        subject: `Reconciliation found ${report.mismatches.length} mismatches`,
-                        text: 'Check Workers Logs for reconciliation_mismatch details.',
-                        html: '<p>Check Workers Logs for reconciliation_mismatch details.</p>',
-                      }
-                    )
-                  ),
-                  recipients.map((to) => `reconcile-${new Date().toISOString().slice(0, 10)}-${to}`)
-                );
-            }
-            return report;
-          },
-        ],
-        ['pruneRetention', () => pruneRetention(env.DB)],
-      ];
-      // Serialized: tasks share one D1 budget, so running them in
-      // parallel only moves contention into statement latency. Each
-      // task keeps its own failure isolation and summary entry.
-      const summary: Record<string, unknown> = { cron: 'maintenance' };
-      for (const [name, run] of tasks) {
-        try {
-          summary[name] = await run();
-        } catch (error) {
-          summary[name] = 'failed';
-          console.error(
-            JSON.stringify({
-              cron_task_failed: name,
-              error: error instanceof Error ? error.message : 'unknown',
-            })
-          );
-        }
-      }
-      // Catalog backlog observability: pending change-capture rows and
-      // the age of the oldest one, so a stalled publisher is visible in
-      // Workers Logs before shoppers notice stale pages.
-      try {
-        const backlog = await env.DB.prepare(
-          'SELECT COUNT(*) AS n, MIN(updated_at) AS oldest FROM catalog_work WHERE processed_revision < target_revision'
-        ).first<{ n: number; oldest: string | null }>();
-        console.log(
-          JSON.stringify({
-            event: 'catalog_backlog',
-            pending: backlog?.n ?? 0,
-            oldestAgeSeconds: backlog?.oldest
-              ? Math.max(0, Math.round((Date.now() - Date.parse(backlog.oldest)) / 1000))
-              : null,
-          })
+      const { startMaintenance, wakeDueMaintenance } = await import('./server/maintenance');
+      const { catalogWorkDue } = await import('./server/catalog-operations');
+      const date = new Date(event.scheduledTime),
+        day = date.toISOString().slice(0, 10),
+        hour = date.toISOString().slice(0, 13);
+      if (event.cron === '0 3 * * *') {
+        for (const task of ['reconciliation', 'retention', 'reminders', 'replica', 'gc'] as const)
+          await startMaintenance(env, task, day);
+      } else if (event.cron === '7 * * * *') await startMaintenance(env, 'privacy', hour);
+      else {
+        await startMaintenance(
+          env,
+          'financial',
+          String(Math.floor(event.scheduledTime / (15 * 60_000)))
         );
-      } catch {
-        console.warn(JSON.stringify({ event: 'catalog_backlog_unavailable' }));
+        if (await catalogWorkDue(env.DB)) await env.CATALOG_JOBS.send({ type: 'catalog.rebuild' });
+        await wakeDueMaintenance(env);
       }
-      console.log(JSON.stringify(summary));
+      await drainPublicCacheInvalidations(env, ctx);
     })()
   );
 }

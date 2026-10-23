@@ -6,6 +6,7 @@ import type { PublishedProductCard as ProductCardData } from '../server/catalog'
 import { formatMoney } from '../lib/format';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { mediaUrl, mediaSrcSet } from '../lib/media-url';
 
 export { formatMoney };
 
@@ -23,8 +24,15 @@ export function ProductCard({
         <div className="relative flex aspect-[4/5] items-center justify-center overflow-hidden rounded-xl bg-zinc-100">
           {product.imageKey ? (
             <img
-              src={`/media/${product.imageKey}?w=640`}
-              srcSet={`/media/${product.imageKey}?w=320 320w, /media/${product.imageKey}?w=640 640w, /media/${product.imageKey}?w=960 960w`}
+              src={mediaUrl(
+                {
+                  key: product.imageKey,
+                  publicUrl: product.imagePublicUrl,
+                  variants: product.imageVariants,
+                },
+                640
+              )}
+              srcSet={mediaSrcSet({ key: product.imageKey, variants: product.imageVariants })}
               sizes="(max-width: 640px) 100vw, 33vw"
               alt={product.title}
               loading="lazy"

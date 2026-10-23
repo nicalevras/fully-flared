@@ -165,8 +165,7 @@ function CartPage() {
           </Link>
           <p className="mt-6 text-[13px] leading-5 text-zinc-400">
             Prices, stock, discounts, and shipping are recomputed securely on the server when you
-            check out. Stock is held for {initial.limits.checkout_hold_minutes} minutes while you
-            pay.
+            check out. Inventory is allocated after payment authorization when you pay.
           </p>
         </section>
 

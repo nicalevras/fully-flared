@@ -4,6 +4,7 @@ import { appendResponseHeader, getRequest, setResponseHeader } from '@tanstack/r
 import {
   addCartLine,
   cartCookieHeader,
+  cartIdentity,
   clearCart,
   cartCountCookieHeader,
   clearCartCookieHeader,
@@ -20,6 +21,8 @@ import { getSettings } from '../server/settings';
 import type { StoreLimits } from '../schemas/limits';
 
 export type CartView = {
+  cartId: string | null;
+  cartRevision: number | null;
   limits: StoreLimits;
   lines: PricedLine[];
   zones: ShippingZoneView[];
@@ -31,7 +34,10 @@ async function cartView(
   creds: Parameters<typeof getCartLines>[1]
 ): Promise<CartView> {
   const lines = await priceCartLines(db, await getCartLines(db, creds));
+  const identity = await cartIdentity(db, creds);
   return {
+    cartId: identity?.status === 'open' ? identity.id : null,
+    cartRevision: identity?.status === 'open' ? identity.revision : null,
     lines,
     limits: (await getSettings(db)).limits,
     zones: await getShippingZones(db),

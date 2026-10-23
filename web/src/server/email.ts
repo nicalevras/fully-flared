@@ -17,20 +17,25 @@ export type { JobMessage } from '../schemas/queue';
 // Transactional email via Cloudflare Email Service (send_email binding).
 // Queue/outbox callers enqueue and the consumer sends.
 
-export async function enqueueJob(job: JobMessage): Promise<boolean> {
+export async function enqueueJob(
+  job: JobMessage,
+  options?: { delaySeconds: number }
+): Promise<boolean> {
   try {
     const { workerEnv } = await import('./env');
     // Separated queues (Phase 5): financial work, notifications and
     // catalog publication scale and fail independently, so a burst in
     // one cannot delay the others.
     const queue =
-      job.type === 'webhook.process'
+      job.type === 'webhook.process' ||
+      job.type === 'checkout.recover' ||
+      job.type === 'maintenance.run'
         ? workerEnv.JOBS
         : job.type === 'catalog.rebuild'
           ? workerEnv.CATALOG_JOBS
           : workerEnv.NOTIFICATIONS;
     if (!queue) return false;
-    await queue.send(job);
+    await queue.send(job, options);
     return true;
   } catch (err) {
     // The durable record (outbox/inbox) remains the fallback, but a broken
@@ -156,13 +161,13 @@ export async function queueAbandonedReminder(
   const payload: EmailMessage = {
     to: order.customer_email,
     subject: `Your order ${order.number} is waiting`,
-    text: `You left an order unfinished (${order.number}). Your items were held for a short time; complete checkout soon if you still want them.`,
-    html: `<p>You left an order unfinished (<strong>${order.number}</strong>).</p><p>Your items were held for a short time; complete checkout soon if you still want them.</p>`,
+    text: `You left an order unfinished (${order.number}). Return to the store if you still want these items. Availability and prices are checked again at checkout.`,
+    html: `<p>You left an order unfinished (<strong>${order.number}</strong>).</p><p>Return to the store if you still want these items. Availability and prices are checked again at checkout.</p>`,
   };
   const results = await db.batch([
     db
       .prepare(
-        "UPDATE orders SET abandoned_reminded_at = ? WHERE id = ? AND abandoned_reminded_at IS NULL AND status = 'canceled' AND payment_status = 'unpaid'"
+        "UPDATE orders SET abandoned_reminded_at = ? WHERE id = ? AND abandoned_reminded_at IS NULL AND status = 'canceled' AND payment_status = 'unpaid' AND reminder_consent=1 AND reminder_suppressed_at IS NULL AND COALESCE((SELECT value FROM settings WHERE key='abandoned_reminders_enabled'),'0')='1'"
       )
       .bind(now, order.id),
     db

@@ -31,6 +31,9 @@ export const adminActionFn = createServerFn({ method: 'POST' })
     const request = getRequest();
     const actor = { id: context.staff.id, role: context.staff.role ?? 'customer' };
     const auth = await getRequestAuth(env.DB, request);
+    const revision = await env.DB.prepare(
+      'SELECT work_revision AS revision FROM catalog_publication_state WHERE id=1'
+    ).first<{ revision: number }>();
     const result = await runAdminAction(
       env.DB,
       env,
@@ -48,8 +51,13 @@ export const adminActionFn = createServerFn({ method: 'POST' })
     // processes due work and no-ops when nothing is outstanding. The
     // cron sweep covers a lost wake-up.
     if (result.ok) {
-      const { enqueueCatalogRebuild } = await import('../server/catalog-publisher');
-      await enqueueCatalogRebuild(env);
+      const after = await env.DB.prepare(
+        'SELECT work_revision AS revision FROM catalog_publication_state WHERE id=1'
+      ).first<{ revision: number }>();
+      if (after?.revision !== revision?.revision) {
+        const { enqueueCatalogRebuild } = await import('../server/catalog-publisher');
+        await enqueueCatalogRebuild(env);
+      }
     }
     return result;
   });

@@ -4,7 +4,7 @@ import { getRequest, setResponseStatus } from '@tanstack/react-start/server';
 import {
   discountValidateBodySchema,
   returnCreateBodySchema,
-  checkoutBodySchema,
+  checkoutQuoteSchema,
 } from '../schemas/checkout';
 import { normalizeNetwork } from '../server/network';
 import { calculateDiscount, quoteOrder } from '../server/checkout';
@@ -63,7 +63,7 @@ export const validateDiscountFn = createServerFn({ method: 'POST' })
   });
 
 export const checkoutQuoteFn = createServerFn({ method: 'POST' })
-  .validator(validateServerInput(checkoutBodySchema.omit({ turnstileToken: true, intentId: true })))
+  .validator(validateServerInput(checkoutQuoteSchema))
   .handler(async ({ data }) => {
     const { env } = await import('cloudflare:workers');
     if (data.discountCode && (await discountAttemptLimited(env, discountNetworkIdentity()))) {

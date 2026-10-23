@@ -19,6 +19,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { addToCart, openCart } from '../../lib/cart';
 import type { StoreLimits } from '../../schemas/limits';
+import { mediaUrl, mediaSrcSet, type MediaSource } from '../../lib/media-url';
 
 type Variant = {
   id: string;
@@ -39,7 +40,7 @@ type ProductDetail = {
   seoTitle: string | null;
   seoDescription: string | null;
   variants: Variant[];
-  images: Array<{ key: string; alt: string }>;
+  images: Array<MediaSource & { alt: string }>;
   storeName: string;
   seoTitleTemplate: string;
   canonicalBaseUrl: string;
@@ -93,7 +94,7 @@ export const Route = createFileRoute('/_shop/products/$slug')({
         url,
         type: 'product',
         image: firstImage
-          ? absoluteUrl(loaderData.canonicalBaseUrl, `/media/${firstImage.key}`)
+          ? absoluteUrl(loaderData.canonicalBaseUrl, mediaUrl(firstImage))
           : undefined,
       }),
       links: [{ rel: 'canonical', href: url }],
@@ -104,7 +105,7 @@ export const Route = createFileRoute('/_shop/products/$slug')({
         description: loaderData.seoDescription ?? loaderData.description,
         url,
         ...(firstImage
-          ? { image: absoluteUrl(loaderData.canonicalBaseUrl, `/media/${firstImage.key}`) }
+          ? { image: absoluteUrl(loaderData.canonicalBaseUrl, mediaUrl(firstImage)) }
           : {}),
         ...(firstVariant
           ? {
@@ -153,8 +154,12 @@ function ProductPage() {
           <div className="relative flex aspect-[4/5] items-center justify-center overflow-hidden rounded-2xl bg-zinc-100">
             {product.images.length > 0 ? (
               <img
-                src={`/media/${product.images[imageIdx]?.key}?w=960`}
-                srcSet={`/media/${product.images[imageIdx]?.key}?w=320 320w, /media/${product.images[imageIdx]?.key}?w=640 640w, /media/${product.images[imageIdx]?.key}?w=960 960w, /media/${product.images[imageIdx]?.key}?w=1600 1600w`}
+                src={
+                  product.images[imageIdx] ? mediaUrl(product.images[imageIdx]!, 960) : undefined
+                }
+                srcSet={
+                  product.images[imageIdx] ? mediaSrcSet(product.images[imageIdx]!) : undefined
+                }
                 sizes="(max-width: 1024px) 100vw, 50vw"
                 alt={product.images[imageIdx]?.alt || product.title}
                 className="h-full w-full object-cover"
@@ -190,7 +195,7 @@ function ProductPage() {
                   aria-label={`View image ${i + 1}`}
                   className={`h-16 w-16 overflow-hidden rounded-lg p-0 ${imageIdx === i ? 'ring-2 ring-zinc-950 ring-offset-2' : 'opacity-70 hover:opacity-100'}`}
                 >
-                  <img src={`/media/${image.key}`} alt="" className="h-full w-full object-cover" />
+                  <img src={mediaUrl(image)} alt="" className="h-full w-full object-cover" />
                 </ToggleGroupItem>
               ))}
             </ToggleGroup>
@@ -344,8 +349,8 @@ function ProductPage() {
             </li>
             <li className="flex gap-2.5">
               <ShieldIcon className="h-5 w-5 shrink-0 text-zinc-950" /> Secure checkout via Stripe.
-              Stock is reserved for {product.limits.checkout_hold_minutes} minutes while you pay, so
-              it can never oversell.
+              Opening checkout does not reserve inventory. Stock is allocated after payment
+              authorization.
             </li>
             <li className="flex gap-2.5">
               <CheckIcon className="h-5 w-5 shrink-0 text-zinc-950" /> SKU {selected?.sku ?? '-'} ·

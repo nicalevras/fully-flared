@@ -136,3 +136,17 @@ Migration 0012 adds durable catalog reclamation; it is applied locally only.
 Cleanup resumes through the existing catalog queue, protects current and retained
 history, and preserves retry state on KV deletion failures. See [SCALING](docs/SCALING.md) for its
 retention and operational limits.
+
+## Authorization-first checkout (implementation checkpoint)
+
+New purchases use hosted Stripe Checkout with manual capture. The app owns the
+address, delivery, discounts and explicit review of Session-backed totals.
+Preparing a Session reserves nothing; verified authorization precedes atomic
+D1 allocation, capture and once-only sale finalization. Pending capture keeps
+its allocation during uncertainty. New migrations 0013–0015 are prepared and
+now applied locally after explicit authorization and a hash-verified backup. Full migration-path and payment lifecycle verification remain next-phase work.
+
+See [web/AUTHORIZATION-FIRST.md](web/AUTHORIZATION-FIRST.md) for the requirement
+ledger, compatibility boundaries and pending verification. Latest source changes
+have no runtime acceptance claim. Server functions use Start's CSRF middleware;
+exact Tunnel origins remain explicit configuration.

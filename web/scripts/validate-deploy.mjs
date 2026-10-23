@@ -33,7 +33,8 @@ for (const binding of [...(selected.kv_namespaces ?? []), ...(selected.ratelimit
   if (typeof id !== 'string' || !id || id.includes('REPLACE_WITH'))
     throw new Error('Replace all KV and rate-limit namespace placeholders');
 }
-const publisher = selected.queues?.consumers?.find((q) => q.queue.includes('realtime'));
+const catalogQueue = selected.queues?.producers?.find((q) => q.binding === 'CATALOG_JOBS')?.queue;
+const publisher = selected.queues?.consumers?.find((q) => q.queue === catalogQueue);
 if (publisher?.max_concurrency !== 1)
   throw new Error('Catalog queue consumer concurrency must be one');
 if (!(config.routes?.length || config.route))

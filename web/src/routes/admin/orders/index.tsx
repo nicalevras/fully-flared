@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { staffMiddleware } from '../../../server/staff-middleware';
-import { formatDate } from '../../../lib/format';
+import { LocalDate } from '../../../components/LocalDate';
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import { useAdminAction } from '../../../components/AdminNav';
@@ -116,7 +116,9 @@ function AdminOrders() {
                     <td>
                       <StatusBadge value={o.payment_status} />
                     </td>
-                    <td className="text-zinc-500">{formatDate(o.created_at)}</td>
+                    <td className="text-zinc-500">
+                      <LocalDate value={o.created_at} />
+                    </td>
                     <td className="text-right font-medium">
                       {formatMoney(o.total_cents, o.currency)}
                     </td>
@@ -232,7 +234,9 @@ function AdminOrders() {
                         </span>
                       ) : null}
                     </td>
-                    <td className="text-zinc-500">{formatDate(r.created_at)}</td>
+                    <td className="text-zinc-500">
+                      <LocalDate value={r.created_at} />
+                    </td>
                     <td className="text-right">
                       <span className="inline-flex gap-1">
                         {r.status === 'requested' ? (

@@ -4,6 +4,9 @@ export const REQUIRED_STRIPE_EVENTS = [
   'checkout.session.async_payment_failed',
   'checkout.session.expired',
   'payment_intent.payment_failed',
+  'payment_intent.amount_capturable_updated',
+  'payment_intent.succeeded',
+  'payment_intent.canceled',
   'refund.updated',
   'refund.failed',
   'charge.refunded',
@@ -14,6 +17,7 @@ export const REQUIRED_STRIPE_EVENTS = [
 export function stripeListenArguments(baseUrl: string): string[] {
   return [
     'listen',
+    '--latest',
     '--forward-to',
     new URL('/api/webhooks/stripe', baseUrl).href,
     '--events',

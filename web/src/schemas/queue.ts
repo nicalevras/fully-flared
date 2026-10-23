@@ -7,6 +7,8 @@ export const jobMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('email.send'), outboxId: z.string().min(1) }),
   z.object({ type: z.literal('webhook.process'), eventId: z.string().min(1) }),
   z.object({ type: z.literal('catalog.rebuild') }),
+  z.object({ type: z.literal('checkout.recover'), intentId: z.string().min(1) }),
+  z.object({ type: z.literal('maintenance.run'), runId: z.string().min(1) }),
 ]);
 export type JobMessage = z.infer<typeof jobMessageSchema>;
 

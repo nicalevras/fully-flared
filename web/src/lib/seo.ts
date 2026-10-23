@@ -11,6 +11,7 @@ export function resolveCanonicalBase(configured: string, fallbackOrigin: string)
 }
 
 export function absoluteUrl(base: string, path: string): string {
+  if (/^https?:\/\//i.test(path)) return path;
   if (!base) return path;
   const cleanBase = base.replace(/\/$/, '');
   return `${cleanBase}${path.startsWith('/') ? path : `/${path}`}`;

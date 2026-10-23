@@ -121,3 +121,28 @@ close these gates. No claim of global exactly-once email delivery is made.
 
 Context7 results were checked against installed Stripe 23.0.0 and Cloudflare
 Vite plugin 1.64.0/Wrangler 4.151.1 source and types. Dependencies are unchanged.
+
+## Superseding implementation checkpoint — 2026-10-22
+
+The earlier tables/results above are historical evidence for the previous
+architecture, not acceptance of the authorization-first changes now in the
+working tree. See AUTHORIZATION-FIRST.md for current A–E implementation coverage.
+The latest instruction defers tests until the next phase. Prepared migrations
+0013–0015 were subsequently applied locally with approval and a verified backup; no production-readiness or measured-scale claim follows
+from this implementation checkpoint. The old layout-key compatibility and CSRF
+middleware address the reported source integration problems; browser confirmation
+remains pending.
+
+## 2026-10-23 checkout-hardening checkpoint — verification pending
+
+The approved amendment retains hosted Stripe Checkout. Cart-bound attempt identity,
+pre-finalization full-refund compensation, independent financial recovery families,
+shared provider deadlines, purge-result handling and recoverable public media
+publication are implemented in the working tree. Migration
+`0016_checkout_and_media_recovery.sql` is prepared and **not applied**.
+
+See [CHECKOUT-HARDENING.md](CHECKOUT-HARDENING.md) for the requirement ledger,
+operator workflow, migration/rollback procedure and deferred acceptance cases.
+Historical green results above do not verify these changes. Tests, typechecks,
+builds, drift checks and provider/browser journeys are intentionally deferred until
+the user's review pause. No commits, pushes, deployments or remote changes ran.

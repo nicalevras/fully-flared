@@ -36,6 +36,8 @@ export type StoreSettings = {
    *  stock movement. Quotes carry it; the reservation batch rejects a
    *  stale revision so a shopper never silently pays a changed price. */
   configRevision: number;
+  abandonedRemindersEnabled: boolean;
+  mediaPublicBaseUrl: string;
 };
 
 const DEFAULTS: Record<string, string> = {
@@ -52,6 +54,8 @@ const DEFAULTS: Record<string, string> = {
   announcement_text: '',
   seo_title_template: '{product} · {store_name}',
   turnstile_site_key: '',
+  abandoned_reminders_enabled: '0',
+  media_public_base_url: '',
 };
 
 export async function getSettings(db: D1Database): Promise<StoreSettings> {
@@ -91,6 +95,8 @@ export async function getSettings(db: D1Database): Promise<StoreSettings> {
     seoTitleTemplate: v('seo_title_template'),
     turnstileSiteKey: v('turnstile_site_key'),
     configRevision: Number.parseInt(v('commerce_revision') || '0', 10) || 0,
+    abandonedRemindersEnabled: v('abandoned_reminders_enabled') === '1',
+    mediaPublicBaseUrl: v('media_public_base_url'),
   };
 }
 

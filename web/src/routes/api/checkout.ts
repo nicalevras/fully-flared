@@ -10,6 +10,7 @@ import { getStripeProvider, type PaymentProvider } from '../../server/payments';
 import { getSettings } from '../../server/settings';
 import {
   cartCountCookieHeader,
+  cartIdentity,
   clearCart as convertCart,
   clearCartCookieHeader,
   parseCartCookie,
@@ -18,7 +19,7 @@ import { getSessionUser } from '../../server/session';
 import { InsufficientStock } from '../../server/inventory';
 import { parseJsonBody } from '../../schemas/common';
 import { checkoutBodySchema } from '../../schemas/checkout';
-import { CHECKOUT_BUFFER_MINUTES } from '../../schemas/limits';
+import { prepareReview } from '../../server/authorized-checkout';
 import { sha256Hex } from '../../lib/hash';
 import {
   checkoutFingerprint,
@@ -54,11 +55,34 @@ export async function handleCheckoutRequest(
   env: Cloudflare.Env,
   options?: { deadlineMs?: number }
 ): Promise<Response> {
+  try {
+    return await prepareCheckoutRequest(request, env, options);
+  } catch (error) {
+    if (error instanceof CheckoutError) return generic(error.message, error.code, error.status);
+    if (error instanceof InsufficientStock)
+      return generic('Some items are no longer available', 'STOCK', 409);
+    console.error(
+      JSON.stringify({
+        event: 'checkout_prepare_failed',
+        error: error instanceof Error ? error.name : 'unknown',
+      })
+    );
+    return generic('Checkout could not be prepared. Please retry.', 'INTERNAL', 500);
+  }
+}
+
+async function prepareCheckoutRequest(
+  request: Request,
+  env: Cloudflare.Env,
+  options?: { deadlineMs?: number }
+): Promise<Response> {
   const provider = getStripeProvider(env);
   if (!provider) return generic('Payment configuration unavailable', 'DEPENDENCY', 503);
   const parsed = await parseJsonBody(request, checkoutBodySchema);
   if (!parsed.ok) return parsed.response;
   const body = parsed.data;
+  if (!body.shippingAddress || body.shippingAddress.country !== body.shippingCountry)
+    return generic('Enter a complete shipping address for the selected country', 'VALIDATION', 400);
 
   // A signed-in customer's orders are theirs by user_id; guests check
   // out with email only and claim orders after email verification.
@@ -68,7 +92,32 @@ export async function handleCheckoutRequest(
   const secure = new URL(request.url).protocol === 'https:';
 
   const existing = await loadIntent(env.DB, body.intentId);
+  const cartCreds = parseCartCookie(request.headers.get('cookie'));
+  const cart = await cartIdentity(env.DB, cartCreds);
+  const completedRetry =
+    !cart &&
+    existing?.cart_id === body.cartId &&
+    existing.cart_revision === body.cartRevision &&
+    existing.fingerprint === fingerprint &&
+    (await intentOwnedBy(existing, { userId: sessionUser?.id ?? null, guestToken })) &&
+    Boolean(
+      await env.DB.prepare("SELECT 1 FROM orders WHERE id=? AND payment_status='paid'")
+        .bind(existing.order_id)
+        .first()
+    );
+  if ((!cart || cart.id !== body.cartId || cart.revision !== body.cartRevision) && !completedRetry)
+    return generic(
+      'Your cart changed. Reload it and review your order again.',
+      'STALE_ATTEMPT',
+      409
+    );
   if (existing) {
+    if (existing.cart_id !== body.cartId || existing.cart_revision !== body.cartRevision)
+      return generic(
+        'This checkout belongs to an older cart. Review your order again.',
+        'STALE_ATTEMPT',
+        409
+      );
     return respondForIntent(
       env.DB,
       provider,
@@ -79,6 +128,7 @@ export async function handleCheckoutRequest(
         guestToken,
         fingerprint,
         secure,
+        accessSecret: env.BETTER_AUTH_SECRET ?? '',
       },
       {
         admission: env.CHECKOUT_ADMISSION,
@@ -111,6 +161,20 @@ export async function handleCheckoutRequest(
   if (!turnstileOk) return generic('Bot verification failed. Please try again.', 'BOT', 403);
 
   const effectiveGuestToken = guestToken;
+  if (!cartCreds || !cart || cart.status !== 'open')
+    return generic('Your cart is unavailable. Reload and try again.', 'CONFLICT', 409);
+  const currentLines = await env.DB.prepare(
+    'SELECT sku,qty FROM cart_items WHERE cart_id=? ORDER BY sku'
+  )
+    .bind(cartCreds.id)
+    .all<{ sku: string; qty: number }>();
+  const merged = new Map<string, number>();
+  for (const line of body.lines) merged.set(line.sku, (merged.get(line.sku) ?? 0) + line.qty);
+  if (
+    JSON.stringify(currentLines.results.map((l) => [l.sku, l.qty])) !==
+    JSON.stringify([...merged].sort(([a], [b]) => a.localeCompare(b)))
+  )
+    return generic('Your cart changed. Review it again.', 'CONFLICT', 409);
   const settings = await getSettings(env.DB);
   // The shopper confirmed pricing at quoteRevision; if commerce
   // configuration moved since, reject for requote rather than charge
@@ -177,16 +241,17 @@ export async function handleCheckoutRequest(
         : null,
     fingerprint,
     sessionExpiresAt: '',
-    holdExpiresAt: '',
+    holdExpiresAt: null,
+    manualCapture: true,
+    shippingAddress: body.shippingAddress,
+    cartId: cartCreds.id,
+    cartRevision: cart.revision,
+    reminderConsent: body.reminderConsent,
     payloadFor: async (quote, orderId) => {
       const token = secret ? await createOrderAccessToken(secret, orderId) : '';
       const expiresAtEpochSeconds =
-        Math.floor(Date.now() / 1000) +
-        (quote.limits.checkout_hold_minutes - CHECKOUT_BUFFER_MINUTES) * 60;
+        Math.floor(Date.now() / 1000) + quote.limits.checkout_session_minutes * 60;
       intent.sessionExpiresAt = new Date(expiresAtEpochSeconds * 1000).toISOString();
-      intent.holdExpiresAt = new Date(
-        Date.now() + quote.limits.checkout_hold_minutes * 60_000
-      ).toISOString();
       return {
         orderId,
         attemptId: body.intentId,
@@ -203,7 +268,9 @@ export async function handleCheckoutRequest(
         shippingCents: quote.shippingCents,
         successUrl: `${base}/checkout/success?order=${orderId}${token ? `&t=${token}` : ''}`,
         cancelUrl: `${base}/cart`,
-        collectShipping: true,
+        collectShipping: false,
+        manualCapture: true,
+        shippingAddress: body.shippingAddress,
         shippingCountries: [body.shippingCountry],
         automaticTax: settings.stripeTaxEnabled && settings.stripeTaxConfirmed,
         expiresAtEpochSeconds,
@@ -253,6 +320,14 @@ export async function handleCheckoutRequest(
         settings,
         authoritative
       );
+      const retired = await env.DB.prepare(
+        "SELECT id FROM checkout_intents WHERE superseded_by=? AND payment_state NOT IN ('finalized','canceled') ORDER BY created_at LIMIT 20"
+      )
+        .bind(intent.id)
+        .all<{ id: string }>();
+      const { enqueueJob } = await import('../../server/email');
+      for (const old of retired.results)
+        await enqueueJob({ type: 'checkout.recover', intentId: old.id });
     } catch (err) {
       if (err instanceof CheckoutError) {
         if (err.code === 'INTENT_EXISTS') {
@@ -269,6 +344,7 @@ export async function handleCheckoutRequest(
                 guestToken: effectiveGuestToken,
                 fingerprint,
                 secure,
+                accessSecret: secret,
               },
               { permitHeld: true, deadlineMs }
             );
@@ -303,6 +379,7 @@ export async function handleCheckoutRequest(
         guestToken: effectiveGuestToken,
         fingerprint,
         secure,
+        accessSecret: secret,
       },
       { permitHeld: true, deadlineMs }
     );
@@ -317,7 +394,13 @@ async function respondForIntent(
   provider: PaymentProvider,
   request: Request,
   intent: CheckoutIntentRow,
-  who: { userId: string | null; guestToken: string | null; fingerprint: string; secure: boolean },
+  who: {
+    userId: string | null;
+    guestToken: string | null;
+    fingerprint: string;
+    secure: boolean;
+    accessSecret: string;
+  },
   opts: {
     permitHeld?: boolean;
     deadlineMs?: number;
@@ -337,7 +420,11 @@ async function respondForIntent(
     return Response.json({ state: 'pending' }, { status: 202 });
   }
   if (intent.fingerprint !== who.fingerprint)
-    return generic('Checkout details changed. Review your order and try again.', 'CONFLICT', 409);
+    return generic(
+      'Checkout details changed. Review your order and try again.',
+      'STALE_ATTEMPT',
+      409
+    );
   const order = await db
     .prepare('SELECT id, status, payment_status, total_cents, currency FROM orders WHERE id = ?')
     .bind(intent.order_id)
@@ -349,10 +436,31 @@ async function respondForIntent(
       currency: string;
     }>();
   if (!order) return generic('Checkout not found', 'NOT_FOUND', 404);
-  if (order.payment_status === 'paid')
-    return Response.json({ state: 'already_paid', orderId: order.id }, { status: 200 });
+  const completedResponse = async () => {
+    const token = who.accessSecret ? await createOrderAccessToken(who.accessSecret, order.id) : '';
+    return Response.json({
+      state: 'already_paid',
+      orderId: order.id,
+      orderUrl: `/checkout/success?order=${encodeURIComponent(order.id)}${token ? `&t=${encodeURIComponent(token)}` : ''}`,
+    });
+  };
+  if (order.payment_status === 'paid') return completedResponse();
+  const currentCart = await cartIdentity(db, parseCartCookie(request.headers.get('cookie')));
+  if (
+    !currentCart ||
+    currentCart.id !== intent.cart_id ||
+    currentCart.revision !== intent.cart_revision ||
+    currentCart.status !== 'open'
+  )
+    return generic(
+      'Your cart changed. Reload it and review your order again.',
+      'STALE_ATTEMPT',
+      409
+    );
   if (intent.state === 'canceled' || intent.state === 'expired')
     return generic('This checkout attempt has ended. Start a new checkout.', 'TERMINAL', 409);
+  if (intent.cancel_requested || intent.superseded_by)
+    return generic('This checkout was replaced. Review your current order.', 'TERMINAL', 409);
 
   // Read-only fast path: a ready intent whose order can still be paid
   // returns its URL without admission or provider work. A terminal
@@ -364,7 +472,17 @@ async function respondForIntent(
   ) {
     if (order.status !== 'pending_payment')
       return generic('This checkout attempt has ended. Start a new checkout.', 'TERMINAL', 409);
-    return readyResponse(db, request, order, intent.checkout_url);
+    if (intent.flow !== 'manual_capture')
+      return readyResponse(db, request, order, intent.checkout_url);
+    if (intent.quote_json)
+      return Response.json({
+        state: 'review_ready',
+        intentId: intent.id,
+        orderId: order.id,
+        quote: JSON.parse(intent.quote_json),
+        quoteHash: intent.quote_hash,
+        expiresAt: intent.session_expires_at,
+      });
   }
 
   // Anything else may reach the provider (resume/recovery), so it
@@ -400,9 +518,27 @@ async function respondForIntent(
     });
     switch (result.status) {
       case 'ready':
+        if (intent.flow === 'manual_capture') {
+          const fresh = (await loadIntent(db, intent.id))!;
+          const quote = await prepareReview(
+            db,
+            provider,
+            fresh,
+            opts.deadlineMs ?? Date.now() + 30_000
+          );
+          const frozen = (await loadIntent(db, intent.id))!;
+          return Response.json({
+            state: 'review_ready',
+            intentId: intent.id,
+            orderId: order.id,
+            quote,
+            quoteHash: frozen.quote_hash,
+            expiresAt: frozen.session_expires_at,
+          });
+        }
         return readyResponse(db, request, order, result.checkoutUrl);
       case 'already_paid':
-        return Response.json({ state: 'already_paid', orderId: order.id }, { status: 200 });
+        return completedResponse();
       case 'pending':
         return Response.json({ state: 'pending', orderId: order.id }, { status: 202 });
       case 'expired':

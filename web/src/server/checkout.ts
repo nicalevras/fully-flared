@@ -1,6 +1,10 @@
 import { cancelOrdersStatements } from './order-cancellation';
 import { resolvePaymentOrder } from './payment-order';
-import { reservationStatementsSetBased, InsufficientStock } from './inventory';
+import {
+  reservationStatementsSetBased,
+  releaseOrderHoldsStmts,
+  InsufficientStock,
+} from './inventory';
 import { getSettings } from './settings';
 import { inArray, eq } from 'drizzle-orm';
 import { getDb } from '../db/client';
@@ -242,7 +246,12 @@ export type CheckoutIntentInsert = {
   guestCapabilityHash: string | null;
   fingerprint: string;
   sessionExpiresAt: string;
-  holdExpiresAt: string;
+  holdExpiresAt: string | null;
+  manualCapture?: boolean;
+  shippingAddress?: import('../schemas/checkout').ShippingAddress;
+  cartId?: string;
+  cartRevision?: number;
+  reminderConsent?: boolean;
   payloadFor: (
     quote: Awaited<ReturnType<typeof quoteOrder>>,
     orderId: string
@@ -266,7 +275,7 @@ export async function createPendingOrder(
   const payloadJson = intent ? JSON.stringify(await intent.payloadFor(quote, orderId)) : null;
   const { stmts } = reservationStatementsSetBased(db, quote.items, {
     orderId,
-    holdMinutes: quote.limits.checkout_hold_minutes,
+    holdMinutes: quote.limits.checkout_session_minutes + 10,
   });
   const itemsJson = JSON.stringify(
     quote.items.map((i) => ({
@@ -278,6 +287,7 @@ export async function createPendingOrder(
     }))
   );
   const discount = quote.discount;
+  const claimDiscount = intent?.manualCapture ? null : discount;
   const statements: D1PreparedStatement[] = [
     ...(input.userId
       ? [
@@ -288,19 +298,19 @@ export async function createPendingOrder(
             .bind(input.userId),
         ]
       : []),
-    ...(discount
+    ...(claimDiscount
       ? [
           db
             .prepare(
               'UPDATE discounts SET usage_count = usage_count + 1 WHERE id = ? AND (usage_limit IS NULL OR usage_count < usage_limit)'
             )
-            .bind(discount.id),
+            .bind(claimDiscount.id),
         ]
       : []),
     db
       .prepare(
-        `INSERT INTO orders (id, number, customer_email, user_id, currency, subtotal_cents, discount_cents, shipping_cents, total_cents, discount_id, checkout_attempt_id, checkout_intent_id, customer_ip, shipping_country, shipping_rate_id, created_at, updated_at)
-      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ${discount ? 'WHERE changes() > 0' : ''}`
+        `INSERT INTO orders (id, number, customer_email, user_id, currency, subtotal_cents, discount_cents, shipping_cents, total_cents, discount_id, checkout_attempt_id, checkout_intent_id, customer_ip, shipping_country, shipping_rate_id,reminder_consent, created_at, updated_at)
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ${claimDiscount ? 'WHERE changes() > 0' : ''}`
       )
       .bind(
         orderId,
@@ -318,6 +328,7 @@ export async function createPendingOrder(
         input.ip ? normalizeNetwork(input.ip) : null,
         input.shippingCountry!,
         input.shippingRateId!,
+        intent?.reminderConsent ? 1 : 0,
         at,
         at
       ),
@@ -325,8 +336,8 @@ export async function createPendingOrder(
       ? [
           db
             .prepare(
-              `INSERT INTO checkout_intents (id, order_id, owner_type, user_id, guest_capability_hash, fingerprint, state, provider_payload_json, payload_version, coupon_idempotency_key, session_idempotency_key, session_expires_at, hold_expires_at, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, 'reserved', ?, 1, ?, ?, ?, ?, ?, ?)`
+              `INSERT INTO checkout_intents (id, order_id, owner_type, user_id, guest_capability_hash, fingerprint, state, provider_payload_json, payload_version, coupon_idempotency_key, session_idempotency_key, session_expires_at, hold_expires_at, flow,shipping_address_json,cart_id,cart_revision,payment_next_at,created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, 'reserved', ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
             )
             .bind(
               intent.id,
@@ -339,7 +350,12 @@ export async function createPendingOrder(
               `coupon_${intent.id}`,
               `checkout_${intent.id}`,
               intent.sessionExpiresAt,
-              intent.holdExpiresAt,
+              intent.manualCapture ? null : intent.holdExpiresAt,
+              intent.manualCapture ? 'manual_capture' : 'legacy',
+              intent.shippingAddress ? JSON.stringify(intent.shippingAddress) : null,
+              intent.cartId ?? null,
+              intent.cartRevision ?? null,
+              intent.manualCapture ? intent.sessionExpiresAt : null,
               at,
               at
             ),
@@ -350,6 +366,23 @@ export async function createPendingOrder(
         'INSERT INTO batch_guard SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM orders WHERE id = ?)'
       )
       .bind(orderId),
+    ...(intent?.manualCapture && intent.cartId
+      ? [
+          db
+            .prepare(
+              "INSERT INTO batch_guard SELECT 1 WHERE NOT EXISTS(SELECT 1 FROM carts WHERE id=? AND revision=? AND status='open')"
+            )
+            .bind(intent.cartId, intent.cartRevision),
+          db
+            .prepare(
+              `UPDATE checkout_intents SET superseded_by=?,cancel_requested=1,creation_stopped_at=COALESCE(creation_stopped_at,?),payment_next_at=? WHERE cart_id=? AND id!=? AND flow='manual_capture' AND payment_state NOT IN ('finalized','canceled')`
+            )
+            .bind(intent.id, at, at, intent.cartId, intent.id),
+          db
+            .prepare('UPDATE carts SET active_checkout_id=? WHERE id=?')
+            .bind(intent.id, intent.cartId),
+        ]
+      : []),
     // Stale-quote guard: pricing/shipping/coupon/settings changed since
     // the quote was computed. Abort rather than charge a changed price;
     // stock-only movement does not advance the revision.
@@ -364,14 +397,14 @@ export async function createPendingOrder(
          SELECT json_extract(value, '$.id'), ?, json_extract(value, '$.sku'), json_extract(value, '$.title'), CAST(json_extract(value, '$.qty') AS INTEGER), CAST(json_extract(value, '$.unitPriceCents') AS INTEGER) FROM json_each(?)`
       )
       .bind(orderId, itemsJson),
-    ...stmts,
-    ...(discount
+    ...(intent?.manualCapture ? [] : stmts),
+    ...(claimDiscount
       ? [
           db
             .prepare(
               'INSERT INTO discount_usage (id, discount_id, order_id, customer_email, amount_cents, created_at) VALUES (?, ?, ?, ?, ?, ?)'
             )
-            .bind(id(), discount.id, orderId, email, quote.discountCents, at),
+            .bind(id(), claimDiscount.id, orderId, email, quote.discountCents, at),
         ]
       : []),
   ];
@@ -379,7 +412,12 @@ export async function createPendingOrder(
     await db.batch(statements);
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
-    if (intent && /checkout_intents|checkout_intent_id/.test(message))
+    if (
+      intent &&
+      /UNIQUE constraint failed:\s*(checkout_intents\.|orders\.checkout_(?:attempt|intent)_id)/.test(
+        message
+      )
+    )
       throw new CheckoutError('Checkout already exists', 409, 'INTENT_EXISTS');
     if (/checkout currency changed/.test(message))
       throw new CheckoutError('Store currency changed; refresh checkout', 409, 'VALIDATION');
@@ -589,7 +627,8 @@ export async function processInboxEvent(
 export async function reprocessStaleInbox(
   db: D1Database,
   provider: PaymentProvider | null,
-  limit = 20
+  limit = 20,
+  dueBefore = now()
 ): Promise<number> {
   const stale = new Date(Date.now() - 5 * 60_000).toISOString();
   const rows = await db
@@ -598,7 +637,7 @@ export async function reprocessStaleInbox(
        WHERE (status = 'failed' AND attempts < 5 AND (retry_after IS NULL OR retry_after <= ?)) OR (status = 'pending' AND received_at < ?) OR (status = 'dead' AND (retry_after IS NULL OR retry_after <= ?))
        ORDER BY received_at ASC LIMIT ?`
     )
-    .bind(new Date().toISOString(), stale, new Date().toISOString(), limit)
+    .bind(dueBefore, stale, dueBefore, limit)
     .all<{ event_id: string; status: string }>();
   for (const r of rows.results) {
     if (r.status === 'dead')
@@ -634,7 +673,10 @@ async function applyStripeEvent(
       : null;
 
   try {
-    if (
+    const { recordAuthorizedEvent } = await import('./authorized-checkout');
+    if (await recordAuthorizedEvent(db, event.type, data)) {
+      // The manual-capture operation is durable and queued; Session completion is not payment.
+    } else if (
       event.type === 'checkout.session.completed' ||
       event.type === 'checkout.session.async_payment_succeeded'
     ) {
@@ -666,11 +708,6 @@ async function applyStripeEvent(
         if (!(await findOrderBySession(db, sessionId)))
           throw new Error('Checkout order has not arrived yet');
         await markOrderPaid(db, sessionId, data, provider);
-        // Admin realtime fan-out: a direct best-effort Durable Object
-        // broadcast after the durable transition. Best-effort by design — the order
-        // itself is already Durable in D1 and the dashboard re-reads on focus.
-        const { broadcastAdminRealtime } = await import('./realtime');
-        await broadcastAdminRealtime('order.paid', { sessionId, at: now() });
       }
     } else if (event.type === 'checkout.session.expired' && sessionId) {
       await cancelPendingOrder(db, sessionId);
@@ -716,12 +753,30 @@ async function applyStripeEvent(
         throw new Error('Dispute order has not arrived yet');
       if (event.type === 'charge.dispute.closed') {
         if (data.status === 'won' || data.status === 'warning_closed') {
-          await db
+          await db.batch([
+            db
+              .prepare(
+                `UPDATE orders SET payment_status=CASE WHEN status IN ('pending_payment','canceled') THEN 'unpaid' WHEN (SELECT COALESCE(SUM(amount_cents),0) FROM refunds WHERE order_id=orders.id AND status='succeeded')>=total_cents THEN 'refunded' WHEN EXISTS(SELECT 1 FROM refunds WHERE order_id=orders.id AND status='succeeded') THEN 'partially_refunded' ELSE 'paid' END,updated_at=? WHERE stripe_payment_intent_id=?`
+              )
+              .bind(now(), pi),
+            db
+              .prepare(
+                `UPDATE webhook_inbox SET status='pending',attempts=0,retry_after=?,processed_at=NULL
+              WHERE event_id!=? AND type IN ('checkout.session.completed','checkout.session.async_payment_succeeded') AND json_valid(payload_json)
+              AND (json_extract(payload_json,'$.data.object.metadata.order_id') IN (SELECT id FROM orders WHERE stripe_payment_intent_id=?)
+                OR json_extract(payload_json,'$.data.object.id') IN (SELECT stripe_checkout_session_id FROM orders WHERE stripe_payment_intent_id=?))`
+              )
+              .bind(now(), event.id, pi, pi),
+          ]);
+          const due = await db
             .prepare(
-              `UPDATE orders SET payment_status=CASE WHEN status IN ('pending_payment','canceled') THEN 'unpaid' WHEN (SELECT COALESCE(SUM(amount_cents),0) FROM refunds WHERE order_id=orders.id AND status='succeeded')>=total_cents THEN 'refunded' WHEN EXISTS(SELECT 1 FROM refunds WHERE order_id=orders.id AND status='succeeded') THEN 'partially_refunded' ELSE 'paid' END,updated_at=? WHERE stripe_payment_intent_id=?`
+              `SELECT event_id FROM webhook_inbox WHERE status='pending' AND type IN ('checkout.session.completed','checkout.session.async_payment_succeeded') AND json_valid(payload_json) AND json_extract(payload_json,'$.data.object.metadata.order_id') IN (SELECT id FROM orders WHERE stripe_payment_intent_id=?) LIMIT 20`
             )
-            .bind(now(), pi)
-            .run();
+            .bind(pi)
+            .all<{ event_id: string }>();
+          const { enqueueJob } = await import('./email');
+          for (const row of due.results)
+            await enqueueJob({ type: 'webhook.process', eventId: row.event_id });
         } else {
           const recipients = await operationalRecipients(db);
           await commitWithEmails(
@@ -814,13 +869,6 @@ export async function verifyOrderAccessToken(
   return diff === 0;
 }
 
-export async function attachStripeSession(db: D1Database, orderId: string, sessionId: string) {
-  await db
-    .prepare('UPDATE orders SET stripe_checkout_session_id = ?, updated_at = ? WHERE id = ?')
-    .bind(sessionId, now(), orderId)
-    .run();
-}
-
 /** Guarded session attachment shared by the intent flow and early
  *  webhooks: attaches only when no conflicting session is present, and
  *  moves the owning intent to ready. Same-session replay is a no-op. */
@@ -875,7 +923,45 @@ export async function ensureSessionAttached(
 
 export const reconcileLateRefunds = reconcileRefundOperations;
 
-async function markOrderPaid(
+/** A verified capture refunded before fulfillment must terminate without another refund. */
+export async function compensateRefundedCheckout(
+  db: D1Database,
+  orderId: string
+): Promise<boolean> {
+  const transition = crypto.randomUUID();
+  const gate = {
+    sql: 'EXISTS(SELECT 1 FROM orders WHERE id=? AND transition_id=?)',
+    values: [orderId, transition],
+  };
+  const result = await db.batch([
+    db
+      .prepare(
+        `UPDATE orders SET status='canceled',payment_status=CASE WHEN payment_status='disputed' THEN 'disputed' ELSE 'refunded' END,transition_id=?,updated_at=?
+      WHERE id=? AND status IN ('pending_payment','canceled') AND total_cents>0
+      AND COALESCE((SELECT SUM(amount_cents) FROM refunds WHERE order_id=orders.id AND status='succeeded'),0)>=total_cents
+      AND EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=orders.id AND ci.flow='manual_capture' AND ci.captured_at IS NOT NULL AND ci.payment_state='captured')
+      AND NOT EXISTS(SELECT 1 FROM reservations WHERE order_id=orders.id AND status='committed')`
+      )
+      .bind(transition, now(), orderId),
+    db
+      .prepare(
+        `UPDATE checkout_intents SET payment_state='finalized',payment_next_at=NULL,updated_at=? WHERE order_id=? AND flow='manual_capture' AND ${gate.sql}`
+      )
+      .bind(now(), orderId, ...gate.values),
+    ...releaseOrderHoldsStmts(db, orderId, gate),
+    db
+      .prepare(
+        `UPDATE discounts SET usage_count=usage_count-(SELECT COUNT(*) FROM discount_usage WHERE order_id=? AND discount_id=discounts.id) WHERE id IN(SELECT discount_id FROM discount_usage WHERE order_id=?) AND ${gate.sql}`
+      )
+      .bind(orderId, orderId, ...gate.values),
+    db
+      .prepare(`DELETE FROM discount_usage WHERE order_id=? AND ${gate.sql}`)
+      .bind(orderId, ...gate.values),
+  ]);
+  return (result[0]?.meta.changes ?? 0) > 0;
+}
+
+export async function markOrderPaid(
   db: D1Database,
   sessionId: string,
   data: Record<string, unknown>,
@@ -921,8 +1007,11 @@ async function markOrderPaid(
   const statements = [
     db
       .prepare(
-        `UPDATE orders SET status = 'paid', payment_status = CASE WHEN payment_status='disputed' THEN 'disputed' WHEN EXISTS(SELECT 1 FROM refunds WHERE order_id=orders.id AND status='succeeded') THEN 'partially_refunded' ELSE 'paid' END, transition_id = ?, stripe_payment_intent_id = ?, tax_cents = ?, total_cents = ?, shipping_name = COALESCE(?,shipping_name), shipping_address_json = COALESCE(?,shipping_address_json), updated_at = ?
+        `UPDATE orders SET status = 'paid', payment_status = CASE WHEN payment_status='disputed' THEN 'disputed' WHEN EXISTS(SELECT 1 FROM refunds WHERE order_id=orders.id AND status='succeeded') THEN 'partially_refunded' ELSE 'paid' END, transition_id = ?, stripe_payment_intent_id = ?, tax_cents = CASE WHEN EXISTS(SELECT 1 FROM checkout_intents WHERE order_id=orders.id AND flow='manual_capture') THEN tax_cents ELSE ? END, total_cents = ?, shipping_name = COALESCE(?,shipping_name), shipping_address_json = COALESCE(?,shipping_address_json), updated_at = ?
     WHERE id = ? AND status IN ('pending_payment','canceled') AND payment_status IN ('unpaid','failed','partially_refunded','disputed')
+    AND (total_cents=0 OR COALESCE((SELECT SUM(amount_cents) FROM refunds WHERE order_id=orders.id AND status='succeeded'),0)<total_cents)
+    AND NOT EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=orders.id AND ci.flow='manual_capture' AND (ci.cancel_requested=1 OR ci.superseded_by IS NOT NULL))
+    AND NOT EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=orders.id AND ci.flow='manual_capture' AND ci.allocation_id IS NULL AND (ci.quote_confirmed_at IS NULL OR EXISTS(SELECT 1 FROM order_items i LEFT JOIN variants v ON v.sku=i.sku LEFT JOIN products p ON p.id=v.product_id WHERE i.order_id=orders.id AND (v.status IS NOT 'active' OR p.status IS NOT 'active')) OR EXISTS(SELECT 1 FROM discounts d WHERE d.id=orders.discount_id AND (d.status!='active' OR d.starts_at>strftime('%Y-%m-%dT%H:%M:%fZ','now') OR d.expires_at<strftime('%Y-%m-%dT%H:%M:%fZ','now')))))
     AND orders.currency=COALESCE((SELECT value FROM settings WHERE key='currency'),'USD')
     AND NOT EXISTS (SELECT 1 FROM refunds WHERE order_id = orders.id AND purpose='late_payment' AND status NOT IN ('failed','canceled'))
     AND NOT EXISTS (SELECT 1 FROM outbox WHERE id='expired-free-'||orders.id)
@@ -1025,6 +1114,20 @@ async function markOrderPaid(
       { sql: gate, values: [order.id, transition] }
     )
   );
+  statements.push(
+    db
+      .prepare(
+        `UPDATE carts SET status='converted',updated_at=? WHERE status='open' AND EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=? AND ci.flow='manual_capture' AND ci.cart_id=carts.id AND ci.cart_revision=carts.revision AND ci.id=carts.active_checkout_id) AND ${gate}`
+      )
+      .bind(at, order.id, order.id, transition)
+  );
+  statements.push(
+    db
+      .prepare(
+        `UPDATE checkout_intents SET payment_state='finalized',payment_next_at=NULL,updated_at=? WHERE order_id=? AND flow='manual_capture' AND ${gate}`
+      )
+      .bind(at, order.id, order.id, transition)
+  );
   // Capture why this transaction rejected recovery before another request changes settings.
   statements.push(
     db
@@ -1034,7 +1137,11 @@ async function markOrderPaid(
       .bind(order.id)
   );
   const result = await commitWithEmails(db, statements, [`receipt-${order.id}`]);
-  if ((result[0]?.meta.changes ?? 0) > 0) return;
+  if ((result[0]?.meta.changes ?? 0) > 0) {
+    const { broadcastAdminRealtime } = await import('./realtime');
+    await broadcastAdminRealtime('order.paid', { sessionId, at: now() });
+    return;
+  }
   const recoveryReason = (
     result.at(-1)!.results[0] as { reason: 'currency_changed' | 'capacity_unavailable' }
   ).reason;
@@ -1043,6 +1150,7 @@ async function markOrderPaid(
     .bind(order.id)
     .first<{ status: string; payment_status: string }>();
   if (current && !['pending_payment', 'canceled'].includes(current.status)) return;
+  if (await compensateRefundedCheckout(db, order.id)) return;
   if (amountTotal === 0) {
     await cancelOrderById(db, order.id, { expiredFree: true, recoveryReason });
     return;
@@ -1054,13 +1162,14 @@ async function markOrderPaid(
     )
     .bind(pi, amountTotal, at, order.id)
     .run();
-  await requestRefund(db, provider, {
+  const recovery = await requestRefund(db, provider, {
     orderId: order.id,
     amountCents: amountTotal,
     requestId: `late-${order.id}`,
     purpose: 'late_payment',
     recoveryReason,
   });
+  if (!recovery.ok) throw new Error('Payment recovery remains unresolved');
 }
 
 /** Cancel a pending order by ID and release its holds (e.g. Stripe session creation failed). */
@@ -1076,8 +1185,8 @@ export async function cancelOrderById(
   const gate = 'EXISTS (SELECT 1 FROM orders WHERE id = ? AND transition_id = ?)';
   const cancellationText =
     options.recoveryReason === 'currency_changed'
-      ? 'Your expired checkout could not be completed because the store changed currency. No payment was collected. Please place a new order.'
-      : 'Your expired checkout could not be completed because its stock or discount capacity is no longer available. No payment was collected. Please place a new order.';
+      ? 'Your checkout could not be completed because the store changed currency. No payment was collected. Please place a new order.'
+      : 'Your checkout could not be completed because its stock or discount capacity is no longer available. No payment was collected. Please place a new order.';
   await commitWithEmails(
     db,
     [
@@ -1097,7 +1206,7 @@ export async function cancelOrderById(
                   .prepare('SELECT customer_email FROM orders WHERE id=?')
                   .bind(orderId)
                   .first<{ customer_email: string }>())!.customer_email,
-                subject: 'Expired checkout could not be completed',
+                subject: 'Checkout could not be completed',
                 text: cancellationText,
                 html: `<p>${cancellationText}</p>`,
               },
@@ -1122,10 +1231,13 @@ async function cancelPendingOrder(db: D1Database, sessionId: string) {
  *  payment method is not canceled from under Stripe. */
 export async function cancelExpiredPendingOrders(db: D1Database, limit = 100): Promise<number> {
   const { limits } = await getSettings(db);
-  const cutoff = new Date(Date.now() - (limits.checkout_hold_minutes + 8) * 60_000).toISOString();
+  const cutoff = new Date(
+    Date.now() - (limits.checkout_session_minutes + 18) * 60_000
+  ).toISOString();
   const rows = await db
     .prepare(
       `SELECT id FROM orders WHERE status = 'pending_payment' AND created_at < ?
+       AND NOT EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=orders.id AND ci.flow='manual_capture')
        AND id NOT IN (SELECT order_id FROM reservations WHERE status = 'active' AND order_id IS NOT NULL)
        AND NOT (payment_status = 'unpaid' AND stripe_payment_intent_id IS NOT NULL)
        ORDER BY created_at LIMIT ?`

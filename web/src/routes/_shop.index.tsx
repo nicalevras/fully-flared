@@ -19,9 +19,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { absoluteUrl, seoMeta } from '../lib/seo';
 import { ArrowRightIcon, ReturnIcon, ShieldIcon, TruckIcon } from '../components/icons';
+import { mediaUrl } from '../lib/media-url';
 
 type HomeData = {
-  holdMinutes: number;
   products: Card[];
   total: number;
   page: number;
@@ -46,7 +46,6 @@ const getHome = createServerFn({ method: 'GET' })
       getHomeCollections(env.DB, env),
     ]);
     return {
-      holdMinutes: layout.limits.checkout_hold_minutes,
       products: catalog.products,
       total: catalog.total,
       page: catalog.page,
@@ -84,7 +83,7 @@ export const Route = createFileRoute('/_shop/')({
 });
 
 function HomePage() {
-  const { products, total, page, pageCount, featured, storeName, collections, posts, holdMinutes } =
+  const { products, total, page, pageCount, featured, storeName, collections, posts } =
     Route.useLoaderData();
   const availability = useAvailability([
     ...new Set(
@@ -117,7 +116,11 @@ function HomePage() {
           <Link to="/products/$slug" params={{ slug: featured.slug }} className="group mt-14 block">
             <div className="relative flex aspect-[16/8] items-center justify-center overflow-hidden rounded-2xl bg-zinc-100">
               <img
-                src={`/media/${featured.imageKey}`}
+                src={mediaUrl({
+                  key: featured.imageKey,
+                  publicUrl: featured.imagePublicUrl,
+                  variants: featured.imageVariants,
+                })}
                 alt={featured.title}
                 className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
               />
@@ -172,8 +175,8 @@ function HomePage() {
           <div>
             <h2 className="text-sm font-medium text-zinc-950">Stock you can trust</h2>
             <p className="mt-1 text-sm leading-6 text-zinc-500">
-              Your items are reserved for {holdMinutes} minutes while you pay, so the last unit is
-              never sold twice.
+              Opening checkout does not reserve inventory. Stock is allocated after payment
+              authorization, before the payment is captured.
             </p>
           </div>
         </div>

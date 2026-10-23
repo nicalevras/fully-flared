@@ -37,7 +37,7 @@ export async function commitWithEmails(
   statements: D1PreparedStatement[],
   identities: string[]
 ) {
-  const result = await db.batch(statements);
+  const result = statements.length ? await db.batch(statements) : [];
   const ids = [...new Set(identities)];
   for (let offset = 0; offset < ids.length; offset += 90) {
     const page = ids.slice(offset, offset + 90);

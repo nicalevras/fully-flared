@@ -73,6 +73,9 @@ export const handledStripeSchemas: Record<string, z.ZodType> = {
   'checkout.session.async_payment_failed': identity,
   'checkout.session.expired': identity,
   'payment_intent.payment_failed': identity,
+  'payment_intent.amount_capturable_updated': identity,
+  'payment_intent.succeeded': identity,
+  'payment_intent.canceled': identity,
   'refund.updated': refund,
   'refund.failed': refund.omit({ status: true }),
   'charge.refunded': identity.extend({

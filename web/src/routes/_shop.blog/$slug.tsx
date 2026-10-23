@@ -19,6 +19,7 @@ type Post = {
   seo_title: string | null;
   seo_description: string | null;
   cover_key: string | null;
+  cover_url: string | null;
   tags: string | null;
   author_name: string | null;
   storeName: string;
@@ -47,6 +48,7 @@ const getPost = createServerFn({ method: 'GET' })
       seo_title: row.seoTitle,
       seo_description: row.seoDescription,
       cover_key: row.coverKey,
+      cover_url: row.coverPublicUrl ?? null,
       tags: row.tags,
       author_name: row.authorName,
       content_html: sanitizeHtml(row.contentHtml),
@@ -80,7 +82,8 @@ export const Route = createFileRoute('/_shop/blog/$slug')({
           url,
           type: 'article',
           image: loaderData.cover_key
-            ? absoluteUrl(loaderData.canonicalBaseUrl, `/media/${loaderData.cover_key}`)
+            ? (loaderData.cover_url ??
+              absoluteUrl(loaderData.canonicalBaseUrl, `/media/${loaderData.cover_key}`))
             : undefined,
         }),
         { property: 'article:published_time', content: loaderData.published_at },
@@ -121,7 +124,7 @@ function BlogPost() {
       </p>
       {post.cover_key ? (
         <img
-          src={`/media/${post.cover_key}`}
+          src={post.cover_url ?? `/media/${post.cover_key}`}
           alt={post.title}
           className="mt-8 aspect-[16/8] w-full rounded-2xl object-cover"
         />

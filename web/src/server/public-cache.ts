@@ -40,8 +40,22 @@ export function publicCacheRequest(request: Request): Request | null {
   const url = new URL(request.url);
   if (EXCLUDED_PREFIX.test(url.pathname)) return null;
   if (url.pathname !== '/' && !PUBLIC_PREFIX.test(url.pathname)) return null;
+  const paginated =
+    url.pathname === '/' ||
+    url.pathname === '/collections' ||
+    /^\/collections\/[^/]+\/?$/.test(url.pathname) ||
+    url.pathname === '/blog';
   for (const key of [...url.searchParams.keys()])
-    if (TRACKING_PARAMS.has(key.toLowerCase())) url.searchParams.delete(key);
+    if (TRACKING_PARAMS.has(key.toLowerCase()) || !(paginated && key === 'page'))
+      url.searchParams.delete(key);
+  if (paginated && url.searchParams.has('page')) {
+    const page = Number(url.searchParams.get('page'));
+    url.searchParams.set(
+      'page',
+      String(Number.isSafeInteger(page) && page >= 1 && page <= 100_000 ? page : 1)
+    );
+  }
+  url.searchParams.sort();
   const headers = new Headers(request.headers);
   // Public rendering must not see private state: the same URL renders
   // identical HTML for anonymous, guest and signed-in shoppers.
@@ -147,10 +161,10 @@ export async function drainCatalogInvalidations(
 ): Promise<{ drained: number; tags: string[] }> {
   const rows = await db
     .prepare(
-      'SELECT id, scope, scope_id AS scopeId FROM catalog_invalidations ORDER BY created_at ASC LIMIT ?'
+      `SELECT id, scope, scope_id AS scopeId,ref_key,ref_seq FROM catalog_invalidations i WHERE ref_key IS NULL OR EXISTS(SELECT 1 FROM catalog_ref_state r WHERE r.ref_key=i.ref_key AND r.delivered_seq>=i.ref_seq) ORDER BY created_at ASC LIMIT ?`
     )
     .bind(limit)
-    .all<CatalogInvalidation>();
+    .all<CatalogInvalidation & { ref_key: string | null; ref_seq: number | null }>();
   if (!rows.results.length) return { drained: 0, tags: [] };
   // Only rows that map to a real tag may be deleted, and only after
   // that tag was purged. Unmappable rows stay pending and visible in
@@ -176,13 +190,20 @@ export async function drainCatalogInvalidations(
       return { drained: 0, tags };
     }
   }
-  const ids = mapped.map((r) => r.id);
-  for (let i = 0; i < ids.length; i += 90) {
-    const chunk = ids.slice(i, i + 90);
-    await db
-      .prepare(`DELETE FROM catalog_invalidations WHERE id IN (${chunk.map(() => '?').join(',')})`)
-      .bind(...chunk)
+  let drained = 0;
+  for (let i = 0; i < mapped.length; i += 90) {
+    const chunk = mapped.slice(i, i + 90);
+    const removed = await db
+      .prepare(
+        `DELETE FROM catalog_invalidations WHERE EXISTS(SELECT 1 FROM json_each(?) x
+        WHERE json_extract(x.value,'$.id')=catalog_invalidations.id
+          AND json_extract(x.value,'$.ref_key') IS catalog_invalidations.ref_key
+          AND json_extract(x.value,'$.ref_seq') IS catalog_invalidations.ref_seq)
+        AND (ref_key IS NULL OR EXISTS(SELECT 1 FROM catalog_ref_state r WHERE r.ref_key=catalog_invalidations.ref_key AND r.delivered_seq>=catalog_invalidations.ref_seq))`
+      )
+      .bind(JSON.stringify(chunk.map(({ id, ref_key, ref_seq }) => ({ id, ref_key, ref_seq }))))
       .run();
+    drained += removed.meta.changes ?? 0;
   }
-  return { drained: mapped.length, tags };
+  return { drained, tags };
 }

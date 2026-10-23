@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { formatDate } from '../../lib/format';
+import { LocalDate } from '../../components/LocalDate';
 import { Link, createFileRoute } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import { getRequest } from '@tanstack/react-start/server';
@@ -228,7 +228,7 @@ function AccountPage() {
                   </span>
                 </div>
                 <p className="mt-2 text-[13px] text-zinc-500">
-                  Placed {formatDate(o.created_at)}
+                  Placed <LocalDate value={o.created_at} />
                   {o.tracking_number ? (
                     <>
                       {' '}
@@ -283,7 +283,7 @@ function AccountPage() {
                   {orderReturns.map((ret) => (
                     <span key={ret.id} className="text-zinc-500">
                       Return {customerReturnLabel(ret.status)}, requested{' '}
-                      {formatDate(ret.created_at)}.
+                      <LocalDate value={ret.created_at} />.
                     </span>
                   ))}
                   {canReturn ? (

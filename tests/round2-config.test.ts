@@ -29,7 +29,10 @@ it.each([
     compatibility_date: '2026-10-17',
     vars: { BETTER_AUTH_URL: 'https://store.example.com', OWNER_EMAIL: 'owner@example.com' },
     routes: [{ pattern: 'store.example.com', custom_domain: true }],
-    queues: { consumers: [{ queue: 'store-realtime', max_concurrency: 1 }] },
+    queues: {
+      producers: [{ binding: 'CATALOG_JOBS', queue: 'store-catalog' }],
+      consumers: [{ queue: 'store-catalog', max_concurrency: 1 }],
+    },
   };
   const run = (vars: Record<string, string>) => {
     writeFileSync(config, JSON.stringify({ ...valid, vars }));

@@ -20,6 +20,28 @@ export type CheckoutIntentRow = {
   user_id: string | null;
   guest_capability_hash: string | null;
   fingerprint: string;
+  flow: 'legacy' | 'manual_capture';
+  stripe_customer_id: string | null;
+  payment_intent_id: string | null;
+  shipping_address_json: string | null;
+  cart_id: string | null;
+  cart_revision: number | null;
+  quote_json: string | null;
+  quote_hash: string | null;
+  quote_confirmed_at: string | null;
+  superseded_by: string | null;
+  allocation_id: string | null;
+  payment_state: string;
+  payment_claim_token: string | null;
+  payment_claim_expires_at: string | null;
+  payment_fencing: number;
+  payment_next_at: string | null;
+  payment_attempted_at: string | null;
+  authorized_at: string | null;
+  authorization_deadline_at: string | null;
+  captured_at: string | null;
+  cancellation_attempted_at: string | null;
+  cancel_requested: number;
   state: string;
   provider_payload_json: string;
   stripe_coupon_id: string | null;
@@ -41,20 +63,32 @@ export type CheckoutIntentRow = {
  *  normalized email, destination, rate and coupon. Ephemeral fields
  *  (Turnstile tokens) are excluded so legitimate retries match. */
 export async function checkoutFingerprint(input: {
+  cartId: string;
+  cartRevision: number;
+  quoteRevision?: number | undefined;
+  confirmedQuote?: import('../schemas/checkout').CheckoutBody['confirmedQuote'];
   email: string;
   lines: { sku: string; qty: number }[];
   shippingCountry: string;
   shippingRateId: string;
   discountCode?: string | undefined;
+  shippingAddress?: import('../schemas/checkout').ShippingAddress | undefined;
+  reminderConsent?: boolean;
 }): Promise<string> {
   const merged = new Map<string, number>();
   for (const l of input.lines) merged.set(l.sku, (merged.get(l.sku) ?? 0) + l.qty);
   const canonical = JSON.stringify({
+    cartId: input.cartId,
+    cartRevision: input.cartRevision,
+    quoteRevision: input.quoteRevision,
+    quote: input.confirmedQuote,
     email: input.email.trim().toLowerCase(),
     lines: [...merged.entries()].sort(([a], [b]) => (a < b ? -1 : 1)),
     country: input.shippingCountry,
     rate: input.shippingRateId,
     coupon: (input.discountCode ?? '').trim().toUpperCase(),
+    ...(input.shippingAddress ? { address: input.shippingAddress } : {}),
+    reminderConsent: input.reminderConsent ?? false,
   });
   return sha256Hex(canonical);
 }
@@ -83,9 +117,7 @@ export async function loadIntent(
   intentId: string
 ): Promise<CheckoutIntentRow | null> {
   return db
-    .prepare(
-      'SELECT id, order_id, owner_type, user_id, guest_capability_hash, fingerprint, state, provider_payload_json, stripe_coupon_id, stripe_session_id, checkout_url, claim_token, claim_expires_at, fencing, session_expires_at, next_reconcile_at, failure_code, first_provider_attempt_at, provider_step, creation_stopped_at, created_at FROM checkout_intents WHERE id = ?'
-    )
+    .prepare('SELECT * FROM checkout_intents WHERE id = ?')
     .bind(intentId)
     .first<CheckoutIntentRow>();
 }
@@ -128,6 +160,49 @@ export function isDefiniteProviderRejection(error: unknown): boolean {
       e.statusCode !== 429
     );
   return e?.type === 'StripeInvalidRequestError' || e?.type === 'StripeCardError';
+}
+
+/** Stripe messages may echo personal data. Record identifiers and known static
+ * failure classes rather than dumping messages, request bodies or headers. */
+export function checkoutFailureDetails(error: unknown) {
+  const diagnostic = error as {
+    name?: unknown;
+    type?: unknown;
+    code?: unknown;
+    param?: unknown;
+    requestId?: unknown;
+    statusCode?: unknown;
+    message?: unknown;
+    cause?: { code?: unknown; name?: unknown };
+  } | null;
+  const safeField = (value: unknown) =>
+    typeof value === 'string' && /^[a-zA-Z0-9_.\[\]-]{1,160}$/.test(value) ? value : undefined;
+  const message = typeof diagnostic?.message === 'string' ? diagnostic.message : '';
+  const reason = message.includes('Failed to get session commit token')
+    ? 'd1_commit_token'
+    : message.startsWith('D1_ERROR:')
+      ? 'd1_error'
+      : message === 'Provider deadline exceeded'
+        ? 'provider_deadline'
+        : message === 'Shipping address is required'
+          ? 'missing_frozen_address'
+          : message === 'Customer preparation unavailable'
+            ? 'customer_adapter_unavailable'
+            : message === 'Creation parameters no longer valid'
+              ? 'creation_parameters_expired'
+              : ['fetch failed', 'Failed to fetch', 'Network connection lost.'].includes(message)
+                ? 'transport_failure'
+                : undefined;
+  return {
+    error: safeField(diagnostic?.name) ?? 'unknown',
+    type: safeField(diagnostic?.type),
+    code: safeField(diagnostic?.code),
+    param: safeField(diagnostic?.param),
+    requestId: safeField(diagnostic?.requestId),
+    status: typeof diagnostic?.statusCode === 'number' ? diagnostic.statusCode : undefined,
+    causeCode: safeField(diagnostic?.cause?.code),
+    reason,
+  };
 }
 
 const CREATION_HORIZON_MS = 23 * 60 * 60_000;
@@ -283,7 +358,7 @@ export async function runIntentOperation(
       await parkForReconciliation(db, intentId, claim, 'provider_unresolved', true);
       return { status: payable ? 'pending' : 'canceled' };
     }
-    const beforeCreation = async (step: 'coupon' | 'session') => {
+    const beforeCreation = async (step: 'customer' | 'coupon' | 'session') => {
       if (creationBlocked()) throw new Error('Creation parameters no longer valid');
       const options = callOptions();
       await db.batch([
@@ -297,6 +372,22 @@ export async function runIntentOperation(
       ]);
       return { ...options, ...callOptions() };
     };
+    if (intent.flow === 'manual_capture') {
+      if (!intent.stripe_customer_id && !session) {
+        if (!provider.createCheckoutCustomer) throw new Error('Customer preparation unavailable');
+        const customerId = await provider.createCheckoutCustomer(
+          payload,
+          await beforeCreation('customer')
+        );
+        await db.batch([
+          claimGuard(db, intentId, claim),
+          db
+            .prepare('UPDATE checkout_intents SET stripe_customer_id=?,updated_at=? WHERE id=?')
+            .bind(customerId, now(), intentId),
+        ]);
+        payload.customerId = customerId;
+      } else if (intent.stripe_customer_id) payload.customerId = intent.stripe_customer_id;
+    }
     let couponId = intent.stripe_coupon_id ?? undefined;
     if (!session && !couponId && payload.discountCents && provider.createCoupon) {
       couponId = await provider.createCoupon(payload, await beforeCreation('coupon'));
@@ -363,7 +454,14 @@ export async function runIntentOperation(
           )
           .bind(now(), intentId),
       ]);
-      console.error(JSON.stringify({ event: 'checkout_intent_provider_rejected', intentId }));
+      console.error(
+        JSON.stringify({
+          event: 'checkout_intent_provider_rejected',
+          intentId,
+          step: current.provider_step,
+          ...checkoutFailureDetails(error),
+        })
+      );
       return { status: 'canceled' };
     }
     await parkForReconciliation(
@@ -376,7 +474,8 @@ export async function runIntentOperation(
       JSON.stringify({
         event: 'checkout_intent_uncertain',
         intentId,
-        error: error instanceof Error ? error.name : 'unknown',
+        step: current.provider_step,
+        ...checkoutFailureDetails(error),
       })
     );
     return { status: 'pending' };
@@ -391,16 +490,33 @@ export async function rememberProviderSession(
   const attempt = session.metadata?.attempt_id;
   const orderId = session.metadata?.order_id;
   if (!attempt || !orderId) return;
-  const result = await db
-    .prepare(
-      `UPDATE checkout_intents SET stripe_session_id=?,checkout_url=COALESCE(?,checkout_url),next_reconcile_at=NULL,updated_at=?
-    WHERE id=? AND order_id=? AND (stripe_session_id IS NULL OR stripe_session_id=?)`
-    )
-    .bind(session.id, session.url ?? null, now(), attempt, orderId, session.id)
-    .run();
+  const intent = await loadIntent(db, attempt);
   if (
-    !(result.meta.changes ?? 0) ||
-    !['paid', 'no_payment_required'].includes(session.payment_status)
+    !intent ||
+    intent.order_id !== orderId ||
+    (intent.stripe_session_id && intent.stripe_session_id !== session.id)
+  )
+    return;
+  const order = await db
+    .prepare('SELECT payment_status,status FROM orders WHERE id=?')
+    .bind(orderId)
+    .first<{ payment_status: string; status: string }>();
+  if (!order) return;
+  if (intent.stripe_session_id !== session.id || (!intent.checkout_url && session.url))
+    await db
+      .prepare(
+        'UPDATE checkout_intents SET stripe_session_id=?,checkout_url=COALESCE(checkout_url,?),updated_at=? WHERE id=? AND (stripe_session_id IS NULL OR stripe_session_id=?)'
+      )
+      .bind(session.id, session.url ?? null, now(), attempt, session.id)
+      .run();
+  if (
+    ['paid', 'partially_refunded', 'refunded'].includes(order.payment_status) &&
+    !['pending_payment', 'canceled'].includes(order.status)
+  )
+    return;
+  if (
+    !['paid', 'no_payment_required'].includes(session.payment_status) &&
+    !(intent.flow === 'manual_capture' && session.status === 'complete')
   )
     return;
   const eventId = `reconcile-session-${session.id}-${session.payment_status}`;
@@ -409,14 +525,16 @@ export async function rememberProviderSession(
     type: 'checkout.session.completed',
     data: { object: session },
   });
-  await db
+  const inserted = await db
     .prepare(
       `INSERT OR IGNORE INTO webhook_inbox(id,provider,event_id,type,payload_json,received_at) VALUES(?,'stripe',?,'checkout.session.completed',?,?)`
     )
     .bind(crypto.randomUUID(), eventId, payload, now())
     .run();
-  const { enqueueJob } = await import('./email');
-  await enqueueJob({ type: 'webhook.process', eventId });
+  if (inserted.meta.changes) {
+    const { enqueueJob } = await import('./email');
+    await enqueueJob({ type: 'webhook.process', eventId });
+  }
 }
 
 /** Bounded recovery sweep: resume due or unclaimed initiation work.
@@ -426,7 +544,8 @@ export async function reconcileCheckoutIntents(
   db: D1Database,
   provider: PaymentProvider | null,
   limit = 20,
-  admission?: { getByName(name: string): AdmissionStub }
+  admission?: { getByName(name: string): AdmissionStub },
+  dueBefore = now()
 ): Promise<number> {
   if (!provider) return 0;
   const rows = await db
@@ -437,13 +556,21 @@ export async function reconcileCheckoutIntents(
          AND (claim_expires_at IS NULL OR claim_expires_at <= ?)
        ORDER BY created_at ASC LIMIT ?`
     )
-    .bind(now(), now(), limit)
+    .bind(dueBefore, now(), limit)
     .all<{ id: string; state: string }>();
   let advanced = 0;
   for (const r of rows.results) {
     // Recovery fails closed when admission is missing, unavailable or full.
     const permit = await acquireCheckoutPermit(admission);
-    if (permit.kind !== 'acquired') break;
+    if (permit.kind !== 'acquired') {
+      await db
+        .prepare(
+          'UPDATE checkout_intents SET next_reconcile_at=? WHERE id=? AND (next_reconcile_at IS NULL OR next_reconcile_at<=?)'
+        )
+        .bind(iso(Date.now() + 60_000), r.id, now())
+        .run();
+      return -1;
+    }
     try {
       const result = await runIntentOperation(db, provider, r.id);
       // Count only real progress: a row that stays exactly as it was

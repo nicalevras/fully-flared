@@ -4,24 +4,34 @@ export function formatMoney(cents: number, currency: string): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(cents / 100);
 }
 
-export function formatDate(value: string | number | Date): string {
+function storedDate(value: string | number | Date): Date {
+  // SQLite's zone-less datetime strings are UTC, just like stored ISO instants.
+  return new Date(
+    typeof value === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(value)
+      ? value.replace(' ', 'T') + 'Z'
+      : value
+  );
+}
+
+export function formatDate(value: string | number | Date, timeZone = 'UTC'): string {
   return new Intl.DateTimeFormat('en-US', {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
-    timeZone: 'UTC',
-  }).format(new Date(value));
+    timeZone,
+  }).format(storedDate(value));
 }
 
-export function formatDateTime(value: string | number | Date): string {
+export function formatDateTime(value: string | number | Date, timeZone = 'UTC'): string {
   return new Intl.DateTimeFormat('en-US', {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
-    timeZone: 'UTC',
-  }).format(new Date(value));
+    timeZone,
+    timeZoneName: 'short',
+  }).format(storedDate(value));
 }
 
 /** Stored UTC ISO instant -> `datetime-local` input value in the

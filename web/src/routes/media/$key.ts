@@ -10,9 +10,20 @@ export const Route = createFileRoute('/media/$key')({
         const { env } = await import('cloudflare:workers');
         const url = new URL(request.url);
         const requestedWidth = Number(url.searchParams.get('w') ?? 0);
+        const active = await env.DB.prepare(
+          'SELECT 1 FROM media WHERE r2_key=? AND ready=1 AND deletion_pending=0'
+        )
+          .bind(params.key)
+          .first();
+        if (!active) return new Response('Not found', { status: 404 });
         let object: R2ObjectBody | null = null;
         if (VARIANT_WIDTH_SET.has(requestedWidth)) {
-          object = await env.MEDIA.get(variantKey(params.key, requestedWidth));
+          const variant = await env.DB.prepare(
+            'SELECT v.r2_key FROM media_variants v JOIN media m ON m.id=v.media_id WHERE m.r2_key=? AND v.width=? AND v.ready=1 AND m.deletion_pending=0'
+          )
+            .bind(params.key, requestedWidth)
+            .first<{ r2_key: string }>();
+          object = await env.MEDIA.get(variant?.r2_key ?? variantKey(params.key, requestedWidth));
         }
         object ??= await env.MEDIA.get(params.key);
         if (!object) return new Response('Not found', { status: 404 });

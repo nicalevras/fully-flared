@@ -1,11 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { deliverStripeEvent } from './helpers/webhook';
 import { createTestDb, seedProduct, expectLedgerMatchesCounters } from './helpers/d1';
-import {
-  createPendingOrder,
-  attachStripeSession,
-  cancelOrderById,
-} from '../web/src/server/checkout';
+import { createPendingOrder, cancelOrderById } from '../web/src/server/checkout';
+import { attachStripeSession } from './helpers/attach-session';
 import { setSetting } from '../web/src/server/settings';
 import { settleRefund, requestRefund } from '../web/src/server/refunds';
 import { paidRevenueByCurrency, monetaryReportQueries } from '../web/src/server/reports';

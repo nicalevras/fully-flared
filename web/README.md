@@ -32,14 +32,15 @@ Vite's documented `loadEnv`; secrets stay in `.dev.vars`. Select
 `WRANGLER_REMOTE=0` when bootstrapping through the Tunnel.
 
 **Admin → Settings → Store limits** controls open-checkout caps, cart sizes,
-order units, checkout holds, refund attempts and stuck-refund alerts. Defaults
-remain 5 checkouts per email/account and 10 per network per hour, 99 units per
-line, 50 lines, 500 order units, a 42-minute hold, 5 refund attempts and a
-60-minute alert threshold. Zod and D1 enforce the bounds shown in the form;
-missing rows use these defaults. Holds allow 42–1450 minutes: Stripe sessions
-expire ten minutes earlier (32–1440 minutes), leaving two minutes above Stripe's
-minimum for session creation. The 23-hour refund creation retry cutoff stays
-fixed because Stripe can prune idempotency keys after 24 hours.
+order units, Checkout Session duration, refund attempts and stuck-refund alerts.
+Defaults are 5 checkouts per email/account and 10 per network per hour, 99 units
+per line, 50 lines, 500 order units, a 32-minute Session, 5 refund attempts and
+a 60-minute alert threshold. Session duration allows 32–1440 minutes. Zod and
+D1 enforce these bounds; missing rows use defaults. New attempts create no stock
+or coupon holds before payment authorization. After authorization, D1 allocates
+stock/coupon capacity atomically before Stripe capture. Uncertain capture keeps
+its allocation until provider state establishes the outcome. The fixed 23-hour
+creation/retry horizon protects against Stripe's 24-hour idempotency-key pruning.
 
 ## Verify
 
@@ -68,3 +69,40 @@ D1 Time Travel restore and per-table export; and
 [REMEDIATION.md](REMEDIATION.md) for implementation and verification evidence.
 The HTML Cache API requires a custom domain or route; workers.dev cannot prove
 this cache design works. No remote operation is part of local setup.
+
+## Payment review and delivery
+
+Shipping/address and promo selection belong to the app. Review shows Stripe's
+complete subtotal, discount, shipping, tax and total before Confirm and pay.
+Cards and eligible card wallets authorize on Stripe; delayed/installment methods
+are excluded. Session completion alone does not mean paid. No polling is added.
+Cart conversion happens only after finalization and only if the submitted cart
+revision is unchanged; later edits survive.
+
+Public R2 delivery is optional. Leave media_public_base_url unset to retain the
+local /media route. A separately authorized deployment can add PUBLIC_MEDIA,
+MEDIA_ZONE_ID and MEDIA_PURGE_TOKEN before enabling the HTTPS base URL in admin.
+Published originals/variants use immutable keys. Actual uploaded variant
+manifests select URLs; pending deletion records stay available for manual retry
+until both storage deletion and CDN purge succeed. Do not delete the pending
+record or remove its purge configuration to bypass a failed deletion.
+
+0013–0015 are now applied locally with explicit approval and a verified backup. The verified Wrangler backup and migration results are in REMEDIATION.md;
+the next phase verifies fresh/populated paths and the new lifecycle. The old
+layout-setting compatibility reader does not make the new schema optional.
+
+Local development: keep one Vite/workerd instance per persistence directory.
+Use --strictPort when starting a designated port so a second launch fails instead
+of silently moving to another origin. Stripe CLI forwarding must target that
+actual port and /api/webhooks/stripe; the helper's --print output uses the complete
+manifest. Stop duplicate servers before investigating local D1 storage errors.
+
+### Checkout hardening checkpoint
+
+Hosted Stripe Checkout remains the approved payment interface. The current
+working-tree hardening changes require prepared migration 0016 and have not yet
+been tested or applied locally. Before using them, complete the separate
+verification/migration checkpoint in [CHECKOUT-HARDENING.md](CHECKOUT-HARDENING.md).
+Existing media publication is an explicit **Admin → Media → Publish existing
+media** action after public storage and purge configuration; changing the media
+base URL does not start a migration automatically.

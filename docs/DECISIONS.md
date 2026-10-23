@@ -326,3 +326,43 @@ runner records each exit status immediately and fails on errors. No hidden retry
 makes a failed gate green. Full ordinary and isolated 100k gates remain deferred
 by explicit user instruction; deployment acceptance is still open. Phase 4 is the
 last implementation round, not a claim that every external release gate passed.
+
+## 2026-10-22 — Authorization before allocation (supersedes D10 and hold defaults)
+
+New attempts use hosted Checkout Sessions with manual capture. Preparation freezes
+app-owned shipping/address/cart identity and a Session-backed review without stock
+or coupon claims. Confirmed authorization is validated, then D1 allocates capacity
+atomically before capture. Verified capture finalizes inventory/ledger/receipt
+transactionally. Zero-total orders use one guarded capacity/finalization batch.
+Uncertain capture never releases allocations merely because a hold expired.
+Stable operation identities, retrieval, fencing and cancellation/refund recovery
+cover supersession and account deletion. Legacy records retain their recorded flow.
+
+checkout_session_minutes replaces the misleading hold setting (32, range32–1440).
+Old immutable layouts are hash-verified unchanged and map the old limit key only
+in their returned view. No historical accounting is rewritten. Start server
+functions now explicitly use the documented same-origin CSRF middleware.
+
+Publication wakes on actual work. Existing queues carry bounded durable maintenance
+continuations: financial15m, privacyhourly, historical/retention/reminders/replica/GC
+daily. No new queue resource is provisioned. Reminders default off with per-order
+consent and suppression. Immutable public R2 delivery is optional and requires
+actual variant publication metadata and recoverable storage deletion/CDN purge.
+
+Latest user direction supersedes checkpoint test/review pauses: finish all source
+changes, then run verification next phase. Migrations0013–0015 are prepared only.
+No unit/scale/browser/provider checks are claimed for this new lifecycle.
+
+## 2026-10-23: hosted Checkout and recovery completion
+
+The user selected hosted Stripe Checkout over v1.2's inline Payment Element.
+The application still owns shipping, discounts and final review. Unpaid checkout
+preparation reserves no stock. Allocation follows verified authorization.
+
+The hardening implementation reuses maintenance_runs and existing queues for
+independent financial families, bounds provider maintenance by a shared 30-second
+deadline, and registers public media destinations before storage writes. Known
+public destinations and incomplete uploads remain available to deletion recovery.
+Migration 0016 is prepared only. Implementation details and pending verification
+are in [CHECKOUT-HARDENING.md](../web/CHECKOUT-HARDENING.md). No readiness claim is
+made for this untested checkpoint.

@@ -20,6 +20,8 @@ export type ProductCard = {
   priceCents: number | null;
   available: number | null;
   imageKey: string | null;
+  imagePublicUrl?: string | null | undefined;
+  imageVariants?: Array<{ width: number; url: string }> | undefined;
 };
 
 function cardQuery(db: D1Database, inventory = true) {
@@ -29,24 +31,37 @@ function cardQuery(db: D1Database, inventory = true) {
       id: productsT.id,
       slug: productsT.slug,
       title: productsT.title,
-      description: productsT.description,
       status: productsT.status,
-      seoTitle: productsT.seoTitle,
-      seoDescription: productsT.seoDescription,
+      ...(inventory
+        ? {
+            description: productsT.description,
+            seoTitle: productsT.seoTitle,
+            seoDescription: productsT.seoDescription,
+          }
+        : {}),
       priceCents: sql<number | null>`MIN(${variantsT.priceCents})`,
       ...(inventory
         ? { available: sql<number>`COALESCE(SUM(${stockT.onHand} - ${stockT.reserved}), 0)` }
         : {}),
       imageKey: sql<
         string | null
-      >`(SELECT ${mediaT.r2Key} FROM ${productMediaT} JOIN ${mediaT} ON ${mediaT.id} = ${productMediaT.mediaId} WHERE ${productMediaT.productId} = ${productsT.id} ORDER BY ${productMediaT.position} LIMIT 1)`,
+      >`(SELECT ${mediaT.r2Key} FROM ${productMediaT} JOIN ${mediaT} ON ${mediaT.id} = ${productMediaT.mediaId} WHERE ${productMediaT.productId} = ${productsT.id} AND ${mediaT.ready}=1 AND ${mediaT.deletionPending}=0 ORDER BY ${productMediaT.position} LIMIT 1)`,
+      imagePublicUrl: sql<
+        string | null
+      >`(SELECT m.public_url FROM product_media pm JOIN media m ON m.id=pm.media_id WHERE pm.product_id=${productsT.id} AND m.ready=1 AND m.deletion_pending=0 ORDER BY pm.position LIMIT 1)`,
+      imageVariantsJson: sql<
+        string | null
+      >`(SELECT json_group_array(json_object('width',v.width,'url',COALESCE(v.public_url,'/media/'||m.r2_key||'?w='||v.width))) FROM media_variants v JOIN media m ON m.id=v.media_id WHERE v.ready=1 AND m.ready=1 AND m.deletion_pending=0 AND m.id=(SELECT media_id FROM product_media WHERE product_id=${productsT.id} ORDER BY position LIMIT 1) ORDER BY v.width)`,
     })
     .from(productsT)
     .leftJoin(variantsT, and(eq(variantsT.productId, productsT.id), eq(variantsT.status, 'active')))
     .$dynamic();
 }
 
-export type PublishedProductCard = Omit<ProductCard, 'available'>;
+export type PublishedProductCard = Omit<
+  ProductCard,
+  'available' | 'description' | 'seoTitle' | 'seoDescription'
+>;
 
 function cards(db: D1Database, inventory: boolean) {
   const query = cardQuery(db, inventory);
@@ -98,7 +113,14 @@ export async function listProducts(
   opts: Parameters<typeof queryProducts>[1] = {}
 ): Promise<ProductCard[]> {
   const rows = await queryProducts(db, opts);
-  return rows.map((row) => ({ ...row, available: row.available ?? 0 }));
+  return rows.map(({ imageVariantsJson, ...row }) => ({
+    ...row,
+    description: row.description ?? '',
+    seoTitle: row.seoTitle ?? null,
+    seoDescription: row.seoDescription ?? null,
+    imageVariants: JSON.parse(imageVariantsJson ?? '[]'),
+    available: row.available ?? 0,
+  }));
 }
 
 export type CollectionRule =
@@ -132,7 +154,15 @@ export async function listPublishedProductsByIds(
       .where(inArray(productsT.id, chunk))
       .groupBy(productsT.id)
       .orderBy(desc(productsT.createdAt), desc(productsT.id));
-    out.push(...rows.map(({ available: _ignored, ...card }) => card as PublishedProductCard));
+    out.push(
+      ...rows.map(
+        ({ available: _ignored, imageVariantsJson, ...card }) =>
+          ({
+            ...card,
+            imageVariants: JSON.parse(imageVariantsJson ?? '[]'),
+          }) as PublishedProductCard
+      )
+    );
   }
   return out;
 }

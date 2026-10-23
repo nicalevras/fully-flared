@@ -9,8 +9,7 @@ import {
 } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import { getStorefrontLayout } from '../server/catalog-read';
-import { getRequest } from '@tanstack/react-start/server';
-import { cartCountFromCookie } from '../server/cart';
+import { cartCountFromCookie } from '../lib/cart-cookie';
 import { BagIcon, MenuIcon, SearchIcon, UserIcon } from '../components/icons';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -37,9 +36,6 @@ const getLayout = createServerFn({ method: 'GET' }).handler(async () => {
 // cookie that cart mutations maintain; it is a cosmetic badge only -
 // the server cart is authoritative and checkout revalidates it, so a
 // stale or hand-set cookie can mislabel the badge but never the cart.
-const getCartCount = createServerFn({ method: 'GET' }).handler(async () => {
-  return { count: cartCountFromCookie(getRequest().headers.get('cookie')) };
-});
 
 export const Route = createRootRouteWithContext<{ staff?: StaffContext }>()({
   loader: async () => getLayout(),
@@ -107,15 +103,7 @@ function CartCount() {
   // public HTML renders the same badge for every shopper.
   const [count, setCount] = useState(0);
   useEffect(() => {
-    let cancelled = false;
-    getCartCount()
-      .then(({ count }) => {
-        if (!cancelled) setCount(count);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
+    setCount(cartCountFromCookie(document.cookie));
   }, []);
   useEffect(() => {
     const onChanged = (e: Event) => {
@@ -292,7 +280,9 @@ export function StorefrontLayout() {
         <Outlet />
       </div>
 
-      <CartDrawer initial={{ lines: [], zones: [], count: 0, limits }} />
+      <CartDrawer
+        initial={{ cartId: null, cartRevision: null, lines: [], zones: [], count: 0, limits }}
+      />
       <footer className="mt-24 border-t border-zinc-100 bg-white">
         <div className="mx-auto grid w-full max-w-7xl gap-10 px-4 py-14 sm:grid-cols-2 sm:px-6 lg:grid-cols-4 lg:px-8">
           <div>

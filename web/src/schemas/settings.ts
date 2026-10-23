@@ -37,6 +37,8 @@ export const settingKeySchema = z.enum([
   'collect_shipping',
   'announcement_text',
   'seo_title_template',
+  'abandoned_reminders_enabled',
+  'media_public_base_url',
 ]);
 export type SettingKey = z.infer<typeof settingKeySchema>;
 
@@ -47,15 +49,24 @@ export function validateSetting(key: string, value: string): void {
   settingKeySchema.parse(key);
   if (isLimitKey(key)) limitValueSchema(key).parse(value);
   else if (isAdmissionKey(key)) admissionValueSchema(key).parse(value);
-  else if (['stripe_tax_enabled', 'stripe_tax_confirmed', 'collect_shipping'].includes(key))
+  else if (
+    [
+      'stripe_tax_enabled',
+      'stripe_tax_confirmed',
+      'collect_shipping',
+      'abandoned_reminders_enabled',
+    ].includes(key)
+  )
     z.enum(['0', '1']).parse(value);
   else if (key === 'currency') currencyCodeSchema.parse(value);
   else if (['email_from_address', 'operational_alert_email'].includes(key)) {
     if (value || key === 'email_from_address') z.email().parse(value);
-  } else if (key === 'canonical_base_url' && value) {
+  } else if ((key === 'canonical_base_url' || key === 'media_public_base_url') && value) {
     const url = new URL(z.url().parse(value));
     if (!['https:', 'http:'].includes(url.protocol) || url.origin !== value.replace(/\/$/, ''))
       throw new Error('Canonical URL must be an HTTP origin');
+    if (key === 'media_public_base_url' && url.protocol !== 'https:')
+      throw Error('Public media requires HTTPS');
   } else z.string().max(2000).parse(value);
 }
 
@@ -63,6 +74,7 @@ export function validateSetting(key: string, value: string): void {
 // catalog_work settings-capture trigger list (migration 0004) aligned.
 export const PUBLISHED_SETTING_KEYS: readonly string[] = [
   ...LIMIT_KEYS,
+  'media_public_base_url',
   'store_name',
   'currency',
   'canonical_base_url',

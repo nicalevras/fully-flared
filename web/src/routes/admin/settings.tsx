@@ -50,6 +50,8 @@ function AdminSettings() {
     email_from_address: initial.emailFromAddress,
     operational_alert_email: initial.operationalAlertEmail,
     turnstile_site_key: initial.turnstileSiteKey,
+    abandoned_reminders_enabled: initial.abandonedRemindersEnabled ? '1' : '0',
+    media_public_base_url: initial.mediaPublicBaseUrl,
   });
   const [tax, setTax] = useState({
     enabled: initial.stripeTaxEnabled,
@@ -156,6 +158,12 @@ function AdminSettings() {
       </section>
       <section className={`${cardCls} mt-6 space-y-4 p-5 sm:p-6`}>
         <h2 className="text-sm font-medium text-zinc-950">Store details</h2>
+        {field(
+          'media_public_base_url',
+          'Public media origin (optional)',
+          'Enable only after configuring PUBLIC_MEDIA, MEDIA_ZONE_ID and MEDIA_PURGE_TOKEN. Existing images keep their local delivery until republished.',
+          'https://images.yourstore.com'
+        )}
         {field('store_name', 'Store name', 'Shown in the header, footer, emails, and page titles.')}
         {field(
           'announcement_text',
@@ -202,6 +210,16 @@ function AdminSettings() {
 
       <section className={`${cardCls} mt-5 space-y-4 p-5 sm:p-6`}>
         <h2 className="text-sm font-medium text-zinc-950">Email</h2>
+        <label className="flex gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={form.abandoned_reminders_enabled === '1'}
+            onChange={(e) =>
+              setForm({ ...form, abandoned_reminders_enabled: e.target.checked ? '1' : '0' })
+            }
+          />
+          Enable unfinished-checkout reminders (explicit shopper consent required; default off)
+        </label>
         {field(
           'email_from_name',
           'Sender name',

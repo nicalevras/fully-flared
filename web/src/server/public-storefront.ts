@@ -21,6 +21,15 @@ export class PublicStorefront extends WorkerEntrypoint<Cloudflare.Env, { store: 
   async purgeInvalidations(tags: string[]): Promise<void> {
     if (!tags.length) return;
     if (!this.ctx.cache) throw new Error('Workers Cache API unavailable');
-    await this.ctx.cache.purge({ tags });
+    const result = await this.ctx.cache.purge({ tags });
+    if (!result.success) {
+      console.error(
+        JSON.stringify({
+          event: 'public_cache_purge_rejected',
+          codes: result.errors?.map((error) => error.code),
+        })
+      );
+      throw new Error('Public cache purge was rejected');
+    }
   }
 }

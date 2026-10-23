@@ -232,7 +232,7 @@ export function releaseReservationStmts(
   return [
     db
       .prepare(
-        `UPDATE reservations SET status = 'released' WHERE id = ? AND status = 'active' ${transition ? 'AND EXISTS (SELECT 1 FROM orders WHERE id = ? AND transition_id = ?)' : ''}`
+        `UPDATE reservations SET status = 'released' WHERE id = ? AND status = 'active' AND NOT EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=reservations.order_id AND ci.flow='manual_capture' AND ci.allocation_id IS NOT NULL AND ci.payment_state NOT IN ('canceled','finalized')) ${transition ? 'AND EXISTS (SELECT 1 FROM orders WHERE id = ? AND transition_id = ?)' : ''}`
       )
       .bind(row.id, ...(transition ? [transition.orderId, transition.id] : [])),
     db
@@ -295,7 +295,7 @@ export async function commitReservation(db: D1Database, reservationId: string) {
 export async function releaseExpiredReservations(db: D1Database, limit = 100): Promise<number> {
   const expired = await db
     .prepare(
-      `SELECT id FROM reservations WHERE status = 'active' AND expires_at < ? ORDER BY expires_at LIMIT ?`
+      `SELECT id FROM reservations WHERE status = 'active' AND expires_at < ? AND NOT EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=reservations.order_id AND ci.flow='manual_capture' AND ci.allocation_id IS NOT NULL AND ci.payment_state NOT IN ('canceled','finalized')) ORDER BY expires_at LIMIT ?`
     )
     .bind(now(), limit)
     .all<{ id: string }>();

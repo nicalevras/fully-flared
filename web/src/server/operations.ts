@@ -2,36 +2,34 @@
 // handled by D1 Time Travel (see README "Backups and recovery"); there is
 // no automated backup export.
 
-export async function pruneRetention(db: D1Database): Promise<{
+export async function pruneRetention(
+  db: D1Database,
+  cutoffMs = Date.now()
+): Promise<{
   webhookInbox: number;
   outbox: number;
   reservations: number;
   carts: number;
   checkoutIntents: number;
 }> {
-  await db
-    .prepare(
-      'UPDATE orders SET customer_ip=NULL WHERE id IN (SELECT id FROM orders WHERE customer_ip IS NOT NULL AND created_at < ? ORDER BY created_at,id LIMIT 1000)'
-    )
-    .bind(new Date(Date.now() - 60 * 60_000).toISOString())
-    .run();
-  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60_000).toISOString();
-  const yearAgo = new Date(Date.now() - 365 * 24 * 60 * 60_000).toISOString();
-  // Only cart_items references carts (ON DELETE CASCADE); orders has no
-  // cart FK and reservations.cart_id is a loose text column, so expired
-  // carts can be deleted without orphaning a foreign key.
+  const ninetyDaysAgo = new Date(cutoffMs - 90 * 24 * 60 * 60_000).toISOString();
+  const yearAgo = new Date(cutoffMs - 365 * 24 * 60 * 60_000).toISOString();
+  /* IP data has its own hourly bounded job. */
   const carts = await db
     .prepare(
       `DELETE FROM carts WHERE id IN (SELECT id FROM carts WHERE status IN ('open','expired','converted') AND expires_at < ? ORDER BY expires_at,id LIMIT 1000)`
     )
-    .bind(new Date().toISOString())
+    .bind(new Date(cutoffMs).toISOString())
     .run();
+  // Only cart_items references carts (ON DELETE CASCADE); orders has no
+  // cart FK and reservations.cart_id is a loose text column, so expired
+  // carts can be deleted without orphaning a foreign key.
   // Checkout intents hold frozen provider payloads (PII-bearing): drop
   // terminal attempts after 90 days and completed ones after a year.
   // Orders keep their own session/intent identifiers independently.
   const checkoutIntents = await db
     .prepare(
-      `DELETE FROM checkout_intents WHERE id IN (SELECT id FROM checkout_intents WHERE (state IN ('canceled','expired') AND created_at < ?) OR (state = 'ready' AND created_at < ?) ORDER BY created_at,id LIMIT 1000)`
+      `DELETE FROM checkout_intents WHERE id IN (SELECT id FROM checkout_intents WHERE (flow='legacy' OR payment_state IN ('finalized','canceled')) AND ((state IN ('canceled','expired') AND created_at < ?) OR (state = 'ready' AND created_at < ?)) ORDER BY created_at,id LIMIT 1000)`
     )
     .bind(ninetyDaysAgo, yearAgo)
     .run();

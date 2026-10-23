@@ -52,7 +52,10 @@ function parseMediaToken(
  * malformed percent sequences stay as-is and simply fail the key check. */
 function decodeKey(rawKey: string): string {
   try {
-    return decodeURIComponent(rawKey);
+    return decodeURIComponent(rawKey).replace(
+      /^(.+)\.w(?:320|640|960|1600)(?:\.[a-f0-9]{16})?(\.[A-Za-z0-9]+)$/,
+      '$1$2'
+    );
   } catch {
     return rawKey;
   }

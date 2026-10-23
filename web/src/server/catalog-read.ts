@@ -31,7 +31,7 @@ import {
   type ProductDocument,
 } from './catalog-models';
 import { requestRead } from './exec-context';
-import { parseLimits, storeLimitsSchema, type StoreLimits } from '../schemas/limits';
+import { parseLimits, publishedLimits, type StoreLimits } from '../schemas/limits';
 import { pageWindow } from '../lib/catalog-page';
 import type { PublishedProductCard } from './catalog';
 
@@ -365,12 +365,12 @@ export function getStorefrontLayout(
       const valid = (value: z.infer<typeof layoutModelSchema>, body: Json) =>
         value.revision === ref!.revision &&
         contentRevision(JSON.stringify({ ...body, revision: '' })) === ref!.revision &&
-        storeLimitsSchema.safeParse(value.limits).success;
+        Boolean(publishedLimits(value.limits));
       const model =
         decode(await kvValue(kv, key), layoutModelSchema, valid) ??
         decode(await documentRaw(db, key), layoutModelSchema, valid);
       if (!model) throw new Error('Published storefront layout is unavailable');
-      return { ...model, limits: storeLimitsSchema.parse(model.limits) };
+      return { ...model, limits: publishedLimits(model.limits) };
     }
     return {
       limits: parseLimits({}),

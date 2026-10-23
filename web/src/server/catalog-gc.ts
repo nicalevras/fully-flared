@@ -82,7 +82,7 @@ async function inventory(
       .prepare(
         `INSERT INTO catalog_artifacts(key,kind,listing_id,page,revision)
     SELECT json_extract(value,'$.key'),json_extract(value,'$.kind'),json_extract(value,'$.listingId'),json_extract(value,'$.page'),json_extract(value,'$.revision') FROM json_each(?) WHERE true
-    ON CONFLICT(key) DO UPDATE SET kind=excluded.kind,listing_id=excluded.listing_id,page=excluded.page,revision=excluded.revision`
+    ON CONFLICT(key) DO UPDATE SET kind=excluded.kind,listing_id=excluded.listing_id,page=excluded.page,revision=excluded.revision WHERE kind IS NOT excluded.kind OR listing_id IS NOT excluded.listing_id OR page IS NOT excluded.page OR revision IS NOT excluded.revision`
       )
       .bind(JSON.stringify(rows)),
     save(db, s),

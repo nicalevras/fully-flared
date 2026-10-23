@@ -29,7 +29,7 @@ export async function uploadMedia(file: File, alt = ''): Promise<UploadedMedia> 
   try {
     await uploadVariants(file, uploaded.key);
   } catch {
-    // Variants are an optimization; the upload itself already succeeded.
+    console.warn(JSON.stringify({ event: 'responsive_media_upload_failed' }));
   }
   return uploaded;
 }
@@ -66,7 +66,8 @@ async function uploadVariants(file: File, originalKey: string): Promise<void> {
       form.set('file', new File([blob], `variant-${width}.${extension}`, { type: contentType }));
       form.set('variant_of', originalKey);
       form.set('variant_width', String(width));
-      await fetch('/api/media', { method: 'POST', body: form });
+      const result = await fetch('/api/media', { method: 'POST', body: form });
+      if (!result.ok) throw Error('Responsive upload failed');
     }
   } finally {
     bitmap.close();

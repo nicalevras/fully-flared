@@ -13,6 +13,9 @@ export type WorkerEnv = Cloudflare.Env & {
   TURNSTILE_SECRET_KEY?: string;
   OWNER_EMAIL?: string;
   DEV_TRUSTED_ORIGINS?: string;
+  PUBLIC_MEDIA?: R2Bucket;
+  MEDIA_ZONE_ID?: string;
+  MEDIA_PURGE_TOKEN?: string;
 };
 
 export const workerEnv = env as WorkerEnv;
@@ -25,5 +28,10 @@ export const runtimeConfigSchema = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().startsWith('whsec_').optional(),
   TURNSTILE_SECRET_KEY: z.string().optional(),
   OWNER_EMAIL: z.string().optional(),
+  MEDIA_ZONE_ID: z
+    .string()
+    .regex(/^[a-f0-9]{32}$/i)
+    .optional(),
+  MEDIA_PURGE_TOKEN: z.string().min(1).optional(),
 });
 export { exactDevOrigins } from './origins';

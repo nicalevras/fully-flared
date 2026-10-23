@@ -109,17 +109,20 @@ See [Workers Cache API](https://developers.cloudflare.com/workers/runtime-apis/c
 
 ## Write path
 
-D1 batches make order creation/holds and paid transitions atomic. Every dependent
+For new manual-capture attempts, D1 creates an unpaid order without holds.
+Verified authorization precedes the atomic inventory/coupon allocation; capture
+precedes the guarded paid transition. Legacy attempts retain their recorded
+policy. D1 batches make allocation and paid transitions atomic. Every dependent
 paid/canceled mutation references the winning transition identity. Receipt and
 refund notification records are inserted transactionally with deterministic
 identities. Refund operations reserve balance while pending or uncertain;
 only successful totals determine refund state. Creation retries use stable
 Stripe keys, provider reconciliation, backoff and attempt caps.
 
-Default Stripe sessions last 32 minutes and holds last 42 minutes. Admin settings
-control hold duration (42–1450 minutes); sessions expire ten minutes earlier.
-Cron's stale-order cutoff is the configured hold plus eight minutes and still
-protects active holds. Configured cart/order/checkouts/refund limits are enforced
+Default Stripe Sessions last 32 minutes; checkout_session_minutes allows
+32–1440. Session expiry is separate from post-authorization allocation. Uncertain
+capture allocations cannot expire into available stock. Provider retrieval and
+durable cancellation/refund recovery resolve them. Configured cart/order/checkouts/refund limits are enforced
 from D1 with defaults when rows are missing; limit settings have matching Zod
 and SQL bounds. The refund creation retry cutoff remains fixed at 23 hours to
 avoid Stripe's 24-hour idempotency-key pruning window. Backorders
@@ -178,9 +181,13 @@ order queries. Completed sweeps wrap around; healthy early records cannot starve
 older records indefinitely. Confirmed provider 404s are distinct from outages,
 which fail that leg without advancing its cursor.
 
-The combined nightly cron regression measures all its tasks in one invocation:
-705 D1 statements and 28 multi-statement batches for its fixture. Backlogs,
-recipient counts and schema size affect that total; it is not a universal bound.
+Historical combined-cron evidence measured 705 statements and 28 batches in
+one fixture. It does not describe the current execution path: cron dispatches
+bounded continuations on existing queues. Financial safety runs every 15 minutes,
+privacy hourly, and historical reconciliation, retention, optional reminders,
+replica verification and reclamation daily. Each run preserves its cutoff and
+cursor until coverage completes; completion must be measured from durable
+progress, not scheduler success. This new path still needs regression evidence.
 Cloudflare's official pages currently disagree about the applicable paid-worker
 budget: [D1 limits](https://developers.cloudflare.com/d1/platform/limits/) says
 1,000 queries per invocation, while [Workers subrequest limits](https://developers.cloudflare.com/workers/platform/limits/#subrequests)
@@ -188,8 +195,9 @@ lists a 10,000 default on Paid, configurable up to ten million. The
 [subrequest change](https://developers.cloudflare.com/changelog/2026-02-11-subrequests-limit/)
 does not resolve D1's separate published figure. Treat 1,000 as the conservative
 planning budget until Cloudflare clarifies it. Local Miniflare tests do not
-reproduce either deployed enforcement threshold. No maintenance queue, lease or
-replacement scheduler was introduced.
+reproduce either deployed enforcement threshold. No new queue resource is
+introduced. Durable maintenance run claims/progress use the existing JOBS and
+CATALOG_JOBS consumers, with bounded pages and recovery of missed continuations.
 
 Outbox insertion can be once-only. External email transport can redeliver after
 an ambiguous send or crashed process; it is not exactly-once transport. A
@@ -279,3 +287,40 @@ Documentation checked through Context7:
 [KV listing](https://developers.cloudflare.com/kv/api/list-keys/) and
 [KV deletion](https://developers.cloudflare.com/kv/api/delete-key-value-pairs/).
 These runtime semantics are independent of the installed Wrangler 4.151.1 CLI.
+
+## Current delivery/operations implementation, not measured capacity
+
+Catalog writes wake the bounded publisher from transactional work revisions.
+The 15-minute safety tick only checks indexed due/interrupted work and due posts.
+Changed references receive prompt delayed verification; the full replica sweep
+and GC have separate daily run progress. Reference invalidations become purgeable
+only after delivery; failures remain durable. Listing cards omit full descriptions
+and SEO bodies. Serialized KV artifacts are limited to 1.5 MiB before production
+writes, within the shared 8 MiB invocation budget.
+
+Route-specific semantic parameters normalize public cache keys. Cart badge
+hydration reads only the nonsecret count cookie; authoritative cart mutations
+share their result to avoid immediate duplicate reads. Availability remains
+page-load-only with its five-second internal cache, and public HTML keeps its
+existing TTL/private boundary. Optional public media advertises only ready
+immutable variants; editorial and SEO URLs use the same published metadata.
+
+FF-16/20/21/23/24 remain measurement gates: static asset billed invocations,
+availability cache overhead, logs, D1/KV/media capacity including history, and
+regional cache hit/latency/purge freshness. Neither compiler success nor local
+fixtures establish deployed throughput, propagation, billing or a production soak.
+
+## Checkout hardening follow-up: evidence still pending
+
+Recovery families now use independent records in the existing maintenance table
+and queue. Historical provider reconciliation can resume between records and uses
+a 30-second delivery deadline (10 seconds per call, no new call below 5 seconds
+remaining). This bounds initiation of provider work; it does not prove deployed
+throughput or guarantee provider resolution during an outage.
+
+Public media publication handles one immutable object per maintenance delivery.
+Upload claims do not dirty catalog work. Public deletion includes recorded pending
+uploads and prior destinations and requires both object deletion and cache purge.
+Historical untracked orphan objects remain unverified. See the
+[checkpoint ledger](../web/CHECKOUT-HARDENING.md). These changes have not run the
+ordinary suite, isolated 100k gate or deployed measurements.

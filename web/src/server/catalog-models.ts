@@ -13,12 +13,11 @@ export const catalogCardSchema = z.object({
   id: z.string(),
   slug: z.string(),
   title: z.string(),
-  description: z.string(),
   status: z.enum(['active', 'archived', 'draft']),
-  seoTitle: z.string().nullable(),
-  seoDescription: z.string().nullable(),
   priceCents: z.number().nullable(),
   imageKey: z.string().nullable(),
+  imagePublicUrl: z.string().nullable().optional(),
+  imageVariants: z.array(z.object({ width: z.number(), url: z.string() })).optional(),
 });
 export type CatalogCard = z.infer<typeof catalogCardSchema>;
 
@@ -45,7 +44,14 @@ export const productDocumentSchema = z.object({
       weightGrams: z.number().nullable(),
     })
   ),
-  images: z.array(z.object({ key: z.string(), alt: z.string() })),
+  images: z.array(
+    z.object({
+      key: z.string(),
+      alt: z.string(),
+      publicUrl: z.string().nullable().optional(),
+      variants: z.array(z.object({ width: z.number(), url: z.string() })).optional(),
+    })
+  ),
   revision: z.string(),
 });
 export type ProductDocument = z.infer<typeof productDocumentSchema>;
@@ -65,12 +71,15 @@ export const listingArtifactSchema = listingPageSchema
   .omit({ generation: true, total: true, pageCount: true })
   .strict();
 export function serializeListingPage(page: ListingPage): string {
-  return JSON.stringify({
+  const value = JSON.stringify({
     listingId: page.listingId,
     page: page.page,
     pageSize: page.pageSize,
     cards: page.cards,
   });
+  if (new TextEncoder().encode(value).byteLength > 1_500_000)
+    throw new Error('Catalog page exceeds artifact byte budget');
+  return value;
 }
 export function listingPageRevision(page: ListingPage): string {
   return contentRevision(serializeListingPage(page));
@@ -160,6 +169,7 @@ export const editorialDocumentSchema = z.object({
   seoDescription: z.string().nullable(),
   publishedAt: z.string().nullable(),
   coverKey: z.string().nullable(),
+  coverPublicUrl: z.string().nullable().optional(),
   tags: z.string().nullable(),
   authorName: z.string().nullable(),
 });

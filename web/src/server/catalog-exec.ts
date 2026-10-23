@@ -226,8 +226,10 @@ export function countedKv<
         };
       if (prop === 'put')
         return async (key: string, value: string) => {
+          const bytes = new TextEncoder().encode(value).byteLength;
+          if (bytes > 1_500_000) throw new Error('Catalog artifact exceeds byte budget');
           budget.kvOp();
-          budget.addBytes(new TextEncoder().encode(value).byteLength);
+          budget.addBytes(bytes);
           return target.put(key, value);
         };
       if (prop === 'delete' && target.delete)

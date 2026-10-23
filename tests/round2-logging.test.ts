@@ -5,11 +5,8 @@ import { getStorefrontLayout } from '../web/src/server/catalog-read';
 import { ALL_LISTING } from '../web/src/server/catalog-models';
 import { RealtimeDO } from '../web/src/do/realtime';
 import { drainOutbox } from '../web/src/server/email';
-import {
-  createPendingOrder,
-  attachStripeSession,
-  reprocessStaleInbox,
-} from '../web/src/server/checkout';
+import { createPendingOrder, reprocessStaleInbox } from '../web/src/server/checkout';
+import { attachStripeSession } from './helpers/attach-session';
 import { discountNetworkIdentity } from '../web/src/lib/shopFns';
 let db: D1Database, dispose: () => Promise<void>;
 beforeAll(async () => {

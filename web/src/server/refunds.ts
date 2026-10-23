@@ -4,7 +4,7 @@ import type { PaymentProvider } from './payments';
 import { nextRetryIso } from './retry';
 import { emailStatement, operationalRecipients, commitWithEmails } from './email';
 import { getSettings } from './settings';
-import { reconciliationCursors, advanceCursor } from './reconcile-cursors';
+import { reconciliationCursors, advanceCursor, type CursorClaim } from './reconcile-cursors';
 
 // Stripe may prune idempotency keys after 24h; never blindly recreate after 23h.
 const REFUND_CREATION_RETRY_CUTOFF_MS = 23 * 60 * 60_000;
@@ -100,7 +100,7 @@ export async function settleRefund(
       row.purpose === 'late_payment'
         ? row.recovery_reason === 'currency_changed'
           ? `Your payment for expired checkout ${row.number} arrived after the store changed currency, so it has been refunded in full in the original payment currency.`
-          : `Your payment for expired checkout ${row.number} arrived after its stock or discount capacity was released and could not be recovered, so it has been refunded in full.`
+          : `Checkout ${row.number} could not be completed or was canceled. Its payment has been refunded in full.`
         : `Your refund for order ${row.number} has succeeded.`;
     statements.push(
       emailStatement(
@@ -360,15 +360,18 @@ export async function syncChargeRefund(
 
 export async function reconcileRefundOperations(
   db: D1Database,
-  provider?: PaymentProvider
+  provider?: PaymentProvider,
+  limit = 25,
+  claim?: CursorClaim,
+  dueBefore = at()
 ): Promise<number> {
   const { limits } = await getSettings(db);
-  const cursors = await reconciliationCursors(db);
+  const cursors = await reconciliationCursors(db, ['refund_operations', 'refund_stuck']);
   const rows = await db
     .prepare(
-      "SELECT id,order_id,amount_cents,purpose FROM refunds WHERE id>? AND status IN ('uncertain','pending','requires_action') AND attempts<? AND (retry_after IS NULL OR retry_after<=?) ORDER BY id LIMIT 25"
+      "SELECT id,order_id,amount_cents,purpose FROM refunds WHERE id>? AND status IN ('uncertain','pending','requires_action') AND attempts<? AND (retry_after IS NULL OR retry_after<=?) ORDER BY id LIMIT ?"
     )
-    .bind(cursors.get('refund_operations') ?? '', limits.refund_retry_cap, at())
+    .bind(cursors.get('refund_operations') ?? '', limits.refund_retry_cap, dueBefore, limit)
     .all<{ id: string; order_id: string; amount_cents: number; purpose: Purpose }>();
   let succeeded = true;
   for (const row of rows.results) {
@@ -395,7 +398,8 @@ export async function reconcileRefundOperations(
       db,
       'refund_operations',
       cursors.get('refund_operations') ?? '',
-      rows.results.length === 25 ? rows.results.at(-1)!.id : ''
+      rows.results.length === limit ? rows.results.at(-1)!.id : '',
+      claim
     );
   const stuck = await db
     .prepare(
@@ -426,7 +430,8 @@ export async function reconcileRefundOperations(
     db,
     'refund_stuck',
     cursors.get('refund_stuck') ?? '',
-    stuck.results.length === 25 ? stuck.results.at(-1)!.id : ''
+    stuck.results.length === 25 ? stuck.results.at(-1)!.id : '',
+    claim
   );
   return rows.results.length;
 }

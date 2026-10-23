@@ -37,14 +37,11 @@ jobs:
       - name: Run tests
         run: npm run test
 
-      - name: Type check
-        run: npm run typecheck
-
-      # worker-configuration.d.ts is git-ignored and generated; the web
-      # tsconfig includes it, so types must be generated before tsc or the
-      # check fails on a clean checkout (243 errors when missing locally).
       - name: Generate Worker types
         run: cd web && npx wrangler types
+
+      - name: Type check
+        run: npm run typecheck
 
       - name: Web type check
         run: cd web && npx tsc --noEmit

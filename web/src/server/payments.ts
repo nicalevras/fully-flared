@@ -1,5 +1,7 @@
 import Stripe from 'stripe';
 import type { WorkerEnv } from './env';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import type { ShippingAddress } from '../schemas/checkout';
 
 // PaymentProvider seam (DECISIONS D4). Stripe is the only v1 implementation.
 export interface CheckoutRequest {
@@ -22,6 +24,9 @@ export interface CheckoutRequest {
   shippingCountries: string[];
   automaticTax: boolean;
   expiresAtEpochSeconds: number;
+  manualCapture?: boolean;
+  shippingAddress?: ShippingAddress;
+  customerId?: string;
 }
 
 export interface CheckoutResult {
@@ -40,11 +45,42 @@ export type StripeSessionLite = {
   metadata?: { order_id?: string; attempt_id?: string };
   collected_information?: unknown;
   mode?: string;
+  taxCents?: number;
+  subtotalCents?: number;
+  discountCents?: number;
+  shippingCents?: number;
+  automaticTaxStatus?: string | null;
+};
+
+export type PaymentIntentDetails = {
+  id: string;
+  status: string;
+  amount: number;
+  amountCapturable: number;
+  amountReceived: number;
+  currency: string;
+  metadata: { order_id?: string; attempt_id?: string };
+  captureBefore?: number;
 };
 
 export type ProviderCallOptions = { timeoutMs: number };
 
 export interface PaymentProvider {
+  withinDeadline?<T>(options: ProviderCallOptions, action: () => Promise<T>): Promise<T>;
+  createCheckoutCustomer?(req: CheckoutRequest, options: ProviderCallOptions): Promise<string>;
+  retrievePaymentIntent?(id: string, options: ProviderCallOptions): Promise<PaymentIntentDetails>;
+  capturePaymentIntent?(
+    id: string,
+    amount: number,
+    key: string,
+    options: ProviderCallOptions
+  ): Promise<PaymentIntentDetails>;
+  cancelPaymentIntent?(
+    id: string,
+    key: string,
+    options: ProviderCallOptions
+  ): Promise<PaymentIntentDetails>;
+  expireCheckoutSession?(id: string, key: string, options: ProviderCallOptions): Promise<void>;
   createCheckout(req: CheckoutRequest, options?: ProviderCallOptions): Promise<CheckoutResult>;
   /** Split initiation steps (Phase 1): the intent flow stores the coupon
    *  result before creating the session so recovery resumes the right
@@ -73,16 +109,23 @@ export interface PaymentProvider {
       metadata: { operation_id?: string };
     }>
   >;
-  retrieveRefund?(refundId: string): Promise<{ id: string; status: string } | null>;
+  retrieveRefund?(
+    refundId: string,
+    options?: ProviderCallOptions
+  ): Promise<{ id: string; status: string } | null>;
   findRefundByOperation?(
     paymentIntentId: string,
     operationId: string
   ): Promise<{ id: string; status: string } | null>;
   findCheckoutSessionIdByPaymentIntent?(paymentIntentId: string): Promise<string | null>;
-  listCheckoutSessionsPage?(input: {
-    limit: number;
-    startingAfter?: string | undefined;
-  }): Promise<{ data: StripeSessionLite[]; hasMore: boolean }>;
+  listCheckoutSessionsPage?(
+    input: {
+      limit: number;
+      startingAfter?: string | undefined;
+      createdBefore?: number;
+    },
+    options?: ProviderCallOptions
+  ): Promise<{ data: StripeSessionLite[]; hasMore: boolean }>;
   retrieveCheckoutSession?(
     sessionId: string,
     options?: ProviderCallOptions
@@ -91,6 +134,31 @@ export interface PaymentProvider {
 
 export class StripeProvider implements PaymentProvider {
   private stripe: Stripe;
+  private deadlines = new AsyncLocalStorage<number>();
+  private bounded<T>(
+    options: ProviderCallOptions | undefined,
+    action: () => Promise<T>
+  ): Promise<T> {
+    const duration = Math.min(
+      options?.timeoutMs ?? 10_000,
+      (this.deadlines.getStore() ?? Infinity) - Date.now()
+    );
+    if (duration <= 0) return Promise.reject(new Error('Provider deadline exceeded'));
+    return this.deadlines.run(
+      Date.now() + duration,
+      () =>
+        new Promise<T>((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error('Provider deadline exceeded')), duration);
+          Promise.resolve()
+            .then(action)
+            .then(resolve, reject)
+            .finally(() => clearTimeout(timer));
+        })
+    );
+  }
+  withinDeadline<T>(options: ProviderCallOptions, action: () => Promise<T>): Promise<T> {
+    return this.bounded(options, action);
+  }
   constructor(
     secretKey: string,
     private webhookSecret: string
@@ -98,30 +166,135 @@ export class StripeProvider implements PaymentProvider {
     // Pinned to the stripe-node v23 generated API version. The Stripe
     // Dashboard webhook endpoint must be configured for the same version:
     // 2026-09-30.endive (see LAUNCH.md).
-    // Bounded timeout, no hidden SDK retries: application-level recovery
-    // owns replay so an ambiguous outcome is never silently retried with
-    // a different operation identity.
+    // Even maxNetworkRetries=0 can retry closed connections. The transport
+    // shares one absolute deadline across all SDK attempts and response reads.
     this.stripe = new Stripe(secretKey, {
       apiVersion: '2026-09-30.endive',
       timeout: 30_000,
       maxNetworkRetries: 0,
+      httpClient: Stripe.createFetchHttpClient((input, init) => {
+        const deadline = this.deadlines.getStore();
+        const remaining = deadline === undefined ? 30_000 : deadline - Date.now();
+        if (remaining <= 0) throw new Error('Provider deadline exceeded');
+        const signal = AbortSignal.timeout(remaining);
+        return fetch(input, {
+          ...init,
+          signal: init?.signal ? AbortSignal.any([signal, init.signal]) : signal,
+        });
+      }),
     });
+  }
+
+  async createCheckoutCustomer(
+    req: CheckoutRequest,
+    options: ProviderCallOptions
+  ): Promise<string> {
+    if (!req.shippingAddress) throw new Error('Shipping address is required');
+    const a = req.shippingAddress;
+    const customer = await this.bounded(options, () =>
+      this.stripe.customers.create(
+        {
+          email: req.email,
+          name: a.name,
+          shipping: {
+            name: a.name,
+            ...(a.phone ? { phone: a.phone } : {}),
+            address: {
+              line1: a.line1,
+              line2: a.line2,
+              city: a.city,
+              state: a.state,
+              postal_code: a.postalCode,
+              country: a.country,
+            },
+          },
+          metadata: { order_id: req.orderId, attempt_id: req.attemptId },
+        },
+        { idempotencyKey: `customer_${req.attemptId}`, timeout: options.timeoutMs }
+      )
+    );
+    return customer.id;
+  }
+
+  private paymentDetails(pi: Stripe.PaymentIntent): PaymentIntentDetails {
+    const charge = typeof pi.latest_charge === 'object' ? pi.latest_charge : null;
+    return {
+      id: pi.id,
+      status: pi.status,
+      amount: pi.amount,
+      amountCapturable: pi.amount_capturable,
+      amountReceived: pi.amount_received,
+      currency: pi.currency,
+      metadata: pi.metadata,
+      ...(charge?.payment_method_details?.card?.capture_before
+        ? { captureBefore: charge.payment_method_details.card.capture_before }
+        : {}),
+    };
+  }
+  async retrievePaymentIntent(id: string, options: ProviderCallOptions) {
+    return this.paymentDetails(
+      await this.bounded(options, () =>
+        this.stripe.paymentIntents.retrieve(
+          id,
+          { expand: ['latest_charge'] },
+          { timeout: options.timeoutMs }
+        )
+      )
+    );
+  }
+  async capturePaymentIntent(
+    id: string,
+    amount: number,
+    key: string,
+    options: ProviderCallOptions
+  ) {
+    return this.paymentDetails(
+      await this.bounded(options, () =>
+        this.stripe.paymentIntents.capture(
+          id,
+          { amount_to_capture: amount },
+          { idempotencyKey: key, timeout: options.timeoutMs }
+        )
+      )
+    );
+  }
+  async cancelPaymentIntent(id: string, key: string, options: ProviderCallOptions) {
+    return this.paymentDetails(
+      await this.bounded(options, () =>
+        this.stripe.paymentIntents.cancel(
+          id,
+          {},
+          { idempotencyKey: key, timeout: options.timeoutMs }
+        )
+      )
+    );
+  }
+  async expireCheckoutSession(id: string, key: string, options: ProviderCallOptions) {
+    await this.bounded(options, () =>
+      this.stripe.checkout.sessions.expire(
+        id,
+        {},
+        { idempotencyKey: key, timeout: options.timeoutMs }
+      )
+    );
   }
 
   async createCoupon(req: CheckoutRequest, options?: ProviderCallOptions): Promise<string> {
     // One amount-off coupon per checkout attempt, created with an
     // idempotency key so a retried session creation reuses it instead of
     // minting a new coupon every time.
-    const coupon = await this.stripe.coupons.create(
-      {
-        amount_off: req.discountCents ?? 0,
-        currency: req.currency.toLowerCase(),
-        duration: 'once',
-        name: req.discountCode ?? 'Discount',
-      },
-      // Initiation-path provider call: bounded per call (Phase 5); the
-      // shared client keeps its 30 s timeout for non-initiation flows.
-      { idempotencyKey: `coupon_${req.attemptId}`, timeout: options?.timeoutMs ?? 10_000 }
+    const coupon = await this.bounded(options, () =>
+      this.stripe.coupons.create(
+        {
+          amount_off: req.discountCents ?? 0,
+          currency: req.currency.toLowerCase(),
+          duration: 'once',
+          name: req.discountCode ?? 'Discount',
+        },
+        // Initiation-path provider call: bounded per call (Phase 5); the
+        // shared client keeps its 30 s timeout for non-initiation flows.
+        { idempotencyKey: `coupon_${req.attemptId}`, timeout: options?.timeoutMs ?? 10_000 }
+      )
     );
     return coupon.id;
   }
@@ -142,54 +315,86 @@ export class StripeProvider implements PaymentProvider {
     couponId?: string,
     options?: ProviderCallOptions
   ): Promise<CheckoutResult> {
-    const session = await this.stripe.checkout.sessions.create(
-      {
-        mode: 'payment',
-        customer_email: req.email,
-        currency: req.currency.toLowerCase(),
-        line_items: req.lineItems.map((i) => ({
-          price_data: {
-            currency: req.currency.toLowerCase(),
-            product_data: {
-              name: i.name,
-              ...(req.automaticTax && i.taxCode ? { tax_code: i.taxCode } : {}),
-            },
-            unit_amount: i.unitAmountCents,
-          },
-          quantity: i.qty,
-        })),
-        automatic_tax: { enabled: req.automaticTax },
-        ...(req.collectShipping
-          ? {
-              shipping_address_collection: {
-                allowed_countries:
-                  req.shippingCountries as Stripe.Checkout.SessionCreateParams.ShippingAddressCollection.AllowedCountry[],
+    const session = await this.bounded(options, () =>
+      this.stripe.checkout.sessions.create(
+        {
+          mode: 'payment',
+          ...(req.customerId ? { customer: req.customerId } : { customer_email: req.email }),
+          ...(req.manualCapture
+            ? ({
+                allowed_payment_method_types: ['card'],
+                adaptive_pricing: { enabled: false },
+                payment_intent_data: {
+                  capture_method: 'manual' as const,
+                  metadata: { order_id: req.orderId, attempt_id: req.attemptId },
+                  ...(req.shippingAddress
+                    ? {
+                        shipping: {
+                          name: req.shippingAddress.name,
+                          ...(req.shippingAddress.phone
+                            ? { phone: req.shippingAddress.phone }
+                            : {}),
+                          address: {
+                            line1: req.shippingAddress.line1,
+                            line2: req.shippingAddress.line2,
+                            city: req.shippingAddress.city,
+                            state: req.shippingAddress.state,
+                            postal_code: req.shippingAddress.postalCode,
+                            country: req.shippingAddress.country,
+                          },
+                        },
+                      }
+                    : {}),
+                },
+              } satisfies Stripe.Checkout.SessionCreateParams)
+            : {}),
+          currency: req.currency.toLowerCase(),
+          line_items: req.lineItems.map((i) => ({
+            price_data: {
+              currency: req.currency.toLowerCase(),
+              product_data: {
+                name: i.name,
+                ...(req.automaticTax && i.taxCode ? { tax_code: i.taxCode } : {}),
               },
-            }
-          : {}),
-        ...(req.shippingCents != null
-          ? {
-              shipping_options: [
-                {
-                  shipping_rate_data: {
-                    type: 'fixed_amount' as const,
-                    display_name: 'Shipping',
-                    fixed_amount: {
-                      amount: req.shippingCents,
-                      currency: req.currency.toLowerCase(),
+              unit_amount: i.unitAmountCents,
+              tax_behavior: 'exclusive',
+            },
+            quantity: i.qty,
+          })),
+          automatic_tax: { enabled: req.automaticTax },
+          ...(req.collectShipping
+            ? {
+                shipping_address_collection: {
+                  allowed_countries:
+                    req.shippingCountries as Stripe.Checkout.SessionCreateParams.ShippingAddressCollection.AllowedCountry[],
+                },
+              }
+            : {}),
+          ...(req.shippingCents != null
+            ? {
+                shipping_options: [
+                  {
+                    shipping_rate_data: {
+                      type: 'fixed_amount' as const,
+                      tax_behavior: 'exclusive',
+                      display_name: 'Shipping',
+                      fixed_amount: {
+                        amount: req.shippingCents,
+                        currency: req.currency.toLowerCase(),
+                      },
                     },
                   },
-                },
-              ],
-            }
-          : {}),
-        success_url: req.successUrl,
-        cancel_url: req.cancelUrl,
-        expires_at: req.expiresAtEpochSeconds,
-        ...(couponId ? { discounts: [{ coupon: couponId }] } : {}),
-        metadata: { order_id: req.orderId, attempt_id: req.attemptId },
-      },
-      { idempotencyKey: `checkout_${req.attemptId}`, timeout: options?.timeoutMs ?? 10_000 }
+                ],
+              }
+            : {}),
+          success_url: req.successUrl,
+          cancel_url: req.cancelUrl,
+          expires_at: req.expiresAtEpochSeconds,
+          ...(couponId ? { discounts: [{ coupon: couponId }] } : {}),
+          metadata: { order_id: req.orderId, attempt_id: req.attemptId },
+        },
+        { idempotencyKey: `checkout_${req.attemptId}`, timeout: options?.timeoutMs ?? 10_000 }
+      )
     );
     if (!session.url) throw new Error('Stripe did not return a checkout URL');
     return { sessionId: session.id, url: session.url };
@@ -203,14 +408,24 @@ export class StripeProvider implements PaymentProvider {
     return sessions.data[0]?.id ?? null;
   }
 
-  async listCheckoutSessionsPage(input: {
-    limit: number;
-    startingAfter?: string | undefined;
-  }): Promise<{ data: StripeSessionLite[]; hasMore: boolean }> {
-    const page = await this.stripe.checkout.sessions.list({
-      limit: input.limit,
-      ...(input.startingAfter ? { starting_after: input.startingAfter } : {}),
-    });
+  async listCheckoutSessionsPage(
+    input: {
+      limit: number;
+      startingAfter?: string | undefined;
+      createdBefore?: number;
+    },
+    options?: ProviderCallOptions
+  ): Promise<{ data: StripeSessionLite[]; hasMore: boolean }> {
+    const page = await this.bounded(options, () =>
+      this.stripe.checkout.sessions.list(
+        {
+          limit: input.limit,
+          ...(input.startingAfter ? { starting_after: input.startingAfter } : {}),
+          ...(input.createdBefore ? { created: { lte: input.createdBefore } } : {}),
+        },
+        { timeout: options?.timeoutMs ?? 10_000 }
+      )
+    );
     return {
       hasMore: page.has_more,
       data: page.data.map((s) => ({
@@ -234,10 +449,12 @@ export class StripeProvider implements PaymentProvider {
     options?: ProviderCallOptions
   ): Promise<StripeSessionLite | null> {
     try {
-      const s = await this.stripe.checkout.sessions.retrieve(
-        sessionId,
-        {},
-        { timeout: options?.timeoutMs ?? 10_000 }
+      const s = await this.bounded(options, () =>
+        this.stripe.checkout.sessions.retrieve(
+          sessionId,
+          {},
+          { timeout: options?.timeoutMs ?? 10_000 }
+        )
       );
       return {
         id: s.id,
@@ -251,6 +468,11 @@ export class StripeProvider implements PaymentProvider {
           typeof s.payment_intent === 'string' ? s.payment_intent : (s.payment_intent?.id ?? null),
         url: s.url ?? null,
         status: s.status ?? null,
+        taxCents: s.total_details?.amount_tax ?? 0,
+        discountCents: s.total_details?.amount_discount ?? 0,
+        shippingCents: s.total_details?.amount_shipping ?? 0,
+        subtotalCents: s.amount_subtotal ?? 0,
+        automaticTaxStatus: s.automatic_tax?.status ?? null,
       };
     } catch (error) {
       if (
@@ -272,9 +494,11 @@ export class StripeProvider implements PaymentProvider {
     return { id: event.id, type: event.type, data: event.data.object };
   }
 
-  async retrieveRefund(refundId: string) {
+  async retrieveRefund(refundId: string, options?: ProviderCallOptions) {
     try {
-      const refund = await this.stripe.refunds.retrieve(refundId);
+      const refund = await this.bounded(options, () =>
+        this.stripe.refunds.retrieve(refundId, {}, { timeout: options?.timeoutMs ?? 10_000 })
+      );
       return { id: refund.id, status: refund.status ?? 'pending' };
     } catch (error) {
       if (
@@ -331,6 +555,42 @@ export class StripeProvider implements PaymentProvider {
     );
     return { id: refund.id, status: refund.status ?? 'pending' };
   }
+}
+
+/** Keep every nested SDK request/retry inside the delivery's shared deadline. */
+export function providerWithBudget(
+  provider: PaymentProvider,
+  deadline: number,
+  beforeCall: () => Promise<void>
+): PaymentProvider {
+  return new Proxy(provider, {
+    get(target, key) {
+      const value: unknown = Reflect.get(target, key);
+      if (typeof value !== 'function') return value;
+      return async (...args: unknown[]) => {
+        await beforeCall();
+        const remaining = deadline - Date.now();
+        if (remaining < 5000) throw new Error('Maintenance provider budget exhausted');
+        const options = { timeoutMs: Math.min(10_000, remaining) };
+        const action = () => Promise.resolve(Reflect.apply(value, target, args));
+        if (target.withinDeadline) return target.withinDeadline(options, action);
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          return await Promise.race([
+            action(),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(
+                () => reject(new Error('Provider deadline exceeded')),
+                options.timeoutMs
+              );
+            }),
+          ]);
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+      };
+    },
+  });
 }
 
 export function getStripeProvider(env: WorkerEnv): StripeProvider | null {

@@ -1,11 +1,8 @@
 import { PUBLISHED_SETTING_KEYS } from '../web/src/schemas/settings';
 import { deliverStripeEvent } from './helpers/webhook';
 import { LIMIT_DEFINITIONS, isLimitKey } from '../web/src/schemas/limits';
-import {
-  createPendingOrder,
-  cancelOrderById,
-  attachStripeSession,
-} from '../web/src/server/checkout';
+import { createPendingOrder, cancelOrderById } from '../web/src/server/checkout';
+import { attachStripeSession } from './helpers/attach-session';
 import { requestRefund } from '../web/src/server/refunds';
 import { adjustStock } from '../web/src/server/inventory';
 import { expectLedgerMatchesCounters } from './helpers/d1';

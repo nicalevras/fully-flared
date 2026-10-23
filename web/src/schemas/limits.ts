@@ -7,7 +7,7 @@ export const LIMIT_KEYS = [
   'cart_max_qty',
   'cart_max_lines',
   'order_max_units',
-  'checkout_hold_minutes',
+  'checkout_session_minutes',
   'refund_retry_cap',
   'refund_stuck_minutes',
 ] as const;
@@ -27,19 +27,17 @@ export const LIMIT_DEFINITIONS = {
   // Stripe Checkout payment mode permits at most 100 line items.
   cart_max_lines: { min: 1, max: 100, default: 50, label: 'Distinct cart lines' },
   order_max_units: { min: 1, max: 10000, default: 500, label: 'Units per order' },
-  // Hold minus ten minutes stays within Stripe's 30..1440 minutes, with
-  // two minutes of creation/clock margin above Stripe's minimum.
-  checkout_hold_minutes: {
-    min: 42,
-    max: 1450,
-    default: 42,
-    label: 'Checkout stock hold (minutes)',
+  // Two minutes of creation margin above Stripe's minimum session lifetime.
+  checkout_session_minutes: {
+    min: 32,
+    max: 1440,
+    default: 32,
+    label: 'Stripe Checkout Session (minutes)',
   },
   refund_retry_cap: { min: 1, max: 20, default: 5, label: 'Refund attempts' },
   refund_stuck_minutes: { min: 1, max: 10080, default: 60, label: 'Stuck refund alert (minutes)' },
 } as const satisfies Record<LimitKey, { min: number; max: number; default: number; label: string }>;
 
-export const CHECKOUT_BUFFER_MINUTES = 10;
 export function isLimitKey(key: string): key is LimitKey {
   return Object.hasOwn(LIMIT_DEFINITIONS, key);
 }
@@ -69,6 +67,23 @@ export const storeLimitsSchema = z
         ctx.addIssue({ code: 'custom', path: [key], message: `Expected integer ${min}..${max}` });
     }
   });
+
+/** Existing immutable layouts keep their original hash. Normalize only the
+ * returned view while the new publisher replaces the old setting name. */
+export function publishedLimits(limits: Record<string, number>): StoreLimits {
+  const normalized = { ...limits };
+  if (
+    normalized.checkout_session_minutes === undefined &&
+    normalized.checkout_hold_minutes !== undefined
+  ) {
+    normalized.checkout_session_minutes = Math.max(
+      32,
+      Math.min(1440, normalized.checkout_hold_minutes - 10)
+    );
+    delete normalized.checkout_hold_minutes;
+  }
+  return storeLimitsSchema.parse(normalized);
+}
 
 // Checkout admission budgets (Phase 5). Stored as settings rows like
 // the limits above, but kept out of StoreLimits: limits are serialized

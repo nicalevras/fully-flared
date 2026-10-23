@@ -74,6 +74,9 @@ Use `https://STORE_HOST/api/webhooks/stripe` with API version
 - `checkout.session.async_payment_failed`
 - `checkout.session.expired`
 - `payment_intent.payment_failed`
+- `payment_intent.amount_capturable_updated`
+- `payment_intent.succeeded`
+- `payment_intent.canceled`
 - `refund.updated`
 - `refund.failed`
 - `charge.refunded`
@@ -148,9 +151,12 @@ before launch. Seed stock is not real inventory.
 Currency cannot change while a checkout is pending and locks permanently after
 the first completed order. Checkout sends the persisted order currency to
 Stripe. Percentage coupons accept 0–100 and apply only to the merchandise
-subtotal. Customer limits use each coupon's `usage_per_customer` value; pending
-orders hold coupon capacity until completion or terminal cancellation/expiry.
-A declined payment keeps that claim and its stock hold so the shopper can retry.
+subtotal. Customer limits use each coupon's `usage_per_customer` value. New
+attempts claim no stock/coupon capacity before authorization. The app freezes
+shipping and a Session-backed total for explicit review. After confirmed card
+authorization, D1 claims capacity before capture. Provider uncertainty preserves
+allocated stock. Superseded attempts are fenced and expired/canceled or refunded
+as appropriate; changing details cannot authorize a second fulfillment.
 
 Free orders still require a valid Stripe Checkout Session, destination and rate.
 A completed `no_payment_required` session with a validated zero total needs no
@@ -264,3 +270,48 @@ behavior, cache propagation, sustainable throughput and the production soak
 remain separate release gates. Do not infer production readiness from this
 focused checkpoint. Roll back applied schema changes with a new forward migration
 (0013 or later), never by editing 0012.
+
+## Authorization-first acceptance (pending)
+
+The 0013 authorized checkout, 0014 event-driven operations and 0015 public media
+delivery migrations are prepared only. No remote or local migration application
+is part of this implementation checkpoint. Preserve secrets/media and compare
+complete Wrangler-state hashes before local application in verification.
+
+Release requires exact equality between app review, Session and authorized
+amount/currency, including tax and shipping. Test destinations, address changes,
+discounts and trusted tax-exemption configurations. No browser field grants an
+exemption. Retired open Sessions must expire; requires_capture authorizations
+can be canceled directly; uncertain captures require retrieval/compensation.
+No unresolved capture allocation may be released on a timer.
+
+Recovery target: event-driven immediate processing, a warning after five minutes
+of unresolved authorization, and escalation at the 15-minute safety tick. These
+are alert targets, not evidence of achieved latency or forced terminal outcomes.
+Inspect maintenance_progress/maintenance_backlog and oldest unfinished coverage.
+Abandoned reminders default off; enable only with consent/suppression policy.
+
+Optional public media requires a dedicated PUBLIC_MEDIA bucket/custom domain,
+validated media_public_base_url setting and zone-scoped purge credentials. The
+local MEDIA binding and /media route remain the default. No bucket/domain/token
+was provisioned here. Verify every actual variant deletion and purge remotely
+before claiming CDN removal.
+
+Local application update: the user subsequently authorized0013–0015. All applied
+locally with a stopped-state hash-verified backup; integrity checks passed.
+See REMEDIATION.md for evidence. Remote migration and full lifecycle acceptance
+remain pending.
+
+## 2026-10-23 checkout-hardening checkpoint — verification pending
+
+The approved amendment retains hosted Stripe Checkout. Cart-bound attempt identity,
+pre-finalization full-refund compensation, independent financial recovery families,
+shared provider deadlines, purge-result handling and recoverable public media
+publication are implemented in the working tree. Migration
+`0016_checkout_and_media_recovery.sql` is prepared and **not applied**.
+
+See [CHECKOUT-HARDENING.md](CHECKOUT-HARDENING.md) for the requirement ledger,
+operator workflow, migration/rollback procedure and deferred acceptance cases.
+Historical green results above do not verify these changes. Tests, typechecks,
+builds, drift checks and provider/browser journeys are intentionally deferred until
+the user's review pause. No commits, pushes, deployments or remote changes ran.

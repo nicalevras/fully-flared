@@ -15,7 +15,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
-import { getRequest } from '@tanstack/react-start/server';
+import { getRequest, appendResponseHeader } from '@tanstack/react-start/server';
+import { parseCartCookie, clearCartCookieHeader, cartCountCookieHeader } from '../../server/cart';
 import { successOrderInputSchema, successSearchSchema } from '../../schemas/checkout';
 import { verifyOrderAccessToken } from '../../server/checkout';
 import { getSessionUser } from '../../server/session';
@@ -49,6 +50,18 @@ const getOrder = createServerFn({ method: 'GET' })
       if (!user || row.user_id !== user.id) return null;
     }
     const { user_id: _userId, ...order } = row;
+    const cart = parseCartCookie(getRequest().headers.get('cookie'));
+    if (
+      cart &&
+      (await env.DB.prepare(
+        "SELECT 1 FROM carts c JOIN checkout_intents ci ON ci.cart_id=c.id WHERE ci.order_id=? AND c.id=? AND c.status='converted' AND ci.cart_revision=c.revision AND c.active_checkout_id=ci.id"
+      )
+        .bind(data.orderId, cart.id)
+        .first())
+    ) {
+      appendResponseHeader('Set-Cookie', clearCartCookieHeader);
+      appendResponseHeader('Set-Cookie', cartCountCookieHeader(0));
+    }
     const items = await env.DB.prepare(
       'SELECT sku, title, qty, unit_price_cents FROM order_items WHERE order_id = ?'
     )

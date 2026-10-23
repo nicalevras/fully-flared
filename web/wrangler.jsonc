@@ -21,7 +21,7 @@
       { "name": "CHECKOUT_ADMISSION", "class_name": "CheckoutAdmissionDO" },
     ],
   },
-  "triggers": { "crons": ["*/15 * * * *"] },
+  "triggers": { "crons": ["*/15 * * * *", "7 * * * *", "0 3 * * *"] },
   "observability": {
     "enabled": true,
     // Keep webhook/checkout errors observable; sampling them away hides
@@ -42,6 +42,11 @@
   },
   "send_email": [{ "name": "EMAIL" }],
   "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "store-media" }],
+  // Optional public delivery: add a PUBLIC_MEDIA R2 binding after separately
+  // provisioning a dedicated public bucket/custom domain. Set the nonsecret
+  // media_public_base_url admin setting and MEDIA_ZONE_ID, and install the
+  // MEDIA_PURGE_TOKEN secret with zone cache-purge permission. Leave all three
+  // unset to keep /media delivery. Never reuse the private/local MEDIA bucket.
   "d1_databases": [
     {
       "binding": "DB",

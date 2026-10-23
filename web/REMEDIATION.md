@@ -2078,3 +2078,231 @@ Context7 basis: Cloudflare KV listing cursor/list_complete and deletion
 consistency, plus the existing D1 transactional batch contract. Wrangler remains
 4.151.1. README, LAUNCH, SCALING, DECISIONS and the completion ledger now separate
 implementation, focused local evidence and external release gates.
+
+## Authorization-first checkout: checkpoint A and plan amendments (2026-10-22)
+
+Checkpoint A is implemented, uncommitted, and stops for review. Later checkpoints
+are not implemented. The revised sequence and FF-01–FF-25 ledger are in
+AUTHORIZATION-FIRST.md. Focused checks now run after each checkpoint; the full
+ordinary suite and isolated 100k gate remain final acceptance checks.
+
+- Disputed late-payment recovery now fails retryably instead of acknowledging an
+  unresolved refund. A won dispute transactionally reopens the payment events,
+  including an older processed synthetic event, and wakes recovery.
+- Product renames retire old KV slug pointers and record both invalidations in
+  incremental and full-build publication paths.
+- Deployment validation locates the consumer through its CATALOG_JOBS producer;
+  CI generates Worker types before its first typecheck. The unused unguarded
+  session attachment helper lives only in test fixtures.
+- The previous normal-path replica timestamp-format finding is withdrawn:
+  the actual writer uses matching SQLite timestamps. The faulty audit probe used
+  a different timestamp format.
+
+Verified source before-images: 350 files, SHA-256 compared before editing, under
+`C:/Users/nicka/store-remediation-backups/20261022T223440Z/authorization-first/`.
+NEW-FILES.txt records the new test, helper and ledger. Unfinished payment drafts
+were saved outside the repository and removed from active source before this
+checkpoint stop; no partial payment/schema integration remains.
+
+Actual final A results:
+
+- checkout-hardening + round2-config: **7 passed / 2 files**, 26.93 s, exit 0.
+  Includes full/incremental rename and processed-event recovery regressions.
+  Evidence: checkpoint-a-final-tests.log in the backup directory.
+- Web typecheck: exit 0 (checkpoint-a-final-typecheck.log).
+- Touched-file Prettier check: exit 0. git diff --check: exit 0.
+
+No migration was prepared or applied at checkpoint A. No commits, pushes,
+deployments, remote changes or real provider calls. Full-suite, browser and
+provider results are not claimed for this checkpoint.
+
+## 2026-10-22 — Authorization-first A–E source implementation
+
+Latest direction: finish implementation continuously and run tests next phase.
+Preserved prior work and dependencies. No commit/push/deployment/remote migration,
+resource operation or real provider request. Unrelated new-plan.md is untouched.
+
+Implementation coverage is recorded in AUTHORIZATION-FIRST.md (A–E and FF-01–25).
+New manual-capture attempts prepare app-owned address/review with no unpaid stock
+or coupon holds. Verified authorization precedes fenced all-or-none allocation,
+capture and atomic sale/ledger/receipt/cart finalization. Supersession/deletion
+preserve reconciliation identifiers and durable cancellation/compensation.
+Event-driven catalog wakes, delivery-gated invalidations, separate bounded
+maintenance, optional immutable public media/actual variants and cart hydration
+cleanup are connected. CSRF middleware and hash-preserving old-layout limit
+normalization address the reported integration errors. Runtime acceptance pending.
+
+Source before-images: authorization-first/before (350 files) and
+continued-before (353 files), hash-verified under
+C:/Users/nicka/store-remediation-backups/20261022T223440Z/authorization-first/.
+Manifests, Git revision/status/binary diffs and NEW-FILES.txt accompany them.
+
+Actual source checks: two intermediate compiler runs failed on strict optional
+types/nullability and unused imports; these were corrected. Final web
+npm run typecheck exited0. Touched files were formatted. No unit/scale/browser
+suite or provider check was run for B–E; historical A seven-test pass is A-only.
+
+### Explicitly authorized local migrations
+
+User then requested migration application. check:migrations exited0:
+Migration metadata matches schema; forward repairs contain no table reconstruction.
+Wrangler d1 migrations apply store-db --local --config wrangler.jsonc exited0:
+0013_authorized_checkout.sql (37 commands),0014_event_driven_operations.sql
+(39 commands),0015_public_media_delivery.sql (16 commands) all applied. No
+historical migration edited or financial table reconstructed.
+
+Before application, stopped verified workspace service trees for8799/8800/5173;
+confirmed released ports. Copied entire .wrangler outside the workspace:
+C:/Users/nicka/store-remediation-backups/20261022T223440Z/authorization-first/local-migrations-20261022T234712Z/wrangler
+114 files including18 WAL/SHM, every source/copy SHA-256 matched. Hash manifest,
+stopped-processes.json, migrate-local.log and post-migration-integrity.log are
+in that backup's parent. Media/persistence preserved; no wipe or reseed.
+
+Post-migration local D1: ledger ends0015/0014/0013; foreign_key_check empty;
+quick_check ok; stock_ledger_mismatches0; checkout_session_minutes32;
+abandoned_reminders_enabled0. Integrity command exit0. Restored dev8799,
+preview8800 and dev5173 sequentially in hidden processes; restored-services.json
+and service-health.json record exact results. Preview uses its existing artifact.
+
+Remaining next-phase gates: build/types-generation, fresh/populated paths,
+financial/tax/cancellation races, queue coverage/media behavior, ordinary suite
+once and isolated100k, disposable browser/stub-provider journeys. Deployment-only
+Stripe compatibility, CDN propagation/billing/throughput and soak remain pending.
+These changes do not establish production readiness or proven scale.
+
+## Checkout Session rejection found by manual use — 2026-10-22
+
+The prior completion claim did not establish a functioning provider integration.
+Three failed attempts were inspected using local D1 only: Customer creation
+succeeded, Session creation was rejected, no Session identity was stored, and
+automatic tax was disabled. Original logs omitted the provider's diagnostic
+identifiers. Added allowlisted type/code/parameter/request-ID/status/step logging;
+raw provider messages, credentials, email and addresses are excluded.
+
+The user's retry returned StripeInvalidRequestError, status400,
+param payment_method_types. Installed Stripe23 SessionCreateParams has
+allowed_payment_method_types and no payment_method_types creation property.
+Context7's current Checkout documentation confirms the allowlist field. Replaced
+the unsupported card selection with allowed_payment_method_types:['card'],
+retaining manual capture, fixed address/customer and excluded delayed methods.
+The manual-capture request fragment now satisfies the installed SessionCreateParams
+explicitly; a spread had previously allowed the excess property past typecheck.
+
+Added tests/stripe-checkout-request.test.ts to exercise the actual Stripe adapter
+with a mocked SDK Session create (no network). It asserts the supported card
+allowlist, absence of the removed field, manual capture and app-owned shipping.
+Test execution remains deferred. Web typecheck after this fix exited0. This is
+a source-level correction; a successful real-provider retry is not yet claimed.
+
+Before-images/hashes: C:/Users/nicka/store-remediation-backups/20261023T031955Z/checkout-provider-rejection/
+No migration, commit, deployment, remote operation or provider call by this agent.
+
+## Local pending order and date investigation — 2026-10-22
+
+The latest confirmed attempt was ready/awaiting_authorization with a Stripe
+Session, no stored PaymentIntent/allocation, and no webhook inbox rows. This
+does not prove whether the shopper completed payment at Stripe. The running
+store listener forwarded to /api/stripe/webhook (wrong path), lacked the new
+authorization/capture events and used its account's2019-09-09 default version.
+The actual endpoint is /api/webhooks/stripe. The user explicitly authorized
+correcting test-mode forwarding and the local signing secret.
+
+Read the CLI signing secret using this store's test key without displaying it;
+updated only STRIPE_WEBHOOK_SECRET in gitignored .dev.vars. Vite automatically
+reloaded that file. Automatic approval review rejected the combined stop/replace
+command as blocked by policy, without further reason. Instead, left existing
+listeners untouched and started an independently managed foreground forwarding
+session. The temporary old-version session was stopped through its own tool
+session; the final listener uses --latest and reports2026-09-30.endive, matching
+Stripe23. All13 manifest events forward to localhost8799/api/webhooks/stripe.
+Secrets are redacted from its file log. No charge/capture/refund or remote
+endpoint/resource change was issued by this agent. Old missed events are not
+automatically replayed merely by starting the listener; existing order recovery
+still needs provider confirmation. Do not claim this order paid from local state.
+
+The date value2026-10-23T03:22:52.509Z is October22 at11:22p.m.EDT. Old helpers
+forced UTC without a timezone label. New LocalDate uses React's documented
+useSyncExternalStore server snapshot for hydration, then formats in the viewer's
+browser timezone. Order lists/detail/timeline/returns and account history use it.
+Detailed times label the timezone. Stored timestamps and order numbers are
+unchanged; legacy SQLite timestamps are explicitly parsed as UTC. Added a small
+order-date-display regression; execution deferred. Web typecheck exited0.
+
+Before-images and private local secret backup:
+C:/Users/nicka/store-remediation-backups/20261023T032743Z/checkout-forwarding-and-dates/
+Sanitized listener log and process metadata are there. No migration or Git write.
+Earlier implementation-complete statements remain insufficient to establish
+functional correctness: runtime/payment/browser and the planned test gates remain.
+
+## Customer-preparation uncertainty and local D1 commit-token error
+
+Reported attempt f3edb2d9-7bde-44a6-9681-883efb0856c0 was initially
+reconciliation_required at provider_step customer, without Customer/Session IDs
+or quote/allocation. The original log retained only Error.name, so its exact
+exception cannot be reconstructed. Kept the stable attempt/recovery identity;
+did not reset it, mark it paid manually or issue a provider operation.
+
+Separately, the success-page read reported D1_ERROR: Failed to get session
+commit token. Four Vite/workerd trees were verified against this workspace's
+shared local persistence. Stopped only the three prior Codex-launched trees
+(13196/51364/44972 and their verified workerd children), leaving the user's
+current5174 server PID59432 running. Conflict is a plausible local-runtime
+explanation, not a proven root cause. No state files were deleted or rewritten.
+Retargeted the independently managed authorized Stripe CLI session to
+localhost5174/api/webhooks/stripe; version remains2026-09-30.endive and13 events.
+
+Read-only node:sqlite inspection, avoiding another Miniflare storage owner,
+subsequently confirmed this attempt's order ORD-261023-GHW86Q: status paid,
+payment_status paid, payment_state finalized, failure_code null, captured_at
+2026-10-23T03:38:50.358Z. Corresponding authorization, Session completion and
+payment-success inbox types are processed. Sanitized CLI log confirms200
+acknowledgments. This is one observed test purchase, not full financial coverage.
+No capture/refund or synthetic event was invoked directly by this agent.
+
+A public D1-backed search GET on5174 returned200 with no D1/session-token error
+in its body. Web typecheck exited0. Shared checkoutFailureDetails now records
+step, safe Stripe type/code/parameter/request-ID/status/cause-code plus known
+static D1/deadline/transport classifications, excluding raw messages/PII. Both
+rejected and uncertain paths use it. Added a deferred diagnostic regression;
+no test suite was run. Original uncertainty cause remains unproven.
+Before-images/hashes:
+C:/Users/nicka/store-remediation-backups/20261023T034143Z/checkout-runtime-diagnostics/
+No migration, commit, deployment or remote resource change.
+
+## 2026-10-23 checkout-hardening checkpoint — verification pending
+
+The approved amendment retains hosted Stripe Checkout. Cart-bound attempt identity,
+pre-finalization full-refund compensation, independent financial recovery families,
+shared provider deadlines, purge-result handling and recoverable public media
+publication are implemented in the working tree. Migration
+`0016_checkout_and_media_recovery.sql` is prepared and **not applied**.
+
+See [CHECKOUT-HARDENING.md](CHECKOUT-HARDENING.md) for the requirement ledger,
+operator workflow, migration/rollback procedure and deferred acceptance cases.
+Historical green results above do not verify these changes. Tests, typechecks,
+builds, drift checks and provider/browser journeys are intentionally deferred until
+the user's review pause. No commits, pushes, deployments or remote changes ran.
+
+Implementation-only result (2026-10-23): 35 existing files changed from this
+checkpoint's before-images and 3 new files (checkpoint ledger, migration 0016,
+0016 snapshot). Formatter write exited 0. Source backup recheck: 370/370 stored
+copies match SHA-256.json. HEAD remains
+c01eb2a7bd0d57b2d6291c11698b0ccbc4672b63; staged file list is empty; the complete
+working tree has 100 status entries including earlier work. The isolated migration
+generator first failed on a Windows absolute-output-path bug, then succeeded with
+a relative output path (exit 0). No tests, typecheck/build, migration drift or
+migration execution ran. No provider calls, service restarts, commits, pushes or
+remote operations ran. The implementation pauses here for review before verification.
+
+### 2026-10-23 quote-preview validator correction
+
+The cart-binding change accidentally propagated required cartId/cartRevision into
+checkoutQuoteFn through an omit-based checkout schema. The storefront quote caller
+sends pricing inputs only, so validation rejected it before quoteOrder ran. Added
+an explicit checkoutQuoteSchema selecting email, lines, discountCode, shippingRateId
+and shippingCountry; checkoutQuoteFn now uses it. Checkout preparation and
+confirmation retain their cart ownership/revision checks. The affected schema,
+server function and this document were backed up and hash-verified (3/3) at
+C:\Users\nicka\store-remediation-backups\20261023T043840Z\quote-schema-fix\.
+No tests, provider calls, migrations or remote operations ran. Browser confirmation
+remains pending under the deferred-verification instruction.

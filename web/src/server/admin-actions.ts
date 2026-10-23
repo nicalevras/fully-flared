@@ -1,12 +1,6 @@
 ﻿import { requestRefund } from './refunds';
 import { adjustStock } from './inventory';
-import {
-  VARIANT_WIDTHS,
-  canonicalizeMediaUrls,
-  mediaKeysInContent,
-  mediaRawSpellings,
-  variantKey,
-} from './media';
+import { canonicalizeMediaUrls, mediaKeysInContent, mediaRawSpellings } from './media';
 import { parseCsv } from './csv';
 import { getStripeProvider } from './payments';
 import { getSettings, setSetting } from './settings';
@@ -22,6 +16,7 @@ import type { Auth } from '../lib/auth';
 
 export const CSV_IMPORT_MAX_ROWS = 1000;
 import { AccountDeletionError, deleteAccountAtomically } from './account-deletion';
+import { deleteMediaObjects, publicMediaEnvironment } from './media-delivery';
 import { SHIPPABLE_ORDER_STATUSES, SHIPPABLE_PAYMENT_STATUSES } from '../lib/order-actions';
 
 const now = () => new Date().toISOString();
@@ -125,7 +120,15 @@ function originOf(value: string): string {
  * configured canonical origin plus the origin of the current request. */
 async function acceptedMediaOrigins(db: D1Database, requestOrigin?: string): Promise<string[]> {
   const settings = await getSettings(db);
-  return [...new Set([originOf(settings.canonicalBaseUrl), requestOrigin ?? ''].filter(Boolean))];
+  return [
+    ...new Set(
+      [
+        originOf(settings.canonicalBaseUrl),
+        originOf(settings.mediaPublicBaseUrl),
+        requestOrigin ?? '',
+      ].filter(Boolean)
+    ),
+  ];
 }
 
 type MediaSaveTarget = {
@@ -149,7 +152,7 @@ function mediaSaveGuards(db: D1Database, target: MediaSaveTarget): D1PreparedSta
     statements.push(
       db
         .prepare(
-          `INSERT INTO batch_guard SELECT 1 WHERE EXISTS(SELECT 1 FROM media WHERE deletion_pending = 1 AND r2_key IN (${keys.map(() => '?').join(',')}))`
+          `INSERT INTO batch_guard SELECT 1 WHERE EXISTS(SELECT 1 FROM media WHERE (deletion_pending = 1 OR ready=0) AND r2_key IN (${keys.map(() => '?').join(',')}))`
         )
         .bind(...keys)
     );
@@ -157,7 +160,7 @@ function mediaSaveGuards(db: D1Database, target: MediaSaveTarget): D1PreparedSta
     statements.push(
       db
         .prepare(
-          `INSERT INTO batch_guard SELECT 1 WHERE EXISTS(SELECT 1 FROM media WHERE id = ? AND deletion_pending = 1)
+          `INSERT INTO batch_guard SELECT 1 WHERE EXISTS(SELECT 1 FROM media WHERE id = ? AND (deletion_pending = 1 OR ready=0))
            OR (NOT EXISTS(SELECT 1 FROM media WHERE id = ?) AND COALESCE((SELECT cover_media_id FROM posts WHERE id = ?), '') != ?)`
         )
         .bind(target.coverMediaId, target.coverMediaId, target.rowId, target.coverMediaId)
@@ -223,23 +226,24 @@ async function mediaSaveFailure(
   for (const keys of chunkStrings(target.keys, 50)) {
     const pending = await db
       .prepare(
-        `SELECT r2_key FROM media WHERE deletion_pending = 1 AND r2_key IN (${keys.map(() => '?').join(',')}) LIMIT 1`
+        `SELECT r2_key FROM media WHERE (deletion_pending = 1 OR ready=0) AND r2_key IN (${keys.map(() => '?').join(',')}) LIMIT 1`
       )
       .bind(...keys)
       .first();
     if (pending)
       return {
         ok: false,
-        error: 'One of the images is being deleted; remove it or wait for deletion to finish.',
+        error:
+          'One of the images is incomplete or being deleted. Remove it or finish its upload first.',
         status: 409,
       };
   }
   if (target.coverMediaId) {
     const cover = await db
-      .prepare('SELECT deletion_pending FROM media WHERE id = ?')
+      .prepare('SELECT deletion_pending,ready FROM media WHERE id = ?')
       .bind(target.coverMediaId)
-      .first<{ deletion_pending: number }>();
-    if (cover?.deletion_pending)
+      .first<{ deletion_pending: number; ready: number }>();
+    if (cover && (cover.deletion_pending || !cover.ready))
       return {
         ok: false,
         error: 'One of the images is being deleted; remove it or wait for deletion to finish.',
@@ -737,6 +741,16 @@ export async function runAdminAction(
         return { ok: true, data: { eventId: f.eventId } };
       }
       case 'settings.set': {
+        if (parsedAction.data.key === 'media_public_base_url' && parsedAction.data.value) {
+          const delivery = publicMediaEnvironment(env);
+          if (!delivery.PUBLIC_MEDIA || !delivery.MEDIA_ZONE_ID || !delivery.MEDIA_PURGE_TOKEN)
+            return {
+              ok: false,
+              error:
+                'Configure public media storage and purge credentials before enabling delivery',
+              status: 503,
+            };
+        }
         const f = parsedAction.data;
         const key = f.key;
         if (!settingKeySchema.safeParse(key).success) {
@@ -999,9 +1013,22 @@ export async function runAdminAction(
           // Delete the original and every generated responsive variant;
           // leaving variants behind keeps a "deleted" image publicly
           // served at /media/<key>?w=... (B8).
-          const keys = [...VARIANT_WIDTHS.map((w) => variantKey(media.r2_key, w)), media.r2_key];
-          // Keep the pending record on failure; repeating deletes also removes already-missing keys.
-          for (const key of keys) await env.MEDIA.delete(key);
+          try {
+            await deleteMediaObjects(db, publicMediaEnvironment(env), mediaId, media.r2_key);
+          } catch (error) {
+            console.error(
+              JSON.stringify({
+                event: 'media_delete_incomplete',
+                mediaId,
+                error: error instanceof Error ? error.name : 'unknown',
+              })
+            );
+            return {
+              ok: false,
+              status: 503,
+              error: 'Image deletion is incomplete. Retry deletion to finish removing its files.',
+            };
+          }
         }
         await db
           .prepare('DELETE FROM media WHERE id = ? AND deletion_pending=1')

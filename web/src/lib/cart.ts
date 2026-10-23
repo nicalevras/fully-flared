@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useServerFn } from '@tanstack/react-start';
 import { addCartLineFn, clearCartFn, getCart, setCartLineFn, type CartView } from './cartFns';
 import type { PricedLine, ShippingZoneView } from '../server/cart';
@@ -17,18 +17,23 @@ export function openCart() {
   window.dispatchEvent(new Event('cart-open'));
 }
 
-function dispatchCartChanged(count: number) {
-  window.dispatchEvent(new CustomEvent('cart-changed', { detail: { count } }));
+let recentView: { view: CartView; at: number } | null = null;
+let inFlightView: Promise<CartView> | null = null;
+let mutationRevision = 0;
+function dispatchCartChanged(view: CartView) {
+  mutationRevision++;
+  recentView = { view, at: Date.now() };
+  window.dispatchEvent(new CustomEvent('cart-changed', { detail: { count: view.count, view } }));
 }
 
 export async function addToCart(sku: string, qty: number): Promise<void> {
   const view = await addCartLineFn({ data: { sku, qty } });
-  dispatchCartChanged(view.count);
+  dispatchCartChanged(view);
 }
 
 export async function clearCart(): Promise<void> {
-  await clearCartFn();
-  dispatchCartChanged(0);
+  const view = await clearCartFn();
+  dispatchCartChanged(view);
 }
 
 export function rateCost(r: ZoneRate, subtotal: number, weightGrams = 0) {
@@ -69,19 +74,42 @@ export function useServerCart(initial: CartView) {
   const [view, setView] = useState<CartView>(initial);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  useEffect(() => {
+    const changed = (event: Event) => {
+      const next = (event as CustomEvent<{ view?: CartView }>).detail?.view;
+      if (next) setView(next);
+    };
+    window.addEventListener('cart-changed', changed);
+    return () => window.removeEventListener('cart-changed', changed);
+  }, []);
   const read = useServerFn(getCart),
     write = useServerFn(setCartLineFn);
-  const refresh = useCallback(async () => {
-    try {
-      const next = await read();
-      setView(next);
-      setError('');
-      return next;
-    } catch {
-      setError('Cart could not load. Try again.');
-      return null;
-    }
-  }, [read]);
+  const refresh = useCallback(
+    async (force = false) => {
+      try {
+        const revision = mutationRevision;
+        const next =
+          !force && recentView && Date.now() - recentView.at < 5000
+            ? recentView.view
+            : await (inFlightView ??= read()
+                .then((value) => {
+                  if (revision !== mutationRevision && recentView) return recentView.view;
+                  recentView = { view: value, at: Date.now() };
+                  return value;
+                })
+                .finally(() => {
+                  inFlightView = null;
+                }));
+        setView(next);
+        setError('');
+        return next;
+      } catch {
+        setError('Cart could not load. Try again.');
+        return null;
+      }
+    },
+    [read]
+  );
   const setQty = useCallback(
     async (sku: string, qty: number) => {
       setPending(true);
@@ -89,7 +117,7 @@ export function useServerCart(initial: CartView) {
       try {
         const next = await write({ data: { sku, qty } });
         setView(next);
-        dispatchCartChanged(next.count);
+        dispatchCartChanged(next);
       } catch {
         setError('Cart could not update. Try again.');
       } finally {

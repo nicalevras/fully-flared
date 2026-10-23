@@ -67,22 +67,29 @@ export function cartCountCookieHeader(count: number): string {
   return `${CART_COUNT_COOKIE}=${Math.max(0, Math.floor(count))}; Path=/; SameSite=Lax; Max-Age=${Math.floor(CART_TTL_MS / 1000)}`;
 }
 
-export function cartCountFromCookie(cookieHeader: string | null): number {
-  if (!cookieHeader) return 0;
-  for (const part of cookieHeader.split(';')) {
-    const [name, ...rest] = part.trim().split('=');
-    if (name !== CART_COUNT_COOKIE) continue;
-    const value = Number.parseInt(rest.join('='), 10);
-    return Number.isFinite(value) && value > 0 ? value : 0;
-  }
-  return 0;
-}
+export { cartCountFromCookie } from '../lib/cart-cookie';
 
 async function validCart(db: D1Database, creds: CartCreds): Promise<boolean> {
   const row = await getDb(db).query.carts.findFirst({ where: eq(carts.id, creds.id) });
   if (!row || row.status !== 'open') return false;
   if (new Date(row.expiresAt).getTime() <= Date.now()) return false;
   return row.tokenHash === (await hashToken(creds.token));
+}
+
+/** Public cart identity is safe to expose; the write capability stays HttpOnly. */
+export async function cartIdentity(db: D1Database, creds: CartCreds | null) {
+  if (!creds) return null;
+  const row = await db
+    .prepare('SELECT revision,token_hash,status,expires_at FROM carts WHERE id=?')
+    .bind(creds.id)
+    .first<{ revision: number; token_hash: string; status: string; expires_at: string }>();
+  if (
+    !row ||
+    row.expires_at <= new Date().toISOString() ||
+    row.token_hash !== (await hashToken(creds.token))
+  )
+    return null;
+  return { id: creds.id, revision: row.revision, status: row.status };
 }
 
 export async function getCartLines(db: D1Database, creds: CartCreds | null): Promise<CartLine[]> {

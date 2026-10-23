@@ -81,13 +81,14 @@ const negative = query(
 check('stock never negative / never over-reserved', negative.length === 0);
 
 // 4. Match the configured hold/grace window and preserve existing active holds.
-const storedLimits = query("SELECT key,value FROM settings WHERE key='checkout_hold_minutes'");
-const { checkout_hold_minutes: holdMinutes } = parseLimits(
+const storedLimits = query("SELECT key,value FROM settings WHERE key='checkout_session_minutes'");
+const { checkout_session_minutes: sessionMinutes } = parseLimits(
   Object.fromEntries(storedLimits.map((row) => [row.key, row.value]))
 );
-const staleMinutes = holdMinutes + 8;
+const staleMinutes = sessionMinutes + 18;
 const stuck = query(`
   SELECT number FROM orders WHERE status = 'pending_payment' AND datetime(created_at) < datetime('now', '-${staleMinutes} minutes') AND stripe_payment_intent_id IS NULL
+  AND NOT EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=orders.id AND ci.flow='manual_capture')
   AND NOT EXISTS(SELECT 1 FROM reservations r WHERE r.order_id=orders.id AND r.status='active')`);
 check(
   'no stuck pending_payment orders',

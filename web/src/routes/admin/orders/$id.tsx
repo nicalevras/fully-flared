@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { staffMiddleware } from '../../../server/staff-middleware';
-import { formatDateTime, formatDate } from '../../../lib/format';
+import { LocalDate } from '../../../components/LocalDate';
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import { validateServerInput } from '../../../server/function-boundary';
@@ -283,7 +283,7 @@ function OrderPage() {
         <StatusBadge value={order.payment_status} />
       </div>
       <p className={pageSub}>
-        Placed {formatDateTime(order.created_at)} · {order.customer_email}
+        Placed <LocalDate value={order.created_at} withTime /> · {order.customer_email}
       </p>
 
       <div className="mt-6 grid items-start gap-5 lg:grid-cols-[1fr_340px]">
@@ -371,7 +371,9 @@ function OrderPage() {
                       {label}
                     </span>
                     {at && done ? (
-                      <span className="block text-[13px] text-zinc-500">{formatDateTime(at)}</span>
+                      <span className="block text-[13px] text-zinc-500">
+                        <LocalDate value={at} withTime />
+                      </span>
                     ) : null}
                   </span>
                 </li>
@@ -452,7 +454,9 @@ function OrderPage() {
                         </span>
                       ) : null}
                     </span>
-                    <span className="text-zinc-400">{formatDate(r.created_at)}</span>
+                    <span className="text-zinc-400">
+                      <LocalDate value={r.created_at} />
+                    </span>
                     {r.status === 'refund_failed' ? (
                       <span className="text-red-700">Refund failed — needs attention</span>
                     ) : null}
@@ -614,7 +618,7 @@ function OrderPage() {
                 {order.refunds.map((r) => (
                   <li key={r.id} className="flex justify-between">
                     <span className="text-zinc-500">
-                      {formatDate(r.created_at)} · {r.status.replace(/_/g, ' ')}
+                      <LocalDate value={r.created_at} /> · {r.status.replace(/_/g, ' ')}
                     </span>
                     <span className="font-medium">
                       −{formatMoney(r.amount_cents, order.currency)}

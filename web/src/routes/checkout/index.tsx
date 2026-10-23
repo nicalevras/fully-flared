@@ -3,7 +3,8 @@ import { useStoreCurrency } from '../../lib/use-store-currency';
 import { Link, createFileRoute } from '@tanstack/react-router';
 import { checkoutQuoteFn } from '../../lib/shopFns';
 import { validateServerInput } from '../../server/function-boundary';
-import { CHECKOUT_BUFFER_MINUTES } from '../../schemas/limits';
+import { confirmCheckoutFn } from '../../lib/checkoutFns';
+import type { ReviewQuote } from '../../server/authorized-checkout';
 import { createServerFn, useServerFn } from '@tanstack/react-start';
 import * as z from 'zod';
 import { formatMoney } from '../../components/ProductCard';
@@ -23,8 +24,9 @@ import {
 } from '@/components/ui/select';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { cn } from '@/lib/utils';
-import { rateCost } from '../../lib/cart';
+import { rateCost, useServerCart } from '../../lib/cart';
 import { getCart } from '../../lib/cartFns';
+import { checkoutStorage, resetCheckoutIntent } from '../../lib/checkout-intent';
 import { getRequest } from '@tanstack/react-start/server';
 import { getSessionUser } from '../../server/session';
 import { getSettings } from '../../server/settings';
@@ -50,8 +52,9 @@ export const Route = createFileRoute('/checkout/')({
 });
 
 function CheckoutPage() {
-  const currency = useStoreCurrency();
-  const { turnstileSiteKey, cart, authenticated } = Route.useLoaderData();
+  const storeCurrency = useStoreCurrency();
+  const { turnstileSiteKey, cart: initialCart, authenticated } = Route.useLoaderData();
+  const { view: cart, refresh: refreshCart } = useServerCart(initialCart);
   const lines = cart.lines;
   const zones = cart.zones;
   const loaded = true;
@@ -64,8 +67,42 @@ function CheckoutPage() {
   const [appliedCode, setAppliedCode] = useState('');
   const [discountAmount, setDiscountAmount] = useState(0);
   const [discountMsg, setDiscountMsg] = useState('');
+  const [applyingCode, setApplyingCode] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [address, setAddress] = useState({
+    name: '',
+    line1: '',
+    line2: '',
+    city: '',
+    state: '',
+    postalCode: '',
+    phone: '',
+  });
+  const shippingAddress = useMemo(() => ({ ...address, country }), [address, country]);
+  const [review, setReview] = useState<{
+    intentId: string;
+    quoteHash: string;
+    quote: ReviewQuote;
+  } | null>(null);
+  const [reminderConsent, setReminderConsent] = useState(false);
+  const confirmFn = useServerFn(confirmCheckoutFn);
+  const pendingRequest = useRef<AbortController | null>(null);
+  const detailsRef = useRef('');
+  detailsRef.current = JSON.stringify({
+    cartId: cart.cartId,
+    cartRevision: cart.cartRevision,
+    email,
+    shippingAddress,
+    rateId,
+    appliedCode,
+    lines,
+    reminderConsent,
+  });
+  useEffect(() => () => pendingRequest.current?.abort(), []);
+  useEffect(() => {
+    setReview(null);
+  }, [email, country, rateId, appliedCode, address, lines, reminderConsent]);
 
   const zone = useMemo(() => zones.find((z) => z.countries.includes(country)), [zones, country]);
   const rate = zone?.rates.find((r) => r.id === rateId) ?? zone?.rates[0];
@@ -80,6 +117,7 @@ function CheckoutPage() {
   const localTotal = Math.max(subtotal - discountAmount, 0) + shipping;
   const quoteFn = useServerFn(checkoutQuoteFn);
   const [quote, setQuote] = useState<Awaited<ReturnType<typeof checkoutQuoteFn>> | null>(null);
+  const currency = review?.quote.currency ?? quote?.currency ?? storeCurrency;
   const [quoteNonce, setQuoteNonce] = useState(0);
   const [quoteError, setQuoteError] = useState('');
   const [quoting, setQuoting] = useState(false);
@@ -118,9 +156,10 @@ function CheckoutPage() {
       controller.abort();
     };
   }, [email, country, rate?.id, appliedCode, lines, quoteFn, quoteNonce]);
-  const total = quote?.totalCents ?? localTotal;
+  const total = review?.quote.totalCents ?? quote?.totalCents ?? localTotal;
 
   async function applyCode() {
+    setApplyingCode(true);
     try {
       const { validateDiscountFn } = await import('../../lib/shopFns');
       const data = await validateDiscountFn({ data: { code, subtotalCents: subtotal, email } });
@@ -135,10 +174,15 @@ function CheckoutPage() {
       }
     } catch {
       setDiscountMsg('We could not check that code right now. Your cart is unchanged.');
+    } finally {
+      setApplyingCode(false);
     }
   }
 
   async function pay() {
+    const controller = new AbortController();
+    pendingRequest.current = controller;
+    const submittedDetails = detailsRef.current;
     setBusy(true);
     setError('');
     try {
@@ -150,12 +194,28 @@ function CheckoutPage() {
         getCheckoutIntent,
         resetCheckoutIntent,
       } = await import('../../lib/checkout-intent');
+      const confirmed = quote
+        ? {
+            quoteRevision: quote.configRevision,
+            confirmedQuote: {
+              subtotalCents: quote.subtotalCents,
+              discountCents: quote.discountCents,
+              shippingCents: quote.shippingCents,
+              totalCents: quote.totalCents,
+            },
+          }
+        : {};
       const inputKey = await checkoutInputKey({
+        ...confirmed,
+        cartId: cart.cartId ?? '',
+        cartRevision: cart.cartRevision ?? 0,
         email,
         lines: lines.map((l) => ({ sku: l.sku, qty: l.qty })),
         shippingCountry: country,
         shippingRateId: rate?.id ?? '',
         discountCode: appliedCode || undefined,
+        shippingAddress,
+        reminderConsent,
       });
       const { intentId } = getCheckoutIntent(checkoutStorage(), inputKey);
       // Guest ownership is established before any commerce state: the
@@ -182,20 +242,13 @@ function CheckoutPage() {
       }
       const res = await fetch('/api/checkout', {
         method: 'POST',
+        signal: controller.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           intentId,
-          ...(quote
-            ? {
-                quoteRevision: quote.configRevision,
-                confirmedQuote: {
-                  subtotalCents: quote.subtotalCents,
-                  discountCents: quote.discountCents,
-                  shippingCents: quote.shippingCents,
-                  totalCents: quote.totalCents,
-                },
-              }
-            : {}),
+          cartId: cart.cartId,
+          cartRevision: cart.cartRevision,
+          ...confirmed,
           email,
           lines: lines.map((l) => ({ sku: l.sku, qty: l.qty })),
           // Only the confirmed (applied) code is submitted — never the
@@ -204,6 +257,8 @@ function CheckoutPage() {
           discountCode: appliedCode || undefined,
           shippingRateId: rate?.id,
           shippingCountry: country,
+          shippingAddress,
+          reminderConsent,
           turnstileToken: turnstileToken || undefined,
         }),
       });
@@ -213,7 +268,40 @@ function CheckoutPage() {
         error?: string;
         code?: string;
         orderId?: string;
+        orderUrl?: string;
+        intentId?: string;
+        quoteHash?: string;
+        quote?: ReviewQuote;
       };
+      if (controller.signal.aborted) return;
+      if (submittedDetails !== detailsRef.current) {
+        setError('Checkout details changed. Prepare a fresh review.');
+        return;
+      }
+      if (
+        res.ok &&
+        data.state === 'review_ready' &&
+        data.intentId &&
+        data.quoteHash &&
+        data.quote
+      ) {
+        setReview({ intentId: data.intentId, quoteHash: data.quoteHash, quote: data.quote });
+        return;
+      }
+      if (res.status === 429) {
+        const retryAfter = Number(res.headers.get('Retry-After'));
+        setError(
+          `Checkout is busy. ${retryAfter > 0 ? `Try again in ${retryAfter} seconds.` : 'Please retry shortly.'}`
+        );
+        return;
+      }
+      if (data.code === 'STALE_ATTEMPT') {
+        resetCheckoutIntent(checkoutStorage());
+        setReview(null);
+        await refreshCart(true);
+        setError('Your cart changed. Reload checkout to review the current cart.');
+        return;
+      }
       if (data.code === 'STALE_QUOTE') {
         // Pricing moved since the displayed quote: drop the intent and
         // the stale quote so the page requotes and the shopper reviews
@@ -233,7 +321,7 @@ function CheckoutPage() {
         return;
       }
       if (action.kind === 'paid') {
-        window.location.href = `/checkout/success?order=${action.orderId}`;
+        window.location.href = data.orderUrl ?? `/checkout/success?order=${action.orderId}`;
         return;
       }
       if (action.kind === 'pending') {
@@ -250,6 +338,37 @@ function CheckoutPage() {
       turnstileResetRef.current?.();
     } finally {
       setBusy(false);
+      if (pendingRequest.current === controller) pendingRequest.current = null;
+    }
+  }
+
+  async function confirmAndPay() {
+    if (!review) return;
+    const controller = new AbortController();
+    pendingRequest.current = controller;
+    const submittedDetails = detailsRef.current;
+    setBusy(true);
+    setError('');
+    try {
+      const result = await confirmFn({
+        data: { intentId: review.intentId, quoteHash: review.quoteHash },
+        signal: controller.signal,
+      });
+      if (!result.ok) {
+        resetCheckoutIntent(checkoutStorage());
+        setReview(null);
+        await refreshCart(true);
+        setError(result.error);
+        return;
+      }
+      if (!controller.signal.aborted && submittedDetails === detailsRef.current)
+        window.location.href = result.checkoutUrl;
+    } catch {
+      setError('This checkout changed or could not be confirmed. Review it again.');
+      setReview(null);
+    } finally {
+      setBusy(false);
+      if (pendingRequest.current === controller) pendingRequest.current = null;
     }
   }
 
@@ -274,7 +393,11 @@ function CheckoutPage() {
                 <span className="block text-[13px] text-zinc-400">{l.sku}</span>
               </span>
               <span className="text-sm text-zinc-950">
-                {formatMoney(l.priceCents * l.qty, currency)}
+                {formatMoney(
+                  (quote?.items.find((item) => item.sku === l.sku)?.unitPriceCents ??
+                    l.priceCents) * l.qty,
+                  currency
+                )}
               </span>
             </li>
           );
@@ -288,12 +411,13 @@ function CheckoutPage() {
         <div className="flex gap-2">
           <Input
             id="co-code"
+            disabled={busy}
             placeholder="Discount code"
             value={code}
             onChange={(e) => setCode(e.target.value)}
             className="min-w-0 flex-1"
           />
-          <Button variant="outline" onClick={applyCode} disabled={!code}>
+          <Button variant="outline" onClick={applyCode} disabled={!code || busy || applyingCode}>
             Apply
           </Button>
         </div>
@@ -307,12 +431,20 @@ function CheckoutPage() {
       <dl className="mt-6 space-y-2.5 border-t border-zinc-200 pt-5 text-sm">
         <div className="flex justify-between">
           <dt className="text-zinc-500">Subtotal</dt>
-          <dd className="text-zinc-950">{formatMoney(subtotal, currency)}</dd>
+          <dd className="text-zinc-950">
+            {formatMoney(review?.quote.subtotalCents ?? quote?.subtotalCents ?? subtotal, currency)}
+          </dd>
         </div>
-        {discountAmount > 0 ? (
+        {(review?.quote.discountCents ?? quote?.discountCents ?? discountAmount) > 0 ? (
           <div className="flex justify-between text-green-700">
             <dt>Discount{appliedCode ? ` (${appliedCode})` : ''}</dt>
-            <dd>−{formatMoney(discountAmount, currency)}</dd>
+            <dd>
+              −
+              {formatMoney(
+                review?.quote.discountCents ?? quote?.discountCents ?? discountAmount,
+                currency
+              )}
+            </dd>
           </div>
         ) : null}
         <div className="flex justify-between">
@@ -322,9 +454,12 @@ function CheckoutPage() {
               ? '—'
               : !rate
                 ? 'Unavailable'
-                : (quote?.shippingCents ?? shipping) === 0
+                : (review?.quote.shippingCents ?? quote?.shippingCents ?? shipping) === 0
                   ? 'Free'
-                  : formatMoney(quote?.shippingCents ?? shipping, currency)}
+                  : formatMoney(
+                      review?.quote.shippingCents ?? quote?.shippingCents ?? shipping,
+                      currency
+                    )}
           </dd>
         </div>
         <div className="flex items-baseline justify-between border-t border-zinc-200 pt-3.5">
@@ -332,7 +467,16 @@ function CheckoutPage() {
           <dd className="text-lg font-medium text-zinc-950">{formatMoney(total, currency)}</dd>
         </div>
       </dl>
-      <p className="mt-2 text-[13px] text-zinc-400">Taxes calculated at payment when enabled.</p>
+      {review ? (
+        <p className="mt-2 text-[13px] text-zinc-500">
+          Tax: {formatMoney(review.quote.taxCents, review.quote.currency)}. The reviewed total
+          includes shipping, discounts and tax.
+        </p>
+      ) : (
+        <p className="mt-2 text-[13px] text-zinc-400">
+          Prepare your order to review the final tax and total.
+        </p>
+      )}
     </div>
   );
 
@@ -360,6 +504,7 @@ function CheckoutPage() {
             <Label htmlFor="ck-email">Email</Label>
             <Input
               id="ck-email"
+              disabled={busy}
               type="email"
               autoComplete="email"
               placeholder="Email for your receipt and tracking"
@@ -370,9 +515,44 @@ function CheckoutPage() {
           </div>
 
           <h2 className="mt-10 text-lg font-normal text-zinc-950">Delivery</h2>
+          <label className="mt-3 flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              disabled={busy}
+              checked={reminderConsent}
+              onChange={(e) => setReminderConsent(e.target.checked)}
+            />
+            Email me once if I leave this checkout unfinished. Optional; I can ask the store to
+            suppress reminders.
+          </label>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            {(
+              [
+                ['name', 'Full name', 'name'],
+                ['line1', 'Address', 'address-line1'],
+                ['line2', 'Apartment / suite (optional)', 'address-line2'],
+                ['city', 'City', 'address-level2'],
+                ['state', 'State / region', 'address-level1'],
+                ['postalCode', 'Postal code', 'postal-code'],
+                ['phone', 'Phone (optional)', 'tel'],
+              ] as const
+            ).map(([key, label, complete]) => (
+              <div key={key}>
+                <Label htmlFor={`shipping-${key}`}>{label}</Label>
+                <Input
+                  disabled={busy}
+                  id={`shipping-${key}`}
+                  autoComplete={complete}
+                  value={address[key]}
+                  onChange={(e) => setAddress((old) => ({ ...old, [key]: e.target.value }))}
+                />
+              </div>
+            ))}
+          </div>
           <div className="mt-3.5">
             <Label htmlFor="ck-country">Country</Label>
             <Select
+              disabled={busy}
               value={country}
               onValueChange={(value) => {
                 setCountry(value);
@@ -397,6 +577,7 @@ function CheckoutPage() {
                 Shipping method — {zone.name}
               </legend>
               <ToggleGroup
+                disabled={busy}
                 type="single"
                 variant="outline"
                 value={rate?.id ?? ''}
@@ -438,20 +619,33 @@ function CheckoutPage() {
           ) : (
             <p className="mt-4 text-sm leading-6 text-zinc-500">
               Shipping is unavailable for this destination. Checkout is disabled until a rate is
-              configured. Delivery address is collected securely at payment.
+              configured.
             </p>
           )}
           <p className="mt-3 text-[13px] leading-5 text-zinc-400">
-            Your delivery address is collected on the secure payment step, so this store never
-            stores card or address data it does not need.
+            Review your delivery details here. Payment credentials are collected securely by Stripe.
           </p>
 
           <h2 className="mt-10 text-lg font-normal text-zinc-950">Payment</h2>
+          {review ? (
+            <div className="mt-4 rounded-lg border border-zinc-200 p-4 text-sm" role="status">
+              <strong>Review your order</strong>
+              <p className="mt-2">
+                {address.name} · {address.line1}
+                {address.line2 ? `, ${address.line2}` : ''}, {address.city}, {address.state}{' '}
+                {address.postalCode}, {country}
+              </p>
+              <p>
+                {rate?.name} · Total {formatMoney(review.quote.totalCents, review.quote.currency)},
+                including {formatMoney(review.quote.taxCents, review.quote.currency)} tax.
+              </p>
+              <p className="mt-2">Confirm these details before continuing to Stripe.</p>
+            </div>
+          ) : null}
           <p className="mt-2 text-sm leading-6 text-zinc-500">
-            Payment is collected by Stripe on the next step — card, Apple Pay, and Link where
-            available. Your payment session lasts{' '}
-            {cart.limits.checkout_hold_minutes - CHECKOUT_BUFFER_MINUTES} minutes; stock is held for{' '}
-            {cart.limits.checkout_hold_minutes} minutes.
+            Payment is collected by Stripe on the next step — card, Apple Pay, and Google Pay where
+            available. Your payment session lasts {cart.limits.checkout_session_minutes} minutes.
+            Stock is allocated after payment authorization; opening checkout does not reserve it.
           </p>
           {!loaded ? (
             <p className="mt-4 text-sm text-zinc-500" role="status">
@@ -479,21 +673,28 @@ function CheckoutPage() {
           <Button
             size="lg"
             className="mt-5 h-12 w-full"
-            onClick={pay}
+            onClick={review ? confirmAndPay : pay}
             disabled={
               !email ||
+              !address.name.trim() ||
+              !address.line1.trim() ||
+              !address.city.trim() ||
+              !address.postalCode.trim() ||
               busy ||
+              applyingCode ||
               !loaded ||
               !rate ||
               quoting ||
               !quote ||
               Boolean(quoteError) ||
-              (Boolean(turnstileSiteKey) && !turnstileToken)
+              (Boolean(turnstileSiteKey) && !turnstileToken && !review)
             }
           >
             {busy
-              ? 'Taking you to payment…'
-              : `Continue to payment · ${formatMoney(total, currency)}`}
+              ? review
+                ? 'Opening secure payment…'
+                : 'Preparing final review…'
+              : `${review ? 'Confirm and pay' : 'Review order'} · ${formatMoney(total, currency)}`}
           </Button>
           <p className="mt-3 flex items-center justify-center gap-1.5 text-center text-[13px] text-zinc-400">
             <ShieldIcon className="h-4 w-4" /> Encrypted and secure — powered by Stripe

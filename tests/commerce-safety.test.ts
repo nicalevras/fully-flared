@@ -2,12 +2,12 @@ import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { deliverStripeEvent } from './helpers/webhook';
 import { createTestDb, seedProduct, expectLedgerMatchesCounters } from './helpers/d1';
 import {
-  attachStripeSession,
   cancelOrderById,
   createPendingOrder,
   processInboxEvent,
   calculateShipping,
 } from '../web/src/server/checkout';
+import { attachStripeSession } from './helpers/attach-session';
 import { requestRefund, settleRefund } from '../web/src/server/refunds';
 import { runAdminAction } from '../web/src/server/admin-actions';
 import * as payments from '../web/src/server/payments';

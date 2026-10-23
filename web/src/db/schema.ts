@@ -20,6 +20,30 @@ export const reconciliationCursors = sqliteTable('reconciliation_cursors', {
   updatedAt: text('updated_at').notNull(),
 });
 
+export const maintenanceRuns = sqliteTable(
+  'maintenance_runs',
+  {
+    id: text('id').primaryKey(),
+    task: text('task').notNull(),
+    state: text('state').notNull().default('pending'),
+    cutoff: text('cutoff').notNull(),
+    progressJson: text('progress_json').notNull().default('{}'),
+    nextAt: text('next_at').notNull(),
+    claimToken: text('claim_token'),
+    claimExpiresAt: text('claim_expires_at'),
+    startedAt: text('started_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+    completedAt: text('completed_at'),
+  },
+  (t) => [
+    index('maintenance_due_idx').on(t.state, t.nextAt),
+    index('maintenance_task_idx').on(t.task, t.state),
+    uniqueIndex('maintenance_active_task_unique')
+      .on(t.task)
+      .where(sql`${t.state} IN ('pending','running')`),
+  ]
+);
+
 export const user = sqliteTable(
   'user',
   {
@@ -176,8 +200,53 @@ export const media = sqliteTable('media', {
   contentType: text('content_type').notNull(),
   altText: text('alt_text').notNull().default(''),
   deletionPending: integer('deletion_pending', { mode: 'boolean' }).notNull().default(false),
+  publicUrl: text('public_url'),
+  ready: integer('ready', { mode: 'boolean' }).notNull().default(true),
+  uploadClaimToken: text('upload_claim_token'),
+  uploadClaimUntil: text('upload_claim_until'),
   createdAt: text('created_at').notNull(),
 });
+
+// Destinations are registered before public writes, including incomplete uploads.
+// Tombstones survive media deletion so delayed writers cannot revive publication.
+export const mediaPublications = sqliteTable(
+  'media_publications',
+  {
+    id: text('id').primaryKey(),
+    mediaId: text('media_id').references(() => media.id, { onDelete: 'set null' }),
+    objectKey: text('object_key').notNull(),
+    publicUrl: text('public_url').notNull().unique(),
+    state: text('state', { enum: ['pending', 'ready', 'deleted'] })
+      .notNull()
+      .default('pending'),
+    claimToken: text('claim_token'),
+    claimExpiresAt: text('claim_expires_at'),
+    fencing: integer('fencing').notNull().default(0),
+    lastErrorCode: text('last_error_code'),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [index('media_publication_media_idx').on(t.mediaId, t.state)]
+);
+
+export const mediaVariants = sqliteTable(
+  'media_variants',
+  {
+    mediaId: text('media_id')
+      .notNull()
+      .references(() => media.id, { onDelete: 'cascade' }),
+    width: integer('width').notNull(),
+    r2Key: text('r2_key').notNull().unique(),
+    publicUrl: text('public_url'),
+    contentType: text('content_type').notNull(),
+    bytes: integer('bytes').notNull(),
+    sha256: text('sha256').notNull(),
+    createdAt: text('created_at').notNull(),
+    ready: integer('ready', { mode: 'boolean' }).notNull().default(false),
+    uploadClaimUntil: text('upload_claim_until'),
+    uploadClaimToken: text('upload_claim_token'),
+  },
+  (t) => [primaryKey({ columns: [t.mediaId, t.width] })]
+);
 
 export const productMedia = sqliteTable(
   'product_media',
@@ -254,6 +323,9 @@ export const catalogWork = sqliteTable(
   (t) => [
     uniqueIndex('catalog_work_entity_unique').on(t.entityType, t.entityId),
     index('catalog_work_due_idx').on(t.processedRevision, t.nextAttemptAt),
+    index('catalog_work_pending_idx')
+      .on(t.nextAttemptAt, t.updatedAt)
+      .where(sql`${t.processedRevision}<${t.targetRevision}`),
   ]
 );
 
@@ -427,6 +499,7 @@ export const catalogPublicationState = sqliteTable('catalog_publication_state', 
   leaseToken: text('lease_token'),
   leaseFencing: integer('lease_fencing').notNull().default(0),
   leaseExpiresAt: text('lease_expires_at'),
+  workRevision: integer('work_revision').notNull().default(0),
   updatedAt: text('updated_at').notNull(),
 });
 
@@ -434,20 +507,32 @@ export const catalogPublicationState = sqliteTable('catalog_publication_state', 
 // state in D1 is the authority; KV delivery may lag and is repaired
 // from here. lastWriteAt persists per-key write timing for KV's
 // per-key write-rate limit.
-export const catalogRefState = sqliteTable('catalog_ref_state', {
-  refKey: text('ref_key').primaryKey(),
-  committedSeq: integer('committed_seq').notNull().default(0),
-  deliveredSeq: integer('delivered_seq').notNull().default(0),
-  rootHash: text('root_hash'),
-  lastWriteAt: text('last_write_at'),
-  // Exact pending delivery: the serialized reference awaiting KV
-  // delivery, when to retry it, and the last failure seen. Delivery
-  // confirmation is guarded by committed sequence.
-  pendingPayload: text('pending_payload'),
-  deliveryRetryAt: text('delivery_retry_at'),
-  deliveryFailure: text('delivery_failure'),
-  updatedAt: text('updated_at').notNull(),
-});
+export const catalogRefState = sqliteTable(
+  'catalog_ref_state',
+  {
+    refKey: text('ref_key').primaryKey(),
+    committedSeq: integer('committed_seq').notNull().default(0),
+    deliveredSeq: integer('delivered_seq').notNull().default(0),
+    rootHash: text('root_hash'),
+    lastWriteAt: text('last_write_at'),
+    // Exact pending delivery: the serialized reference awaiting KV
+    // delivery, when to retry it, and the last failure seen. Delivery
+    // confirmation is guarded by committed sequence.
+    pendingPayload: text('pending_payload'),
+    deliveryRetryAt: text('delivery_retry_at'),
+    deliveryFailure: text('delivery_failure'),
+    expectedPayload: text('expected_payload'),
+    verifyAfter: text('verify_after'),
+    verifiedSeq: integer('verified_seq').notNull().default(0),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [
+    index('catalog_reference_verify_idx').on(t.verifyAfter),
+    index('catalog_reference_delivery_idx')
+      .on(t.deliveryRetryAt, t.committedSeq)
+      .where(sql`${t.pendingPayload} IS NOT NULL OR ${t.committedSeq}>${t.deliveredSeq}`),
+  ]
+);
 
 // Immutable directory-tree nodes (fixed fan-out, <=128 entries each),
 // stored in D1 so an exact fallback never depends on KV alone.
@@ -552,6 +637,8 @@ export const catalogInvalidations = sqliteTable(
     id: text('id').primaryKey(),
     scope: text('scope').notNull(),
     scopeId: text('scope_id').notNull(),
+    refKey: text('ref_key'),
+    refSeq: integer('ref_seq'),
     createdAt: text('created_at').notNull(),
   },
   (t) => [index('catalog_invalidations_created_idx').on(t.createdAt)]
@@ -594,6 +681,8 @@ export const carts = sqliteTable(
       .notNull()
       .default('open'),
     customerEmail: text('customer_email'),
+    revision: integer('revision').notNull().default(0),
+    activeCheckoutId: text('active_checkout_id'),
     userId: text('user_id').references(() => user.id),
     discountId: text('discount_id'),
     expiresAt: text('expires_at').notNull(),
@@ -681,6 +770,8 @@ export const orders = sqliteTable(
     checkoutAttemptId: text('checkout_attempt_id').unique(),
     checkoutIntentId: text('checkout_intent_id').unique(),
     abandonedRemindedAt: text('abandoned_reminded_at'),
+    reminderConsent: integer('reminder_consent', { mode: 'boolean' }).notNull().default(false),
+    reminderSuppressedAt: text('reminder_suppressed_at'),
     customerIp: text('customer_ip'),
     transitionId: text('transition_id'),
     shippingCountry: text('shipping_country'),
@@ -691,6 +782,11 @@ export const orders = sqliteTable(
   },
   (t) => [
     index('orders_status_idx').on(t.status, t.createdAt),
+    index('orders_reminder_due_idx')
+      .on(t.id)
+      .where(
+        sql`${t.status}='canceled' AND ${t.paymentStatus}='unpaid' AND ${t.reminderConsent}=1 AND ${t.reminderSuppressedAt} IS NULL AND ${t.abandonedRemindedAt} IS NULL`
+      ),
     index('orders_created_id_idx').on(t.createdAt, t.id),
     index('orders_email_idx').on(t.customerEmail),
     index('orders_payment_intent_idx').on(t.stripePaymentIntentId),
@@ -716,6 +812,30 @@ export const checkoutIntents = sqliteTable(
     userId: text('user_id').references(() => user.id),
     guestCapabilityHash: text('guest_capability_hash'),
     fingerprint: text('fingerprint').notNull(),
+    flow: text('flow', { enum: ['legacy', 'manual_capture'] })
+      .notNull()
+      .default('legacy'),
+    stripeCustomerId: text('stripe_customer_id'),
+    paymentIntentId: text('payment_intent_id'),
+    shippingAddressJson: text('shipping_address_json'),
+    cartId: text('cart_id'),
+    cartRevision: integer('cart_revision'),
+    quoteJson: text('quote_json'),
+    quoteHash: text('quote_hash'),
+    quoteConfirmedAt: text('quote_confirmed_at'),
+    supersededBy: text('superseded_by'),
+    allocationId: text('allocation_id'),
+    paymentState: text('payment_state').notNull().default('awaiting_authorization'),
+    paymentClaimToken: text('payment_claim_token'),
+    paymentClaimExpiresAt: text('payment_claim_expires_at'),
+    paymentFencing: integer('payment_fencing').notNull().default(0),
+    paymentNextAt: text('payment_next_at'),
+    paymentAttemptedAt: text('payment_attempted_at'),
+    authorizedAt: text('authorized_at'),
+    authorizationDeadlineAt: text('authorization_deadline_at'),
+    capturedAt: text('captured_at'),
+    cancellationAttemptedAt: text('cancellation_attempted_at'),
+    cancelRequested: integer('cancel_requested', { mode: 'boolean' }).notNull().default(false),
     state: text('state', {
       enum: [
         'reserved',
@@ -743,13 +863,21 @@ export const checkoutIntents = sqliteTable(
     nextReconcileAt: text('next_reconcile_at'),
     failureCode: text('failure_code'),
     firstProviderAttemptAt: text('first_provider_attempt_at'),
-    providerStep: text('provider_step', { enum: ['coupon', 'session'] }),
+    providerStep: text('provider_step', { enum: ['customer', 'coupon', 'session'] }),
     creationStoppedAt: text('creation_stopped_at'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },
   (t) => [
     index('checkout_intents_owner_idx').on(t.userId, t.guestCapabilityHash),
+    index('checkout_intents_payment_due_idx').on(t.flow, t.paymentNextAt),
+    index('checkout_authorization_age_idx')
+      .on(t.authorizedAt)
+      .where(
+        sql`${t.flow}='manual_capture' AND ${t.paymentState} NOT IN ('finalized','canceled') AND ${t.authorizedAt} IS NOT NULL`
+      ),
+    index('checkout_intents_payment_intent_idx').on(t.paymentIntentId),
+    index('checkout_intents_cart_idx').on(t.cartId, t.createdAt),
     index('checkout_intents_recovery_idx').on(t.state, t.nextReconcileAt),
     index('checkout_intents_session_idx').on(t.stripeSessionId),
     index('checkout_intents_retention_idx').on(t.state, t.createdAt, t.id),

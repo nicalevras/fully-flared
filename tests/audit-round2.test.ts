@@ -4,10 +4,10 @@ import { createTestDb, seedProduct, expectLedgerMatchesCounters } from './helper
 import {
   quoteOrder,
   createPendingOrder,
-  attachStripeSession,
   cancelOrderById,
   calculateDiscount,
 } from '../web/src/server/checkout';
+import { attachStripeSession } from './helpers/attach-session';
 import { requestRefund, settleRefund } from '../web/src/server/refunds';
 import { runAdminAction } from '../web/src/server/admin-actions';
 import { adminActionSchema } from '../web/src/schemas/admin';

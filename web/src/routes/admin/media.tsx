@@ -2,7 +2,10 @@ import { useState } from 'react';
 import { staffMiddleware } from '../../server/staff-middleware';
 import { formatDate } from '../../lib/format';
 import { createFileRoute, useRouter } from '@tanstack/react-router';
-import { createServerFn } from '@tanstack/react-start';
+import { createServerFn, useServerFn } from '@tanstack/react-start';
+import * as z from 'zod';
+import { validateServerInput } from '../../server/function-boundary';
+import { requireStaffPermission } from '../../server/session';
 import { getRequest } from '@tanstack/react-start/server';
 import { mediaKeysInContent } from '../../server/media';
 import { getSettings } from '../../server/settings';
@@ -26,6 +29,7 @@ type MediaRow = {
   created_at: string;
   used_count: number;
   deletion_pending: number;
+  ready: number;
 };
 
 const getData = createServerFn({ method: 'GET' })
@@ -33,7 +37,7 @@ const getData = createServerFn({ method: 'GET' })
   .handler(async () => {
     const { env } = await import('cloudflare:workers');
     const rows = await env.DB.prepare(
-      `SELECT m.id, m.r2_key, m.filename, m.content_type, m.alt_text, m.created_at, m.deletion_pending,
+      `SELECT m.id, m.r2_key, m.filename, m.content_type, m.alt_text, m.created_at, m.deletion_pending,m.ready,
             (SELECT COUNT(*) FROM product_media pm WHERE pm.media_id = m.id)
             + (SELECT COUNT(*) FROM posts p WHERE p.cover_media_id = m.id) AS used_count
      FROM media m ORDER BY m.created_at DESC LIMIT 200`
@@ -53,7 +57,9 @@ const getData = createServerFn({ method: 'GET' })
     } catch {
       canonicalOrigin = '';
     }
-    const origins = [...new Set([canonicalOrigin, requestOrigin].filter(Boolean))];
+    const origins = [
+      ...new Set([canonicalOrigin, requestOrigin, settings.mediaPublicBaseUrl].filter(Boolean)),
+    ];
     const contentCounts = new Map<string, number>();
     const addContent = (html: string | null, json?: string | null) => {
       const keys = new Set([
@@ -84,8 +90,29 @@ export const Route = createFileRoute('/admin/media')({
   component: AdminMedia,
 });
 
+const publishExistingFn = createServerFn({ method: 'POST' })
+  .middleware([staffMiddleware])
+  .validator(validateServerInput(z.object({})))
+  .handler(async ({ context }) => {
+    const { env } = await import('cloudflare:workers');
+    requireStaffPermission(context.staff, 'media', 'upload');
+    const settings = await getSettings(env.DB);
+    if (
+      !settings.mediaPublicBaseUrl ||
+      !env.PUBLIC_MEDIA ||
+      !env.MEDIA_ZONE_ID ||
+      !env.MEDIA_PURGE_TOKEN
+    )
+      throw Error('Configure public media storage, delivery URL and purge credentials first.');
+    const { startMaintenance } = await import('../../server/maintenance');
+    if (!(await startMaintenance(env, 'media-publication', crypto.randomUUID())))
+      throw Error('Media publication is durable but could not be queued. Retry to resume it.');
+    return { ok: true };
+  });
+
 function AdminMedia() {
   const adminAction = useAdminAction();
+  const publishExisting = useServerFn(publishExistingFn);
 
   const { media, total } = Route.useLoaderData();
   const router = useRouter();
@@ -93,6 +120,7 @@ function AdminMedia() {
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [publishing, setPublishing] = useState(false);
 
   async function run(action: string, payload: AdminPayload, ok: string) {
     setBusy(true);
@@ -106,6 +134,28 @@ function AdminMedia() {
 
   return (
     <main>
+      <button
+        type="button"
+        className={btnSmall}
+        disabled={publishing}
+        onClick={async () => {
+          if (!window.confirm('Publish existing images to the configured public media storage?'))
+            return;
+          setPublishing(true);
+          try {
+            await publishExisting({ data: {} });
+            setMsg(
+              'Public media publication queued. Use this action again to resume an unfinished run.'
+            );
+          } catch {
+            setMsg('Public media publication could not start. Check configuration and retry.');
+          } finally {
+            setPublishing(false);
+          }
+        }}
+      >
+        {publishing ? 'Queueing publication…' : 'Publish existing media'}
+      </button>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className={pageTitle}>Media</h1>
@@ -153,6 +203,10 @@ function AdminMedia() {
               {m.deletion_pending ? (
                 <p className="p-5 text-sm text-zinc-500">
                   Deletion pending. Retry to remove the remaining files.
+                </p>
+              ) : !m.ready ? (
+                <p className="p-5 text-sm text-zinc-500">
+                  Upload incomplete. Remove this record and upload the image again.
                 </p>
               ) : (
                 <img

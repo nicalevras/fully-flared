@@ -1,6 +1,8 @@
 import { loadDirectoryNode, resolveDirectoryRevision } from './catalog-read';
 import { runCatalogGcUnit, type ReclaimKv } from './catalog-gc';
 import { repairCatalogUnit } from './catalog-repair';
+import { verifyChangedReferences } from './catalog-operations';
+import { publishedMediaContent } from './media-delivery';
 import { listPublishedProductsByIds, parseRule } from './catalog';
 import {
   BudgetExhausted,
@@ -48,10 +50,16 @@ import {
 // and listing generations produce no writes, so a re-run is a no-op.
 
 const now = () => new Date().toISOString();
-const POST_METADATA_FIELDS = `(SELECT r2_key FROM media WHERE id=source.cover_media_id) AS cover_key,
+const POST_METADATA_FIELDS = `(SELECT r2_key FROM media WHERE id=source.cover_media_id AND ready=1 AND deletion_pending=0) AS cover_key,
+ (SELECT public_url FROM media WHERE id=source.cover_media_id AND ready=1 AND deletion_pending=0) AS cover_public_url,
  (SELECT name FROM user WHERE id=source.author_id) AS author_name,
  (SELECT GROUP_CONCAT(name, ', ') FROM (SELECT t.name FROM post_tags pt JOIN tags t ON t.id=pt.tag_id WHERE pt.post_id=source.id ORDER BY t.name,t.id)) AS tags`;
-type PostMetadata = { cover_key: string | null; author_name: string | null; tags: string | null };
+type PostMetadata = {
+  cover_key: string | null;
+  cover_public_url: string | null;
+  author_name: string | null;
+  tags: string | null;
+};
 // Leave two bind slots for listing/generation predicates.
 const CHUNK = 88;
 
@@ -103,10 +111,11 @@ async function recordInvalidations(
   for (let i = 0; i < rows.length; i += 500) {
     await db
       .prepare(
-        `INSERT INTO catalog_invalidations (id, scope, scope_id, created_at)
-         SELECT lower(hex(randomblob(16))), json_extract(value, '$.scope'), json_extract(value, '$.scopeId'), ? FROM json_each(?)`
+        `WITH entries AS(SELECT json_extract(value,'$.scope') AS scope,json_extract(value,'$.scopeId') AS scope_id FROM json_each(?)), refs AS(SELECT *,CASE WHEN scope='layout' THEN 'layout' WHEN scope='listing' THEN 'listing:'||COALESCE((SELECT id FROM collections WHERE slug=scope_id),scope_id) ELSE NULL END AS ref FROM entries)
+         INSERT INTO catalog_invalidations (id, scope, scope_id, created_at,ref_key,ref_seq)
+         SELECT lower(hex(randomblob(16))),scope,scope_id,?,(SELECT ref_key FROM catalog_ref_state WHERE ref_key=ref),(SELECT committed_seq FROM catalog_ref_state WHERE ref_key=ref) FROM refs`
       )
-      .bind(at, JSON.stringify(rows.slice(i, i + 500)))
+      .bind(JSON.stringify(rows.slice(i, i + 500)), at)
       .run();
   }
 }
@@ -269,10 +278,12 @@ export async function mirrorDocument(
   revision: string,
   payloadJson: string
 ): Promise<void> {
+  if (new TextEncoder().encode(payloadJson).byteLength > 1_500_000)
+    throw new Error('Catalog document exceeds artifact byte budget');
   await db
     .prepare(
       `INSERT INTO catalog_documents (key, kind, revision, payload_json, updated_at) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(key) DO UPDATE SET revision = excluded.revision, payload_json = excluded.payload_json, updated_at = excluded.updated_at`
+       ON CONFLICT(key) DO UPDATE SET revision = excluded.revision, payload_json = excluded.payload_json, updated_at = excluded.updated_at WHERE catalog_documents.revision!=excluded.revision OR catalog_documents.payload_json!=excluded.payload_json`
     )
     .bind(key, kind, revision, payloadJson, now())
     .run();
@@ -286,6 +297,8 @@ async function publishDocument(
   base: string,
   value: string
 ): Promise<void> {
+  if (new TextEncoder().encode(value).byteLength > 1_500_000)
+    throw new Error('Catalog artifact exceeds byte budget');
   const revision = contentRevision(value),
     key = immutableDocumentKey(base, revision);
   if (!kv || (await kv.get(key)) !== value) await put(key, value);
@@ -568,11 +581,6 @@ async function processPublishedIndex(
       db
         .prepare('UPDATE catalog_build_listings SET changed=2 WHERE build_id=? AND listing_id=?')
         .bind(buildId, listingId),
-      db
-        .prepare(
-          "INSERT OR IGNORE INTO catalog_invalidations(id,scope,scope_id,created_at) VALUES(?,'layout','layout',?)"
-        )
-        .bind(`index:${buildId}:${state.generation}`, now()),
     ]
   );
   return true;
@@ -1296,6 +1304,7 @@ export async function processCatalogBuild(
           return { done: false, buildId: build!.id, phase, opsUsed: ops };
         }
         const docMirrors: { key: string; revision: string; payload: string }[] = [];
+        const renamedScopes: { scope: string; scopeId: string }[] = [];
         await captureBuildWork(db, build.id, 'product', ids);
         await captureBuildWork(db, build.id, 'media', ids, true);
         const cardRows = await listPublishedProductsByIds(db, ids);
@@ -1305,16 +1314,16 @@ export async function processCatalogBuild(
         tick(Math.ceil(ids.length / 90) * 3);
         const existingById = new Map<
           string,
-          { product_id: string; revision: string; doc_revision: string }
+          { product_id: string; slug: string; revision: string; doc_revision: string }
         >();
         for (let i = 0; i < ids.length; i += CHUNK) {
           const chunk = ids.slice(i, i + CHUNK);
           const existing = await db
             .prepare(
-              `SELECT product_id, revision, doc_revision FROM catalog_cards WHERE product_id IN (${placeholders(chunk.length)})`
+              `SELECT product_id, slug, revision, doc_revision FROM catalog_cards WHERE product_id IN (${placeholders(chunk.length)})`
             )
             .bind(...chunk)
-            .all<{ product_id: string; revision: string; doc_revision: string }>();
+            .all<{ product_id: string; slug: string; revision: string; doc_revision: string }>();
           tick();
           for (const r of existing.results) existingById.set(r.product_id, r);
         }
@@ -1340,6 +1349,13 @@ export async function processCatalogBuild(
             (!doc || prev?.doc_revision === doc.revision)
           )
             continue;
+          if (prev && prev.slug !== card.slug) {
+            if (kv?.delete) await kv.delete(productSlugKey(prev.slug));
+            renamedScopes.push(
+              { scope: 'product', scopeId: prev.slug },
+              { scope: 'product', scopeId: card.slug }
+            );
+          }
           // Write-then-advance: KV document + slug pointer land
           // before the D1 revision columns move. Repair re-puts even
           // when D1 revisions already match (KV may have lost them).
@@ -1364,6 +1380,7 @@ export async function processCatalogBuild(
               docRevision: doc?.revision ?? '',
             });
         }
+        await recordInvalidations(db, renamedScopes);
         // D1 document mirrors (bulk, one statement per chunk).
         for (let i = 0; i < docMirrors.length; i += 60) {
           const slice = docMirrors.slice(i, i + 60);
@@ -1834,11 +1851,12 @@ export async function processCatalogBuild(
                       slug: row.slug,
                       title: row.title,
                       excerpt: row.excerpt ?? '',
-                      contentHtml: row.content_html,
+                      contentHtml: await publishedMediaContent(db, String(row.content_html ?? '')),
                       seoTitle: row.seo_title,
                       seoDescription: row.seo_description,
                       publishedAt: row.published_at ?? null,
                       coverKey: row.cover_key ?? null,
+                      coverPublicUrl: row.cover_public_url ?? null,
                       tags: row.tags ?? null,
                       authorName: row.author_name ?? null,
                     }
@@ -1993,8 +2011,13 @@ export async function processCatalogBuild(
 export async function runCatalogUnit(
   db: D1Database,
   kv?: KvLike,
-  opts?: { budget?: CatalogBudget; nowMs?: number }
-): Promise<{ done: boolean; busy: boolean; budgetExhausted?: boolean }> {
+  opts?: { budget?: CatalogBudget; nowMs?: number; maintenance?: 'replica' | 'gc' }
+): Promise<{
+  done: boolean;
+  busy: boolean;
+  budgetExhausted?: boolean;
+  retryAfterSeconds?: number;
+}> {
   const budget = opts?.budget ?? new CatalogBudget();
   const metered = countedDb(db, budget);
   let cdb = metered;
@@ -2096,19 +2119,30 @@ export async function runCatalogUnit(
       )
       .bind(now())
       .first();
-    if (!openAfter && budget.remainingStatements >= 20) {
+    if (!openAfter && opts?.maintenance === 'gc' && budget.remainingStatements >= 20) {
       // GC guards its own batches; use the metered DB so result offsets and
       // the shared statement budget include exactly those guards.
       const gc = await runCatalogGcUnit(metered, kv, lease);
       if (gc !== null) return { done: false, busy: false };
     }
     if (!openAfter && kv && budget.remainingStatements >= 20) {
-      const recent = await cdb
+      if (opts?.maintenance === 'replica')
+        return { done: await repairCatalogUnit(cdb, kv, lease), busy: false };
+      await verifyChangedReferences(cdb, kv);
+      const waiting = await cdb
         .prepare(
-          "SELECT 1 FROM catalog_builds WHERE id='catalog-replica-verification' AND state='done' AND updated_at>datetime('now','-15 minutes')"
+          'SELECT MIN(verify_after) AS due FROM catalog_ref_state WHERE verify_after IS NOT NULL'
         )
-        .first();
-      if (!recent) return { done: await repairCatalogUnit(cdb, kv, lease), busy: false };
+        .first<{ due: string | null }>();
+      if (waiting?.due)
+        return {
+          done: false,
+          busy: false,
+          retryAfterSeconds: Math.max(
+            1,
+            Math.min(60, Math.ceil((Date.parse(waiting.due) - Date.now()) / 1000))
+          ),
+        };
     }
     return { done: !openAfter, busy: false };
   } catch (error) {
@@ -2229,17 +2263,29 @@ async function buildProductDocuments(
       if (budget && budget.rows >= 5000) throw new BudgetExhausted('rows');
       const media = await db
         .prepare(
-          `SELECT pm.product_id AS product_id, m.r2_key, m.alt_text,COUNT(*) OVER() AS catalog_total FROM product_media pm JOIN media m ON m.id = pm.media_id WHERE pm.product_id IN (${ph}) ORDER BY pm.product_id ASC, pm.position ASC LIMIT ${Math.max(1, Math.min(3500, 5000 - (budget?.rows ?? 0)))}`
+          `SELECT pm.product_id AS product_id, m.r2_key, m.alt_text,m.public_url,(SELECT json_group_array(json_object('width',v.width,'url',COALESCE(v.public_url,'/media/'||m.r2_key||'?w='||v.width))) FROM media_variants v WHERE v.media_id=m.id AND v.ready=1 ORDER BY v.width) AS variants_json,COUNT(*) OVER() AS catalog_total FROM product_media pm JOIN media m ON m.id = pm.media_id WHERE m.ready=1 AND m.deletion_pending=0 AND pm.product_id IN (${ph}) ORDER BY pm.product_id ASC, pm.position ASC LIMIT ${Math.max(1, Math.min(3500, 5000 - (budget?.rows ?? 0)))}`
         )
         .bind(...chunk)
-        .all<{ product_id: string; r2_key: string; alt_text: string; catalog_total: number }>();
+        .all<{
+          product_id: string;
+          r2_key: string;
+          alt_text: string;
+          public_url: string | null;
+          variants_json: string | null;
+          catalog_total: number;
+        }>();
       if ((media.results[0]?.catalog_total ?? 0) > media.results.length)
         throw new Error('Product media exceed publication unit capacity');
       for (const m of media.results)
         (
           imagesByProduct.get(m.product_id) ??
           imagesByProduct.set(m.product_id, []).get(m.product_id)!
-        ).push({ key: m.r2_key, alt: m.alt_text });
+        ).push({
+          key: m.r2_key,
+          alt: m.alt_text,
+          publicUrl: m.public_url,
+          variants: JSON.parse(m.variants_json ?? '[]'),
+        });
     }
     for (const id of orderedIds) {
       const p = productById.get(id);
@@ -2644,7 +2690,7 @@ export async function promoteScheduledPosts(db: D1Database): Promise<void> {
   const at = now();
   await db
     .prepare(
-      "UPDATE posts SET status='published', updated_at=? WHERE status='scheduled' AND published_at IS NOT NULL AND published_at<=?"
+      "UPDATE posts SET status='published', updated_at=? WHERE id IN(SELECT id FROM posts WHERE status='scheduled' AND published_at IS NOT NULL AND published_at<=? ORDER BY published_at,id LIMIT 50)"
     )
     .bind(at, at)
     .run();
@@ -3173,16 +3219,16 @@ export async function processCatalogWork(
       const productIdList = [...productIds];
       const existingById = new Map<
         string,
-        { product_id: string; revision: string; doc_revision: string }
+        { product_id: string; slug: string; revision: string; doc_revision: string }
       >();
       for (let i = 0; i < productIdList.length; i += CHUNK) {
         const chunk = productIdList.slice(i, i + CHUNK);
         const existing = await db
           .prepare(
-            `SELECT product_id, revision, doc_revision FROM catalog_cards WHERE product_id IN (${placeholders(chunk.length)})`
+            `SELECT product_id, slug, revision, doc_revision FROM catalog_cards WHERE product_id IN (${placeholders(chunk.length)})`
           )
           .bind(...chunk)
-          .all<{ product_id: string; revision: string; doc_revision: string }>();
+          .all<{ product_id: string; slug: string; revision: string; doc_revision: string }>();
         for (const r of existing.results) existingById.set(r.product_id, r);
       }
       const at = now();
@@ -3202,6 +3248,10 @@ export async function processCatalogWork(
             productsPublished++;
           }
           continue;
+        }
+        if (prev && prev.slug !== card.slug) {
+          if (kv?.delete) await kv.delete(productSlugKey(prev.slug));
+          invalidations.push({ scope: 'product', scopeId: prev.slug });
         }
         const doc = docs.get(pid);
         const cardJson = JSON.stringify(card);
@@ -3426,11 +3476,12 @@ export async function processCatalogWork(
           slug: row.slug,
           title: row.title,
           excerpt: post?.excerpt ?? '',
-          contentHtml: row.content_html,
+          contentHtml: await publishedMediaContent(db, row.content_html),
           seoTitle: row.seo_title,
           seoDescription: row.seo_description,
           publishedAt: post?.published_at ?? null,
           coverKey: post?.cover_key ?? null,
+          coverPublicUrl: post?.cover_public_url ?? null,
           tags: post?.tags ?? null,
           authorName: post?.author_name ?? null,
         });
@@ -3440,7 +3491,11 @@ export async function processCatalogWork(
           revision: contentRevision(docValue),
         });
         const existingDoc = kv ? await kv.get(docKey) : null;
-        if (existingDoc !== pointer) {
+        const durablePointer = await db
+          .prepare('SELECT payload_json FROM catalog_documents WHERE key=?')
+          .bind(docKey)
+          .first<{ payload_json: string }>();
+        if (existingDoc !== pointer || durablePointer?.payload_json !== pointer) {
           invalidations.push({ scope: 'editorial', scopeId: row.slug });
           if (kind === 'post') invalidations.push({ scope: 'editorial', scopeId: 'index' });
           await publishDocument(db, kv, put, 'editorial', docKey, docValue);

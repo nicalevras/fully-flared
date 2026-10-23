@@ -10,11 +10,17 @@ const ID_KEY = 'checkout-intent-id';
 const INPUT_KEY = 'checkout-intent-input';
 
 export async function checkoutInputKey(input: {
+  cartId: string;
+  cartRevision: number;
+  quoteRevision?: number | undefined;
+  confirmedQuote?: import('../schemas/checkout').CheckoutBody['confirmedQuote'];
   email: string;
   lines: { sku: string; qty: number }[];
   shippingCountry: string;
   shippingRateId: string;
   discountCode?: string | undefined;
+  shippingAddress?: import('../schemas/checkout').ShippingAddress;
+  reminderConsent?: boolean;
 }): Promise<string> {
   const merged = new Map<string, number>();
   for (const l of input.lines) merged.set(l.sku, (merged.get(l.sku) ?? 0) + l.qty);
@@ -22,11 +28,17 @@ export async function checkoutInputKey(input: {
   // shopper's email, which does not belong in browser storage.
   return sha256Hex(
     JSON.stringify({
+      cartId: input.cartId,
+      cartRevision: input.cartRevision,
+      quoteRevision: input.quoteRevision,
+      quote: input.confirmedQuote,
       email: input.email.trim().toLowerCase(),
       lines: [...merged.entries()].sort(([a], [b]) => (a < b ? -1 : 1)),
       country: input.shippingCountry,
       rate: input.shippingRateId,
       coupon: (input.discountCode ?? '').trim().toUpperCase(),
+      address: input.shippingAddress,
+      reminderConsent: input.reminderConsent ?? false,
     })
   );
 }
