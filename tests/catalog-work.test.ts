@@ -6,7 +6,7 @@ import {
   processCatalogWork,
 } from '../web/src/server/catalog-publisher';
 import { readListingPage, resolveDirectoryRevision } from '../web/src/server/catalog-read';
-import { getHomeProductsPage, getStorefrontLayout } from '../web/src/server/catalog-read';
+import { getShopProductsPage, getStorefrontLayout } from '../web/src/server/catalog-read';
 import { getPublishedCollection, searchCatalog } from '../web/src/server/catalog-discovery';
 import { ALL_LISTING } from '../web/src/server/catalog-models';
 
@@ -102,15 +102,15 @@ it('a title edit patches only its containing pages inside the same generation', 
   expect(kv.map.size).toBeLessThanOrEqual(keysBefore + 3);
 });
 
-it('a new product advances the listing generation and appears on the home page', async () => {
+it('a new product advances the listing generation and appears on /shop', async () => {
   await product('p4', 'delta', 'Delta', '2026-01-04T00:00:00.000Z');
   await processCatalogWork(db, kv);
   const page = await readListingPage(db, kv, ALL_LISTING, 1);
   expect(page?.generation).toBe(2);
   expect(page?.total).toBe(4);
-  const home = await getHomeProductsPage(db, env() as never, 1);
-  expect(home.featured?.id).toBe('p4');
-  expect(home.total).toBe(4);
+  const shop = await getShopProductsPage(db, env() as never, 1);
+  expect(shop.products[0]?.id).toBe('p4');
+  expect(shop.total).toBe(4);
 });
 
 it('a price edit re-evaluates rule collection membership', async () => {

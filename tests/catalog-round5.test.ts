@@ -1,7 +1,7 @@
 import { beforeEach, afterEach, expect, it } from 'vitest';
 import { createTestDb } from './helpers/d1';
 import { readListingPage, readProductDocument } from '../web/src/server/catalog-read';
-import { getHomeProductsPage, listAllCollections } from '../web/src/server/catalog-read';
+import { getShopProductsPage, listAllCollections } from '../web/src/server/catalog-read';
 import { getPublishedCollection } from '../web/src/server/catalog-discovery';
 import { ALL_LISTING } from '../web/src/server/catalog-models';
 import { runWithRequestContext } from '../web/src/server/exec-context';
@@ -65,7 +65,7 @@ afterEach(async () => {
   await dispose();
 });
 
-it('a response pins one publication for count, featured and page', async () => {
+it('a response pins one publication for count and page', async () => {
   let refReads = 0;
   const flipping = {
     map: kv.map,
@@ -89,11 +89,10 @@ it('a response pins one publication for count, featured and page', async () => {
       kv.map.set(key, value);
     },
   };
-  const result = await getHomeProductsPage(db, { CATALOG_KV: flipping as never, DB: db }, 2);
+  const result = await getShopProductsPage(db, { CATALOG_KV: flipping as never, DB: db }, 2);
   expect(result.total).toBe(30);
   expect(result.pageCount).toBe(2);
   expect(result.products).toHaveLength(6);
-  expect(result.featured?.id).toBeTruthy();
 });
 
 it('single-product fallback reads its published document, never live source', async () => {

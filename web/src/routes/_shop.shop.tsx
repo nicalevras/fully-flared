@@ -1,7 +1,7 @@
 import { useAvailability } from '../lib/availability';
 import { Link, createFileRoute, stripSearchParams } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
-import { getHomeProductsPage, getStorefrontLayout } from '../server/catalog-read';
+import { getShopProductsPage, getStorefrontLayout } from '../server/catalog-read';
 import { requestCanonicalBase } from '../server/canonical-base';
 import { validateServerInput } from '../server/function-boundary';
 import { collectionSearchSchema, homePageInputSchema } from '../schemas/checkout';
@@ -17,7 +17,7 @@ const getShop = createServerFn({ method: 'GET' })
   .handler(async ({ data }) => {
     const { env } = await import('cloudflare:workers');
     const [catalog, layout] = await Promise.all([
-      getHomeProductsPage(env.DB, env, data.page),
+      getShopProductsPage(env.DB, env, data.page),
       getStorefrontLayout(env.DB, env),
     ]);
     return {
@@ -77,10 +77,10 @@ function ShopPage() {
         <UiCard className="mt-8 border-dashed px-6 py-16 text-center" role="status">
           <p className="font-medium text-zinc-950">No products are live yet</p>
           <p className="mx-auto mt-1 max-w-sm text-sm text-zinc-500">
-            Add the first product from the store admin and it will appear here instantly.
+            New products are on the way. Browse the collections in the meantime.
           </p>
-          <Link to="/admin/products" className={cn(buttonVariants({ size: 'lg' }), 'mt-5')}>
-            Add a product
+          <Link to="/collections" className={cn(buttonVariants({ size: 'lg' }), 'mt-5')}>
+            Browse collections
           </Link>
         </UiCard>
       ) : (

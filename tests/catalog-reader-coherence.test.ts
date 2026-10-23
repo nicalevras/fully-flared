@@ -16,7 +16,7 @@ import {
 } from '../web/src/server/catalog-models';
 import {
   getHomeCollections,
-  getHomeProductsPage,
+  getShopProductsPage,
   getStorefrontLayout,
   listAllCollections,
   listPublishedPosts,
@@ -95,7 +95,7 @@ it('healthy home layout, teasers and products need no source database reads', as
     },
   });
   const env = { CATALOG_KV: kv as unknown as KVNamespace };
-  await getHomeProductsPage(forbidden, env, 1);
+  await getShopProductsPage(forbidden, env, 1);
   await getStorefrontLayout(forbidden, env);
   await getHomeCollections(forbidden, env);
 });
@@ -182,7 +182,7 @@ it('published collection, editorial, navigation and discovery render with zero D
   await runWithRequestContext({} as ExecutionContext, async () => {
     expect((await getStorefrontLayout(forbidden, env)).collections[0]!.slug).toBe('tees');
     expect((await getHomeCollections(forbidden, env))[0]!.description).toBe('Published collection');
-    expect((await getHomeProductsPage(forbidden, env, 1)).total).toBe(1);
+    expect((await getShopProductsPage(forbidden, env, 1)).total).toBe(1);
     expect((await getPublishedCollection(forbidden, env, 'tees'))!.collection.title).toBe('Tees');
     expect((await listAllCollections(forbidden, env)).total).toBe(1);
     expect((await listPublishedPosts(forbidden, env)).posts[0]!.slug).toBe('launch');

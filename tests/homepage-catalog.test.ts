@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createTestDb } from './helpers/d1';
 import { pageWindow } from '../web/src/lib/catalog-page';
-import { getHomeProductsPage } from '../web/src/server/catalog-read';
+import { getShopProductsPage } from '../web/src/server/catalog-read';
 import { buildCatalogReadModels } from './helpers/catalog-driver';
 
 describe('pageWindow', () => {
@@ -55,17 +55,14 @@ describe('homepage catalogue D1 fallback path', () => {
   });
 
   it('pages the complete catalogue with a true total (no KV, no 500-cap slice)', async () => {
-    const first = await getHomeProductsPage(db, {} as never, 1);
+    const first = await getShopProductsPage(db, {} as never, 1);
     expect(first.products).toHaveLength(24);
     expect(first.total).toBe(25);
     expect(first.pageCount).toBe(2);
-    expect(first.featured?.slug).toBe('prod-25');
 
-    const second = await getHomeProductsPage(db, {} as never, 2);
+    const second = await getShopProductsPage(db, {} as never, 2);
     expect(second.products.map((p) => p.slug)).toEqual(['prod-1']);
     expect(second.total).toBe(25);
-    // Featured remains the catalogue's first product on later pages.
-    expect(second.featured?.slug).toBe('prod-25');
   });
 
   it('/shop wires search pagination and the paged loader; home has neither', () => {
@@ -73,10 +70,10 @@ describe('homepage catalogue D1 fallback path', () => {
     expect(route).toContain('validateSearch: collectionSearchSchema');
     expect(route).toContain('stripSearchParams({ page: 1 })');
     expect(route).toContain('loaderDeps: ({ search: { page } }) => ({ page })');
-    expect(route).toContain('getHomeProductsPage');
+    expect(route).toContain('getShopProductsPage');
     expect(route).toContain('to="/shop" search={{ page: page + 1 }}');
     const home = readFileSync('web/src/routes/_shop.index.tsx', 'utf8');
     expect(home).not.toContain('validateSearch');
-    expect(home).not.toContain('getHomeProductsPage');
+    expect(home).not.toContain('getShopProductsPage');
   });
 });

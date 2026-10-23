@@ -343,6 +343,39 @@ it('coalesces delivered rows into one purge and keeps rows not yet safe to delet
   }
 });
 
+it('a same-tag invalidation recorded while a purge is in flight survives that pass', async () => {
+  const { db, dispose } = await createTestDb();
+  try {
+    await seedInvalidations(
+      db,
+      [{ tag: 'tee' }, { tag: 'tee', ref: 'listing:a', seq: 1 }],
+      [{ key: 'listing:a', delivered: 1, lastWriteAt: '2026-01-01T00:00:00.000Z' }]
+    );
+    const purge = vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      await db.batch([
+        db.prepare(
+          "INSERT INTO catalog_invalidations (id, scope, scope_id, created_at) VALUES ('late-trigger', 'product', 'tee', strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        ),
+        db.prepare(
+          "INSERT INTO catalog_invalidations (id, scope, scope_id, ref_key, ref_seq, created_at) VALUES ('late-delivered', 'product', 'tee', 'listing:a', 1, strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        ),
+        db.prepare(
+          "INSERT INTO catalog_invalidations (id, scope, scope_id, ref_key, ref_seq, created_at) VALUES ('late-pending', 'product', 'tee', 'listing:a', 2, strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        ),
+      ]);
+      return {};
+    });
+    expect(await drainCatalogInvalidations(db, purge)).toMatchObject({ drained: 3 });
+    expect(purge).toHaveBeenCalledTimes(1);
+    // late-delivered points at a version already in KV before the purge, so
+    // that purge covered it; the other two need a later pass.
+    expect(await pendingIds(db)).toEqual(['late-pending', 'late-trigger']);
+  } finally {
+    await dispose();
+  }
+});
+
 it('drains distinct tags across passes until the purge gate runs dry', async () => {
   const { db, dispose } = await createTestDb();
   try {
