@@ -44,7 +44,6 @@ export const validateDiscountFn = createServerFn({ method: 'POST' })
   .validator(validateServerInput(discountValidateBodySchema))
   .handler(async ({ data }) => {
     const { env } = await import('cloudflare:workers');
-    const email = data.email.toLowerCase();
     if (
       await discountAttemptLimited(
         env as { AUTH_LIMITER?: RateLimiterBinding },
@@ -57,7 +56,16 @@ export const validateDiscountFn = createServerFn({ method: 'POST' })
         error: 'Too many discount attempts. Please wait a minute and try again.',
       };
     }
-    const discount = await calculateDiscount(env.DB, data.code, data.subtotalCents, email);
+    // Only the signed-in account's own usage is checked here; a typed email
+    // would turn the per-customer cap into an account-usage oracle. Checkout
+    // enforces the cap for every order.
+    const user = await getSessionUser(env.DB, getRequest());
+    const discount = await calculateDiscount(
+      env.DB,
+      data.code,
+      data.subtotalCents,
+      user?.email ?? null
+    );
     if (!discount) return { valid: false as const, error: 'Code is not valid for this order' };
     return { valid: true as const, code: discount.code, amountCents: discount.amountCents };
   });

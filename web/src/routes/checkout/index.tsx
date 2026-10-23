@@ -162,7 +162,7 @@ function CheckoutPage() {
     setApplyingCode(true);
     try {
       const { validateDiscountFn } = await import('../../lib/shopFns');
-      const data = await validateDiscountFn({ data: { code, subtotalCents: subtotal, email } });
+      const data = await validateDiscountFn({ data: { code, subtotalCents: subtotal } });
       if (data.valid) {
         setDiscountAmount(data.amountCents ?? 0);
         setAppliedCode(code.toUpperCase());

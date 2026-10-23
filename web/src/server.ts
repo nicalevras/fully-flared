@@ -10,7 +10,8 @@ import { failInboxEvent, processInboxEvent } from './server/checkout';
 import { getStripeProvider, providerWithBudget } from './server/payments';
 import { runCatalogUnit } from './server/catalog-publisher';
 import { CatalogBudget, countedDb } from './server/catalog-exec';
-import { requireStaff } from './server/session';
+import { requireStaffSession } from './server/session';
+import { STAFF_SESSION_HEADER } from './do/staff-session-header';
 import { runWithRequestContext } from './server/exec-context';
 import { jobMessageSchema } from './schemas/queue';
 
@@ -175,13 +176,16 @@ async function handleFetch(
     if (request.headers.get('origin') !== url.origin)
       return new Response('Origin refused', { status: 403 });
     // Admin realtime stream: staff sessions that passed 2FA only.
+    let sessionId: string;
     try {
-      await requireStaff(env.DB, request);
+      ({ sessionId } = await requireStaffSession(env.DB, request));
     } catch {
       return new Response('Staff access required', { status: 403 });
     }
+    const headers = new Headers(request.headers);
+    headers.set(STAFF_SESSION_HEADER, sessionId);
     const stub = env.REALTIME.getByName('admin');
-    return stub.fetch(request);
+    return stub.fetch(new Request(request, { headers }));
   }
   // CSRF: state-changing browser requests must be same-origin. Better Auth
   // also checks Origin for its own routes; this covers the store's APIs.

@@ -1,11 +1,12 @@
 import { DurableObject } from 'cloudflare:workers';
+import { STAFF_SESSION_HEADER } from './staff-session-header';
 
 // Admin real-time fan-out. Hibernatable WebSockets; topics persist per socket
 // via serializeAttachment so eviction/hibernation never loses subscriptions.
 const ALLOWED_TOPICS = new Set(['order', 'inventory', 'catalog', '*']);
 const MAX_TOPICS = 10;
 
-type SocketState = { topics: string[] };
+type SocketState = { topics: string[]; sessionId: string };
 
 export function sanitizeTopics(input: string[]): string[] {
   const topics = input
@@ -25,13 +26,41 @@ export function shouldDeliver(topics: string[], event: string): boolean {
   return topics.includes('*') || topics.includes(topic);
 }
 
+function sessionIdOf(serialized: unknown): string {
+  return serialized &&
+    typeof serialized === 'object' &&
+    'sessionId' in serialized &&
+    typeof serialized.sessionId === 'string'
+    ? serialized.sessionId
+    : '';
+}
+
 function stateOf(ws: WebSocket): SocketState {
   try {
-    return { topics: restoreTopics(ws.deserializeAttachment()) };
+    const serialized: unknown = ws.deserializeAttachment();
+    return { topics: restoreTopics(serialized), sessionId: sessionIdOf(serialized) };
   } catch {
     console.warn(JSON.stringify({ event: 'realtime_attachment_failed' }));
-    return { topics: [] };
+    return { topics: [], sessionId: '' };
   }
+}
+
+/** Sessions that may still receive admin events: unexpired, 2FA-marked,
+ *  and owned by an unbanned staff user. */
+async function liveStaffSessions(db: D1Database, sessionIds: string[]): Promise<Set<string>> {
+  if (sessionIds.length === 0) return new Set();
+  const rows = await db
+    .prepare(
+      `SELECT s.id FROM session s
+       JOIN user u ON u.id = s.user_id
+       JOIN staff_two_factor_sessions m ON m.session_id = s.id
+       WHERE s.id IN (SELECT value FROM json_each(?)) AND s.expires_at > ?
+         AND u.role IN ('owner','admin','manager','support','warehouse')
+         AND u.banned = 0 AND u.two_factor_enabled = 1`
+    )
+    .bind(JSON.stringify(sessionIds), Date.now())
+    .all<{ id: string }>();
+  return new Set(rows.results.map((row) => row.id));
 }
 
 export class RealtimeDO extends DurableObject {
@@ -47,10 +76,12 @@ export class RealtimeDO extends DurableObject {
     }
     const url = new URL(request.url);
     const topics = sanitizeTopics((url.searchParams.get('topics') ?? 'order,inventory').split(','));
+    const sessionId = request.headers.get(STAFF_SESSION_HEADER);
+    if (!sessionId) return new Response('Staff session required', { status: 403 });
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
     this.ctx.acceptWebSocket(server);
-    server.serializeAttachment({ topics } satisfies SocketState);
+    server.serializeAttachment({ topics, sessionId } satisfies SocketState);
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -108,8 +139,19 @@ export class RealtimeDO extends DurableObject {
       data: payload,
       timestamp: new Date().toISOString(),
     });
-    for (const ws of this.ctx.getWebSockets()) {
-      const state = stateOf(ws);
+    const sockets = this.ctx.getWebSockets().map((ws) => ({ ws, state: stateOf(ws) }));
+    const live = await liveStaffSessions(this.env.DB, [
+      ...new Set(sockets.map(({ state }) => state.sessionId).filter(Boolean)),
+    ]);
+    for (const { ws, state } of sockets) {
+      if (!live.has(state.sessionId)) {
+        try {
+          ws.close(1008, 'Session ended');
+        } catch {
+          console.warn(JSON.stringify({ event: 'realtime_revoked_close_failed' }));
+        }
+        continue;
+      }
       if (shouldDeliver(state.topics, event)) {
         try {
           ws.send(message);

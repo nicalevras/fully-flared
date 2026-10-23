@@ -34,7 +34,8 @@ it('gates orders and sales exports behind customer export permission', async () 
     expect((await get(role, 'type=sales')).status).toBe(403);
   }
   expect((await get('owner', 'type=orders&format=csv')).status).toBe(200);
-  expect((await get('warehouse', 'type=inventory')).status).toBe(200);
+  expect((await get('warehouse', 'type=inventory')).status).toBe(403);
+  expect((await get('manager', 'type=inventory')).status).toBe(200);
 });
 it('rejects unknown report types instead of falling back to sales', async () => {
   expect((await get('owner', 'type=bogus')).status).toBe(400);

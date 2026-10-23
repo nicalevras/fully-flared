@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { staffMiddleware } from '../../../server/staff-middleware';
+import { requireStaffPermission } from '../../../server/session';
 import { LocalDate } from '../../../components/LocalDate';
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
@@ -82,6 +83,7 @@ const getData = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
   .validator(validateServerInput(idString))
   .handler(async ({ data: orderId, context }): Promise<OrderDetail> => {
+    requireStaffPermission(context.staff, 'order', 'view');
     const { env } = await import('cloudflare:workers');
     const db = env.DB;
     const order = await db

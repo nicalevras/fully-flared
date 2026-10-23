@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
 import { useAdminAction } from '../../components/AdminNav';
 import { staffMiddleware } from '../../server/staff-middleware';
+import { requireStaffPermission } from '../../server/session';
 import { useStoreCurrency } from '../../lib/use-store-currency';
 import { createServerFn } from '@tanstack/react-start';
 import { getSettings } from '../../server/settings';
@@ -39,6 +40,7 @@ type Stats = {
 const getData = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
   .handler(async ({ context }): Promise<Stats> => {
+    requireStaffPermission(context.staff, 'report', 'view');
     const { env } = await import('cloudflare:workers');
     const db = env.DB;
     const role = roles[context.staff.role as StaffRole];
