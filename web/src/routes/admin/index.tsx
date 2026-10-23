@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
+import { createFileRoute, Link, redirect, useRouter } from '@tanstack/react-router';
 import { useAdminAction } from '../../components/AdminNav';
 import { staffMiddleware } from '../../server/staff-middleware';
 import { requireStaffPermission } from '../../server/session';
@@ -12,7 +12,7 @@ import { formatMoney } from '../../components/ProductCard';
 import { StatusBadge } from '../../components/StatusBadge';
 import type { OrderStatus, PaymentStatus } from '../../db/schema';
 import { btnPrimary, cardCls, pageSub, pageTitle, tableCls, tableWrap } from '../../components/ui';
-import { roles, type StaffRole } from '../../lib/permissions';
+import { roleCan, roles, type StaffRole } from '../../lib/permissions';
 
 type Stats = {
   storeName: string;
@@ -92,6 +92,9 @@ const getData = createServerFn({ method: 'GET' })
   });
 
 export const Route = createFileRoute('/admin/')({
+  beforeLoad: ({ context }) => {
+    if (!roleCan(context.staff?.role, 'report', 'view')) throw redirect({ to: '/admin/orders' });
+  },
   loader: async () => getData(),
   component: AdminHome,
 });
