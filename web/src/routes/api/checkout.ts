@@ -30,6 +30,7 @@ import {
   type CheckoutIntentRow,
 } from '../../server/checkout-intents';
 import { acquireCheckoutPermit } from '../../server/checkout-admission';
+import type { WorkerEnv } from '../../server/env';
 
 // This route intentionally stays a raw server route, like media upload
 // and the Stripe webhook: server.ts keys the Cloudflare rate limiter and
@@ -52,7 +53,7 @@ const generic = (error: string, code: string, status: number) =>
 
 export async function handleCheckoutRequest(
   request: Request,
-  env: Cloudflare.Env,
+  env: WorkerEnv,
   options?: { deadlineMs?: number }
 ): Promise<Response> {
   try {
@@ -73,7 +74,7 @@ export async function handleCheckoutRequest(
 
 async function prepareCheckoutRequest(
   request: Request,
-  env: Cloudflare.Env,
+  env: WorkerEnv,
   options?: { deadlineMs?: number }
 ): Promise<Response> {
   const provider = getStripeProvider(env);

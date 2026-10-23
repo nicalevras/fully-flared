@@ -328,20 +328,48 @@ async function handleScheduled(
       const date = new Date(event.scheduledTime),
         day = date.toISOString().slice(0, 10),
         hour = date.toISOString().slice(0, 13);
+      const work: { name: string; promise: Promise<unknown> }[] = [];
       if (event.cron === '0 3 * * *') {
         for (const task of ['reconciliation', 'retention', 'reminders', 'replica', 'gc'] as const)
-          await startMaintenance(env, task, day);
-      } else if (event.cron === '7 * * * *') await startMaintenance(env, 'privacy', hour);
+          work.push({
+            name: task,
+            promise: startMaintenance(env, task, day).then((ok) => {
+              if (!ok) throw Error('Maintenance enqueue failed');
+            }),
+          });
+      } else if (event.cron === '7 * * * *')
+        work.push({
+          name: 'privacy',
+          promise: startMaintenance(env, 'privacy', hour).then((ok) => {
+            if (!ok) throw Error('Maintenance enqueue failed');
+          }),
+        });
       else {
-        await startMaintenance(
-          env,
-          'financial',
-          String(Math.floor(event.scheduledTime / (15 * 60_000)))
-        );
-        if (await catalogWorkDue(env.DB)) await env.CATALOG_JOBS.send({ type: 'catalog.rebuild' });
-        await wakeDueMaintenance(env);
+        work.push({
+          name: 'recovery-watchdog',
+          promise: wakeDueMaintenance(env).then(({ failed }) => {
+            if (failed) throw Error('Recovery watchdog dispatch incomplete');
+          }),
+        });
+        work.push({
+          name: 'catalog-watchdog',
+          promise: (async () => {
+            if (await catalogWorkDue(env.DB))
+              await env.CATALOG_JOBS.send({ type: 'catalog.rebuild' });
+          })(),
+        });
       }
-      await drainPublicCacheInvalidations(env, ctx);
+      work.push({ name: 'cache-invalidation', promise: drainPublicCacheInvalidations(env, ctx) });
+      const results = await Promise.allSettled(work.map((task) => task.promise));
+      let failed = 0;
+      for (let index = 0; index < results.length; index++)
+        if (results[index]!.status === 'rejected') {
+          failed++;
+          console.error(
+            JSON.stringify({ event: 'scheduled_task_failed', task: work[index]!.name })
+          );
+        }
+      if (failed) throw Error('One or more scheduled responsibilities failed');
     })()
   );
 }

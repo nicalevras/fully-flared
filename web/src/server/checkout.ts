@@ -1,4 +1,10 @@
 import { cancelOrdersStatements } from './order-cancellation';
+import {
+  recoveryContext,
+  pendingOrderDue,
+  webhookDue,
+  type RecoveryContext,
+} from './recovery-eligibility';
 import { resolvePaymentOrder } from './payment-order';
 import {
   reservationStatementsSetBased,
@@ -628,16 +634,15 @@ export async function reprocessStaleInbox(
   db: D1Database,
   provider: PaymentProvider | null,
   limit = 20,
-  dueBefore = now()
+  dueBefore = now(),
+  context?: RecoveryContext
 ): Promise<number> {
-  const stale = new Date(Date.now() - 5 * 60_000).toISOString();
+  const due = webhookDue(context ?? (await recoveryContext(db, dueBefore)));
   const rows = await db
     .prepare(
-      `SELECT event_id, status FROM webhook_inbox
-       WHERE (status = 'failed' AND attempts < 5 AND (retry_after IS NULL OR retry_after <= ?)) OR (status = 'pending' AND received_at < ?) OR (status = 'dead' AND (retry_after IS NULL OR retry_after <= ?))
-       ORDER BY received_at ASC LIMIT ?`
+      `SELECT w.event_id,w.status FROM webhook_inbox w WHERE ${due.sql} ORDER BY w.received_at,w.event_id LIMIT ?`
     )
-    .bind(dueBefore, stale, dueBefore, limit)
+    .bind(...due.values, limit)
     .all<{ event_id: string; status: string }>();
   for (const r of rows.results) {
     if (r.status === 'dead')
@@ -1229,21 +1234,26 @@ async function cancelPendingOrder(db: D1Database, sessionId: string) {
  *  the configured hold plus eight minutes of recovery grace, and
  *  never while a reservation is still active, so an order awaiting a delayed
  *  payment method is not canceled from under Stripe. */
-export async function cancelExpiredPendingOrders(db: D1Database, limit = 100): Promise<number> {
-  const { limits } = await getSettings(db);
-  const cutoff = new Date(
-    Date.now() - (limits.checkout_session_minutes + 18) * 60_000
-  ).toISOString();
+export async function cancelExpiredPendingOrders(
+  db: D1Database,
+  limit = 100,
+  context?: RecoveryContext
+): Promise<number> {
+  const due = pendingOrderDue(context ?? (await recoveryContext(db)));
   const rows = await db
-    .prepare(
-      `SELECT id FROM orders WHERE status = 'pending_payment' AND created_at < ?
-       AND NOT EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=orders.id AND ci.flow='manual_capture')
-       AND id NOT IN (SELECT order_id FROM reservations WHERE status = 'active' AND order_id IS NOT NULL)
-       AND NOT (payment_status = 'unpaid' AND stripe_payment_intent_id IS NOT NULL)
-       ORDER BY created_at LIMIT ?`
-    )
-    .bind(cutoff, limit)
+    .prepare(`SELECT o.id FROM orders o WHERE ${due.sql} ORDER BY o.created_at,o.id LIMIT ?`)
+    .bind(...due.values, limit)
     .all<{ id: string }>();
-  for (const r of rows.results) await cancelOrderById(db, r.id);
-  return rows.results.length;
+  let canceled = 0;
+  for (const r of rows.results) {
+    await cancelOrderById(db, r.id);
+    if (
+      await db
+        .prepare("SELECT 1 FROM orders WHERE id=? AND status!='pending_payment'")
+        .bind(r.id)
+        .first()
+    )
+      canceled++;
+  }
+  return canceled;
 }

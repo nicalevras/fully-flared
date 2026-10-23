@@ -115,3 +115,19 @@ source edit. `SHA256.json`, `HEAD.txt`, `STATUS.txt`, `staged.patch` and
 `unstaged.patch` preserve the implementation baseline. `NEW-FILES.txt` records
 files introduced in this checkpoint. Secrets and Wrangler state were not read or
 copied because this checkpoint does not apply a migration or operate services.
+
+## Conditional recovery checkpoint — 2026-10-23
+
+The CI repair and due-only recovery changes are implemented but unverified.
+See [RECOVERY-WATCHDOG.md](RECOVERY-WATCHDOG.md) for the requirement ledger and
+operating procedure. Financial recovery now discovers eligible work instead of
+unconditionally dispatching seven families. Outbox recovery queues bounded pages
+on NOTIFICATIONS; only its consumer sends email. Existing immediate event paths,
+queues, provider deadlines and financial restrictions remain.
+
+Migration 0017 adds six indexes only and is prepared, not applied. This checkpoint
+also leaves outstanding migration 0016 unapplied. No tests, lint, type generation,
+typecheck, build, migration checks, browser/provider journeys, service restarts,
+commits, pushes or remote changes ran. Existing green results do not verify these
+changes. The implementation stops before the separately authorized verification
+and local-migration checkpoint.

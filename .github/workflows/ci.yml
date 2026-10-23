@@ -28,6 +28,9 @@ jobs:
       - name: Install web dependencies
         run: cd web && npm ci
 
+      - name: Generate Worker types
+        run: cd web && npm run cf-typegen
+
       - name: Run ESLint
         run: npm run lint
 
@@ -36,9 +39,6 @@ jobs:
 
       - name: Run tests
         run: npm run test
-
-      - name: Generate Worker types
-        run: cd web && npx wrangler types
 
       - name: Type check
         run: npm run typecheck

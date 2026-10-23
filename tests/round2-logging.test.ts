@@ -4,7 +4,7 @@ import { readListingPage } from '../web/src/server/catalog-read';
 import { getStorefrontLayout } from '../web/src/server/catalog-read';
 import { ALL_LISTING } from '../web/src/server/catalog-models';
 import { RealtimeDO } from '../web/src/do/realtime';
-import { drainOutbox } from '../web/src/server/email';
+import { processOutboxRow } from '../web/src/server/email';
 import { createPendingOrder, reprocessStaleInbox } from '../web/src/server/checkout';
 import { attachStripeSession } from './helpers/attach-session';
 import { discountNetworkIdentity } from '../web/src/lib/shopFns';
@@ -53,7 +53,9 @@ it('logs outbox and webhook retry failures and missing request context without P
     )
     .bind(JSON.stringify({ private: sensitive }), new Date().toISOString())
     .run();
-  expect(await drainOutbox(db)).toBe(0);
+  await expect(processOutboxRow(db, 'poison-mail')).rejects.toThrow(
+    'Outbox row poison-mail failed'
+  );
   const order = await createPendingOrder(db, {
     email: 'fixture@example.test',
     shippingCountry: 'US',

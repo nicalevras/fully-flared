@@ -5,12 +5,13 @@ export {
   operationalRecipients,
   type EmailMessage,
 } from './outbox';
-import { and, asc, eq, lt, or, sql } from 'drizzle-orm';
+import { and, eq, lt, or, sql } from 'drizzle-orm';
 import { nextRetryIso } from './retry';
 import { getDb } from '../db/client';
 import { outbox } from '../db/schema';
 import { getSettings } from './settings';
 import { emailMessageSchema, type JobMessage } from '../schemas/queue';
+import { outboxDue, type RecoveryContext } from './recovery-eligibility';
 
 export type { JobMessage } from '../schemas/queue';
 
@@ -22,14 +23,15 @@ export async function enqueueJob(
   options?: { delaySeconds: number }
 ): Promise<boolean> {
   try {
+    // Maintenance routing requires the durable run's task, not just its message type.
+    if (job.type === 'maintenance.run')
+      throw new Error('Use task-aware maintenance dispatch');
     const { workerEnv } = await import('./env');
     // Separated queues (Phase 5): financial work, notifications and
     // catalog publication scale and fail independently, so a burst in
     // one cannot delay the others.
     const queue =
-      job.type === 'webhook.process' ||
-      job.type === 'checkout.recover' ||
-      job.type === 'maintenance.run'
+      job.type === 'webhook.process' || job.type === 'checkout.recover'
         ? workerEnv.JOBS
         : job.type === 'catalog.rebuild'
           ? workerEnv.CATALOG_JOBS
@@ -142,6 +144,7 @@ export async function processOutboxRow(db: D1Database, outboxId: string): Promis
       .where(
         and(eq(outbox.id, row.id), eq(outbox.status, 'sending'), eq(outbox.claimedAt, claimNow))
       );
+    console.warn(JSON.stringify({ event: 'outbox_delivery_failed' }));
     throw new Error(`Outbox row ${row.id} failed`);
   }
 }
@@ -196,41 +199,30 @@ export async function sendEmail(db: D1Database, msg: EmailMessage) {
   });
 }
 
-export async function drainOutbox(db: D1Database, limit = 25): Promise<number> {
-  const nowIso = new Date().toISOString();
-  const staleSendingBefore = new Date(Date.now() - 10 * 60_000).toISOString();
-  const rows = await getDb(db)
-    .select({ id: outbox.id })
-    .from(outbox)
-    .where(
-      and(
-        lt(outbox.attempts, 3),
-        or(sql`${outbox.retryAfter} IS NULL`, sql`${outbox.retryAfter}<=${nowIso}`),
-        or(
-          eq(outbox.status, 'pending'),
-          and(
-            eq(outbox.status, 'failed'),
-            lt(outbox.attempts, 3),
-            or(sql`${outbox.retryAfter} IS NULL`, lt(outbox.retryAfter, nowIso))
-          ),
-          and(
-            eq(outbox.status, 'sending'),
-            lt(outbox.claimedAt, staleSendingBefore),
-            lt(outbox.attempts, 3)
-          )
-        )
-      )
+export type OutboxRecoveryCursor = { createdAt: string; id: string };
+
+/** Queue one bounded window; delivery and send claims belong to NOTIFICATIONS. */
+export async function enqueueOutboxRecoveryPage(
+  db: D1Database,
+  context: RecoveryContext,
+  cursor?: OutboxRecoveryCursor
+) {
+  const due = outboxDue(context);
+  const rows = await db
+    .prepare(
+      `SELECT o.id,o.created_at FROM outbox o WHERE ${due.sql}
+    ${cursor ? 'AND (o.created_at>? OR (o.created_at=? AND o.id>?))' : ''}
+    ORDER BY o.created_at,o.id LIMIT 25`
     )
-    .orderBy(asc(outbox.createdAt))
-    .limit(limit);
-  let sent = 0;
-  for (const row of rows) {
-    try {
-      if (await processOutboxRow(db, row.id)) sent++;
-    } catch {
-      // processOutboxRow already recorded the failure; the next drain retries.
-      console.warn(JSON.stringify({ event: 'outbox_drain_failed' }));
-    }
+    .bind(...due.values, ...(cursor ? [cursor.createdAt, cursor.createdAt, cursor.id] : []))
+    .all<{ id: string; created_at: string }>();
+  let queued = 0,
+    next = cursor;
+  for (const row of rows.results) {
+    if (!(await enqueueJob({ type: 'email.send', outboxId: row.id })))
+      return { queued, cursor: next, done: false, retry: true };
+    queued++;
+    next = { createdAt: row.created_at, id: row.id };
   }
-  return sent;
+  return { queued, cursor: next, done: rows.results.length < 25, retry: false };
 }

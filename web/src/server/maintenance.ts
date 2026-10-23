@@ -7,7 +7,8 @@ import { reconcileCheckoutIntents } from './checkout-intents';
 import { recoverAuthorizedCheckouts } from './authorized-checkout';
 import { reconcileRefundOperations } from './refunds';
 import {
-  drainOutbox,
+  enqueueOutboxRecoveryPage,
+  type OutboxRecoveryCursor,
   queueAbandonedReminder,
   commitWithEmails,
   emailStatement,
@@ -18,18 +19,15 @@ import { pruneRetention } from './operations';
 import { runCatalogUnit } from './catalog-publisher';
 import { acquireCheckoutPermit } from './checkout-admission';
 import { CatalogBudget } from './catalog-exec';
+import {
+  RECOVERY_FAMILIES,
+  recoveryContext,
+  recoveryFamilyDue,
+  type RecoveryFamily,
+} from './recovery-eligibility';
 
-const FINANCIAL_TASKS = [
-  'reservation-expiry',
-  'order-expiry',
-  'webhook-recovery',
-  'checkout-preparation',
-  'authorization-recovery',
-  'outbox-recovery',
-  'refund-recovery',
-] as const;
 type Task =
-  | (typeof FINANCIAL_TASKS)[number]
+  | RecoveryFamily
   | 'financial'
   | 'privacy'
   | 'reconciliation'
@@ -38,11 +36,33 @@ type Task =
   | 'replica'
   | 'gc'
   | 'media-publication';
-type Progress = { stage?: number; cursor?: string; checked?: number };
+type Progress = {
+  stage?: number;
+  cursor?: string;
+  checked?: number;
+  outboxCursor?: OutboxRecoveryCursor;
+};
+type MaintenanceRun = {
+  id: string;
+  task: Task;
+  next_at: string;
+  claim_expires_at: string | null;
+  started_at: string;
+};
+const isRecoveryFamily = (task: Task): task is RecoveryFamily =>
+  RECOVERY_FAMILIES.some((family) => family === task);
+const runnable = (run: MaintenanceRun, clock: string) =>
+  run.next_at <= clock && (!run.claim_expires_at || run.claim_expires_at <= clock);
 const at = () => new Date().toISOString();
 async function dispatch(env: WorkerEnv, task: string, runId: string, delaySeconds = 0) {
   try {
-    await (task === 'replica' || task === 'gc' ? env.CATALOG_JOBS : env.JOBS).send(
+    const queue =
+      task === 'replica' || task === 'gc'
+        ? env.CATALOG_JOBS
+        : task === 'outbox-recovery'
+          ? env.NOTIFICATIONS
+          : env.JOBS;
+    await queue.send(
       {
         type: 'maintenance.run',
         runId,
@@ -69,38 +89,40 @@ export async function startMaintenance(
   cutoff = at()
 ): Promise<boolean> {
   if (task === 'financial') {
-    const results = await Promise.allSettled(
-      FINANCIAL_TASKS.map((family) => startMaintenance(env, family, bucket, cutoff))
-    );
-    if (results.some((r) => r.status === 'rejected' || !r.value))
-      throw Error('Financial recovery dispatch incomplete');
-    return true;
+    // Compatibility only: old staged runs discover work, never fan out blindly.
+    return (await wakeDueMaintenance(env, bucket, cutoff)).failed === 0;
   }
-  const id = `${task}:${bucket}`,
-    now = at();
+  const clock = at();
+  const run = await ensureMaintenanceRun(env, task, bucket, cutoff, clock);
+  return !run || !runnable(run, clock) || (await dispatch(env, task, run.id));
+}
+
+async function ensureMaintenanceRun(
+  env: WorkerEnv,
+  task: Task,
+  bucket: string,
+  cutoff: string,
+  clock: string
+): Promise<MaintenanceRun | null> {
+  const id = `${task}:${bucket}`;
   // One unfinished sweep per responsibility; do not reset its coverage window.
   const active = await env.DB.prepare(
-    "SELECT id FROM maintenance_runs WHERE task=? AND state IN ('pending','running') ORDER BY started_at LIMIT 1"
+    "SELECT id,task,next_at,claim_expires_at,started_at FROM maintenance_runs WHERE task=? AND state IN ('pending','running') ORDER BY started_at LIMIT 1"
   )
     .bind(task)
-    .first<{ id: string }>();
-  if (active) return dispatch(env, task, active.id);
+    .first<MaintenanceRun>();
+  if (active) return active;
   await env.DB.prepare(
     'INSERT OR IGNORE INTO maintenance_runs(id,task,cutoff,next_at,started_at,updated_at) VALUES(?,?,?,?,?,?)'
   )
-    .bind(id, task, cutoff, now, now, now)
+    .bind(id, task, cutoff, clock, clock, clock)
     .run();
   const due = await env.DB.prepare(
-    "SELECT id FROM maintenance_runs WHERE task=? AND state IN ('pending','running') ORDER BY started_at LIMIT 1"
+    "SELECT id,task,next_at,claim_expires_at,started_at FROM maintenance_runs WHERE task=? AND state IN ('pending','running') ORDER BY started_at LIMIT 1"
   )
     .bind(task)
-    .first<{ id: string }>();
-  if (due) return dispatch(env, task, due.id);
-  return Boolean(
-    await env.DB.prepare("SELECT 1 FROM maintenance_runs WHERE id=? AND state='done'")
-      .bind(id)
-      .first()
-  );
+    .first<MaintenanceRun>();
+  return due;
 }
 
 /** One bounded page or responsibility per financial Queue delivery. */
@@ -139,14 +161,24 @@ export async function runMaintenance(env: WorkerEnv, runId: string) {
     const provider = rawProvider ? providerWithBudget(rawProvider, deadline, assertClaim) : null;
     if (run.task === 'financial') {
       // Resume old staged runs by dispatching idempotent independent families.
-      await startMaintenance(env, 'financial', runId, run.cutoff);
+      if (!(await startMaintenance(env, 'financial', runId, run.cutoff)))
+        throw Error('Legacy financial recovery dispatch incomplete');
       done = true;
-    } else if ((FINANCIAL_TASKS as readonly string[]).includes(run.task)) {
+    } else if (run.task === 'outbox-recovery') {
+      const context = await recoveryContext(db, run.cutoff, now);
+      const page = await enqueueOutboxRecoveryPage(db, context, progress.outboxCursor);
+      if (page.cursor) progress.outboxCursor = page.cursor;
+      progress.checked = (progress.checked ?? 0) + page.queued;
+      done = page.done;
+      if (page.retry) retryAt = new Date(Date.now() + 60_000).toISOString();
+    } else if (isRecoveryFamily(run.task)) {
+      const context = await recoveryContext(db, run.cutoff, now);
       let checked = 0,
         limit = 25;
-      if (run.task === 'reservation-expiry') checked = await releaseExpiredReservations(db, limit);
-      else if (run.task === 'order-expiry') checked = await cancelExpiredPendingOrders(db, limit);
-      else if (run.task === 'outbox-recovery') checked = await drainOutbox(db, limit);
+      if (run.task === 'reservation-expiry')
+        checked = await releaseExpiredReservations(db, limit, context);
+      else if (run.task === 'order-expiry')
+        checked = await cancelExpiredPendingOrders(db, limit, context);
       else {
         if (!provider) throw Error('Payment provider unavailable');
         limit = 1;
@@ -155,7 +187,7 @@ export async function runMaintenance(env: WorkerEnv, runId: string) {
           if (permit.kind !== 'acquired') checked = -1;
           else
             try {
-              checked = await reprocessStaleInbox(db, provider, limit, run.cutoff);
+              checked = await reprocessStaleInbox(db, provider, limit, run.cutoff, context);
             } finally {
               await permit.release();
             }
@@ -165,7 +197,8 @@ export async function runMaintenance(env: WorkerEnv, runId: string) {
             provider,
             limit,
             env.CHECKOUT_ADMISSION,
-            run.cutoff
+            run.cutoff,
+            context
           );
         else if (run.task === 'authorization-recovery')
           checked = await recoverAuthorizedCheckouts(
@@ -173,7 +206,8 @@ export async function runMaintenance(env: WorkerEnv, runId: string) {
             provider,
             env.CHECKOUT_ADMISSION,
             limit,
-            run.cutoff
+            run.cutoff,
+            context
           );
         else {
           const permit = await acquireCheckoutPermit(env.CHECKOUT_ADMISSION);
@@ -185,7 +219,8 @@ export async function runMaintenance(env: WorkerEnv, runId: string) {
                 provider,
                 limit,
                 { runId, token },
-                run.cutoff
+                run.cutoff,
+                context
               );
             } finally {
               await permit.release();
@@ -193,8 +228,8 @@ export async function runMaintenance(env: WorkerEnv, runId: string) {
         }
       }
       progress.checked = (progress.checked ?? 0) + Math.max(0, checked);
-      done = checked >= 0 && checked < limit;
-      if (checked < 0) retryAt = new Date(Date.now() + 60_000).toISOString();
+      done = checked >= 0 && !(await recoveryFamilyDue(db, run.task, context));
+      if (!done && checked <= 0) retryAt = new Date(Date.now() + 60_000).toISOString();
     } else if (run.task === 'privacy') {
       const result = await db
         .prepare(
@@ -351,27 +386,79 @@ export async function runMaintenance(env: WorkerEnv, runId: string) {
   }
 }
 
-export async function wakeDueMaintenance(env: WorkerEnv) {
+export async function wakeDueMaintenance(
+  env: WorkerEnv,
+  bucket = String(Math.floor(Date.now() / (15 * 60_000))),
+  cutoff?: string
+) {
+  const clock = at();
+  const context = await recoveryContext(env.DB, cutoff, clock);
   const rows = await env.DB.prepare(
-    "SELECT id,task,started_at,next_at FROM maintenance_runs WHERE state IN ('pending','running') AND next_at<=? AND (claim_expires_at IS NULL OR claim_expires_at<=?) ORDER BY next_at LIMIT 25"
-  )
-    .bind(at(), at())
-    .all<{ id: string; task: string; started_at: string; next_at: string }>();
-  for (const row of rows.results) await dispatch(env, row.task, row.id);
+    "SELECT id,task,started_at,next_at,claim_expires_at FROM maintenance_runs WHERE state IN ('pending','running') ORDER BY next_at,id LIMIT 50"
+  ).all<MaintenanceRun>();
+  const runs = new Map(rows.results.map((run) => [run.id, run]));
+  const activeTasks = new Set(rows.results.map((run) => run.task));
+  const checks = await Promise.allSettled(
+    RECOVERY_FAMILIES.map(async (family) => ({
+      family,
+      due: await recoveryFamilyDue(env.DB, family, context),
+    }))
+  );
+  let failed = 0,
+    eligible = 0;
+  for (let index = 0; index < checks.length; index++) {
+    const check = checks[index]!;
+    if (check.status === 'rejected') {
+      failed++;
+      console.error(
+        JSON.stringify({ event: 'recovery_due_check_failed', family: RECOVERY_FAMILIES[index] })
+      );
+      continue;
+    }
+    const { family, due } = check.value;
+    if (!due) continue;
+    eligible++;
+    if (activeTasks.has(family)) continue;
+    try {
+      const run = await ensureMaintenanceRun(env, family, bucket, context.cutoff, clock);
+      if (run) {
+        runs.set(run.id, run);
+        activeTasks.add(family);
+      }
+    } catch {
+      failed++;
+      console.error(JSON.stringify({ event: 'recovery_run_create_failed', family }));
+    }
+  }
+  const dueRuns = [...runs.values()].filter((run) => runnable(run, clock));
+  const deliveries = await Promise.allSettled(
+    dueRuns.map((run) => dispatch(env, run.task, run.id))
+  );
+  let queued = 0;
+  for (const delivery of deliveries) {
+    if (delivery.status === 'fulfilled' && delivery.value) queued++;
+    else failed++;
+  }
   console.log(
     JSON.stringify({
       event: 'maintenance_backlog',
-      due: rows.results.length,
-      oldestDueAgeSeconds: rows.results.length
+      due: dueRuns.length,
+      eligibleFamilies: eligible,
+      queued,
+      failed,
+      oldestDueAgeSeconds: dueRuns.length
         ? Math.max(
-            ...rows.results.map((r) => Math.round((Date.now() - Date.parse(r.next_at)) / 1000))
+            ...dueRuns.map((r) => Math.round((Date.parse(clock) - Date.parse(r.next_at)) / 1000))
           )
         : 0,
       oldestUnfinishedAgeSeconds: rows.results.length
         ? Math.max(
-            ...rows.results.map((r) => Math.round((Date.now() - Date.parse(r.started_at)) / 1000))
+            ...rows.results.map((r) =>
+              Math.round((Date.parse(clock) - Date.parse(r.started_at)) / 1000)
+            )
           )
         : 0,
     })
   );
+  return { queued, failed };
 }

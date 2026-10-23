@@ -5,6 +5,12 @@ import { nextRetryIso } from './retry';
 import { emailStatement, operationalRecipients, commitWithEmails } from './email';
 import { getSettings } from './settings';
 import { reconciliationCursors, advanceCursor, type CursorClaim } from './reconcile-cursors';
+import {
+  recoveryContext,
+  refundDue,
+  refundAlertDue,
+  type RecoveryContext,
+} from './recovery-eligibility';
 
 // Stripe may prune idempotency keys after 24h; never blindly recreate after 23h.
 const REFUND_CREATION_RETRY_CUTOFF_MS = 23 * 60 * 60_000;
@@ -363,17 +369,20 @@ export async function reconcileRefundOperations(
   provider?: PaymentProvider,
   limit = 25,
   claim?: CursorClaim,
-  dueBefore = at()
+  dueBefore = at(),
+  context?: RecoveryContext
 ): Promise<number> {
-  const { limits } = await getSettings(db);
-  const cursors = await reconciliationCursors(db, ['refund_operations', 'refund_stuck']);
+  const captured = context ?? (await recoveryContext(db, dueBefore));
+  const due = refundDue(captured);
+  const cursors = await reconciliationCursors(db, ['refund_operations']);
   const rows = await db
     .prepare(
-      "SELECT id,order_id,amount_cents,purpose FROM refunds WHERE id>? AND status IN ('uncertain','pending','requires_action') AND attempts<? AND (retry_after IS NULL OR retry_after<=?) ORDER BY id LIMIT ?"
+      `SELECT r.id,r.order_id,r.amount_cents,r.purpose FROM refunds r WHERE r.id>? AND ${due.sql} ORDER BY r.id LIMIT ?`
     )
-    .bind(cursors.get('refund_operations') ?? '', limits.refund_retry_cap, dueBefore, limit)
+    .bind(cursors.get('refund_operations') ?? '', ...due.values, limit)
     .all<{ id: string; order_id: string; amount_cents: number; purpose: Purpose }>();
   let succeeded = true;
+  let advanced = 0;
   for (const row of rows.results) {
     try {
       await requestRefund(db, provider, {
@@ -392,6 +401,12 @@ export async function reconcileRefundOperations(
         })
       );
     }
+    // Errors before the retry claim must not turn selection into immediate progress.
+    const stillDue = await db
+      .prepare(`SELECT 1 FROM refunds r WHERE r.id=? AND ${due.sql}`)
+      .bind(row.id, ...due.values)
+      .first();
+    if (!stillDue) advanced++;
   }
   if (succeeded)
     await advanceCursor(
@@ -401,17 +416,14 @@ export async function reconcileRefundOperations(
       rows.results.length === limit ? rows.results.at(-1)!.id : '',
       claim
     );
+  const alertDue = refundAlertDue(captured);
   const stuck = await db
     .prepare(
-      "SELECT id,status FROM refunds WHERE id>? AND status IN ('uncertain','pending','requires_action') AND (attempts>=? OR created_at<?) ORDER BY id LIMIT 25"
+      `SELECT r.id,r.status FROM refunds r WHERE ${alertDue.sql} ORDER BY r.created_at,r.id LIMIT 25`
     )
-    .bind(
-      cursors.get('refund_stuck') ?? '',
-      limits.refund_retry_cap,
-      new Date(Date.now() - limits.refund_stuck_minutes * 60_000).toISOString()
-    )
+    .bind(...alertDue.values)
     .all<{ id: string; status: string }>();
-  const recipients = await operationalRecipients(db);
+  const recipients = captured.recipients;
   for (const row of stuck.results)
     if (recipients.length)
       await commitWithEmails(
@@ -426,12 +438,5 @@ export async function reconcileRefundOperations(
         ),
         recipients.map((to) => `refund-stuck-${row.id}-${to}`)
       );
-  await advanceCursor(
-    db,
-    'refund_stuck',
-    cursors.get('refund_stuck') ?? '',
-    stuck.results.length === 25 ? stuck.results.at(-1)!.id : '',
-    claim
-  );
-  return rows.results.length;
+  return advanced + stuck.results.length;
 }

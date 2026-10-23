@@ -3,6 +3,7 @@ import { cancelOrdersStatements } from './order-cancellation';
 import type { CheckoutRequest, PaymentProvider } from './payments';
 import { acquireCheckoutPermit, type AdmissionStub } from './checkout-admission';
 import { operationalRecipients, commitWithEmails, emailStatement } from './email';
+import { recoveryContext, preparationDue, type RecoveryContext } from './recovery-eligibility';
 
 // Durable checkout initiation (Phase 1). One intent per logical purchase
 // attempt: retries, double-clicks and worker crashes resume the same
@@ -176,7 +177,7 @@ export function checkoutFailureDetails(error: unknown) {
     cause?: { code?: unknown; name?: unknown };
   } | null;
   const safeField = (value: unknown) =>
-    typeof value === 'string' && /^[a-zA-Z0-9_.\[\]-]{1,160}$/.test(value) ? value : undefined;
+    typeof value === 'string' && /^[a-zA-Z0-9_.[\]-]{1,160}$/.test(value) ? value : undefined;
   const message = typeof diagnostic?.message === 'string' ? diagnostic.message : '';
   const reason = message.includes('Failed to get session commit token')
     ? 'd1_commit_token'
@@ -545,18 +546,16 @@ export async function reconcileCheckoutIntents(
   provider: PaymentProvider | null,
   limit = 20,
   admission?: { getByName(name: string): AdmissionStub },
-  dueBefore = now()
+  dueBefore = now(),
+  context?: RecoveryContext
 ): Promise<number> {
   if (!provider) return 0;
+  const due = preparationDue(context ?? (await recoveryContext(db, dueBefore)));
   const rows = await db
     .prepare(
-      `SELECT id, state FROM checkout_intents
-       WHERE state IN ('reserved', 'session_creating', 'reconciliation_required')
-         AND (next_reconcile_at IS NULL OR next_reconcile_at <= ?)
-         AND (claim_expires_at IS NULL OR claim_expires_at <= ?)
-       ORDER BY created_at ASC LIMIT ?`
+      `SELECT ci.id,ci.state FROM checkout_intents ci WHERE ${due.sql} ORDER BY ci.created_at,ci.id LIMIT ?`
     )
-    .bind(dueBefore, now(), limit)
+    .bind(...due.values, limit)
     .all<{ id: string; state: string }>();
   let advanced = 0;
   for (const r of rows.results) {

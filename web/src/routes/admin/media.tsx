@@ -94,7 +94,7 @@ const publishExistingFn = createServerFn({ method: 'POST' })
   .middleware([staffMiddleware])
   .validator(validateServerInput(z.object({})))
   .handler(async ({ context }) => {
-    const { env } = await import('cloudflare:workers');
+    const { workerEnv: env } = await import('../../server/env');
     requireStaffPermission(context.staff, 'media', 'upload');
     const settings = await getSettings(env.DB);
     if (

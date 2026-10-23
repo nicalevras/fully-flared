@@ -366,3 +366,17 @@ public destinations and incomplete uploads remain available to deletion recovery
 Migration 0016 is prepared only. Implementation details and pending verification
 are in [CHECKOUT-HARDENING.md](../web/CHECKOUT-HARDENING.md). No readiness claim is
 made for this untested checkpoint.
+
+## 2026-10-23: conditional recovery, existing infrastructure
+
+Replace unconditional financial-family starts with shared due-work predicates and
+a deduplicated watchdog dispatch pass. Preserve the existing independent families,
+D1 business records, queues and periodic audits. Notification recovery belongs to
+NOTIFICATIONS and only enqueues delivery IDs; it does not send email on JOBS.
+
+The only dependency addition is the exact development dependency
+@types/node 24.19.2 and its undici-types dependency; retained package versions did
+not change. Optional application bindings use WorkerEnv rather than relying on
+local-secret inference in generated types. Migration 0017 is index-only and remains
+unapplied. Verification is deferred: see
+[RECOVERY-WATCHDOG.md](../web/RECOVERY-WATCHDOG.md).

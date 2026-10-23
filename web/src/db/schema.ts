@@ -925,7 +925,12 @@ export const refunds = sqliteTable(
       .default('pending'),
     createdAt: text('created_at').notNull(),
   },
-  (t) => [index('refunds_order_idx').on(t.orderId)]
+  (t) => [
+    index('refunds_order_idx').on(t.orderId),
+    index('refunds_retry_due_idx').on(t.status, t.retryAfter, t.id),
+    index('refunds_age_due_idx').on(t.status, t.createdAt, t.id),
+    index('refunds_attempt_due_idx').on(t.status, t.attempts, t.id),
+  ]
 );
 
 export const returns = sqliteTable(
@@ -1122,6 +1127,9 @@ export const webhookInbox = sqliteTable(
   },
   (t) => [
     index('webhook_inbox_due_idx').on(t.status, t.retryAfter, t.receivedAt),
+    index('webhook_pending_received_idx')
+      .on(t.receivedAt, t.eventId)
+      .where(sql`${t.status}='pending'`),
     index('webhook_inbox_retention_idx').on(
       t.status,
       sql`COALESCE(${t.processedAt},${t.receivedAt})`,
@@ -1147,6 +1155,12 @@ export const outbox = sqliteTable(
   },
   (t) => [
     index('outbox_status_idx').on(t.status, t.createdAt),
+    index('outbox_retry_due_idx')
+      .on(t.status, t.retryAfter, t.createdAt, t.id)
+      .where(sql`${t.attempts}<3`),
+    index('outbox_claim_due_idx')
+      .on(t.status, t.claimedAt, t.id)
+      .where(sql`${t.attempts}<3`),
     index('outbox_retention_idx').on(t.status, sql`COALESCE(${t.sentAt},${t.createdAt})`, t.id),
   ]
 );

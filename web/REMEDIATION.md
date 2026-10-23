@@ -2306,3 +2306,50 @@ server function and this document were backed up and hash-verified (3/3) at
 C:\Users\nicka\store-remediation-backups\20261023T043840Z\quote-schema-fix\.
 No tests, provider calls, migrations or remote operations ran. Browser confirmation
 remains pending under the deferred-verification instruction.
+
+## Conditional recovery checkpoint — 2026-10-23
+
+The CI repair and due-only recovery changes are implemented but unverified.
+See [RECOVERY-WATCHDOG.md](RECOVERY-WATCHDOG.md) for the requirement ledger and
+operating procedure. Financial recovery now discovers eligible work instead of
+unconditionally dispatching seven families. Outbox recovery queues bounded pages
+on NOTIFICATIONS; only its consumer sends email. Existing immediate event paths,
+queues, provider deadlines and financial restrictions remain.
+
+Migration 0017 adds six indexes only and is prepared, not applied. This checkpoint
+also leaves outstanding migration 0016 unapplied. No tests, lint, type generation,
+typecheck, build, migration checks, browser/provider journeys, service restarts,
+commits, pushes or remote changes ran. Existing green results do not verify these
+changes. The implementation stops before the separately authorized verification
+and local-migration checkpoint.
+
+### Conditional recovery implementation evidence — 2026-10-23
+
+- Baseline/HEAD unchanged: a26d8ca83e0606c66d07dc0c8edda62c8e391f2b.
+- Backup: C:\Users\nicka\store-remediation-backups\20261023T113126Z\conditional-recovery\.
+- Before-images rechecked: 373/373 SHA-256 matches.
+- SHA256.json hash: D37EDDAC9451D24DC68DCFB900E20718B3E6836CD22D48551C43D49200CA7325.
+- Dependency install: exit 0, scripts disabled; @types/node 24.19.2 and undici-types 7.24.6 added. Retained version changes: 0; removed packages: 0.
+- Isolated Drizzle generation: exit 0; migration 0017 has six CREATE INDEX statements. Migration SHA-256: ECDFD2C1C68FC2FFBAB5294B035CAA22EA26E46D3F64E39EE25BD171B656AD6F.
+- Formatter write: exit 0. No formatting check, lint, tests, type generation, typecheck/build, query-plan validation, migration drift or migration execution ran.
+- Working tree: 24 modified files and 4 new files, all unstaged. Existing callers of the removed direct-send drain were updated, but those tests were not run.
+- No service restart, provider operation, commit, push, deployment or remote change was initiated.
+
+The implementation pauses before verification. CI and recovery correctness are not
+claimed as passing. Follow RECOVERY-WATCHDOG.md for the deferred checks and migration
+procedure; 0016 and 0017 remain unapplied by this checkpoint.
+# Recovery review follow-up — implementation only, 2026-10-23
+
+- Generic queue enqueueing now refuses maintenance messages; task-aware dispatch
+  remains the sole maintenance routing path, including NOTIFICATIONS outbox work.
+- Authorization/refund recovery no longer counts selected-but-unchanged due rows
+  as progress. Bounded post-operation lookups use the same captured eligibility
+  predicates; the existing maintenance backoff applies when work stays due.
+- Added focused regressions in `tests/recovery-progress.test.ts` and
+  `tests/queue-separation.test.ts`, not executed under the verification pause.
+- Before-images, revision/status, binary diffs and verified SHA-256 manifest:
+  `C:\Users\nicka\store-remediation-backups\20261023T130750Z\recovery-progress\`.
+  Six before-images matched their working-tree source hashes before editing.
+- No tests, builds, migration checks/application, commits, pushes or remote calls.
+  Query-plan review for the six prepared 0017 indexes remains pending verification.
+

@@ -12,6 +12,13 @@ import { reservationStatementsSetBased, releaseOrderHoldsStmts } from './invento
 import { requestRefund } from './refunds';
 import { commitWithEmails, emailStatement, operationalRecipients, enqueueJob } from './email';
 import type { PaymentProvider, PaymentIntentDetails, StripeSessionLite } from './payments';
+import {
+  recoveryContext,
+  authorizationDue,
+  authorizationAlertDue,
+  authorizationAlertId,
+  type RecoveryContext,
+} from './recovery-eligibility';
 
 const now = () => new Date().toISOString();
 const later = () => new Date(Date.now() + 60_000).toISOString();
@@ -657,29 +664,39 @@ export async function recoverAuthorizedCheckouts(
   provider: PaymentProvider | null,
   admission: { getByName(name: string): AdmissionStub } | undefined,
   limit = 20,
-  dueBefore = now()
+  dueBefore = now(),
+  context?: RecoveryContext
 ) {
   if (!provider) return 0;
+  const captured = context ?? (await recoveryContext(db, dueBefore));
+  const due = authorizationDue(captured);
   const rows = await db
     .prepare(
-      "SELECT id FROM checkout_intents WHERE flow='manual_capture' AND payment_next_at<=? AND payment_state NOT IN ('finalized','canceled') AND (payment_claim_expires_at IS NULL OR payment_claim_expires_at<=?) ORDER BY payment_next_at,id LIMIT ?"
+      `SELECT ci.id FROM checkout_intents ci WHERE ${due.sql} ORDER BY ci.payment_next_at,ci.id LIMIT ?`
     )
-    .bind(dueBefore, now(), limit)
+    .bind(...due.values, limit)
     .all<{ id: string }>();
-  for (const row of rows.results) await runAuthorizedCheckout(db, provider, row.id, admission);
+  let advanced = 0;
+  for (const row of rows.results) {
+    await runAuthorizedCheckout(db, provider, row.id, admission);
+    // A selected row is not progress; only completed or durably deferred work counts.
+    const stillDue = await db
+      .prepare(`SELECT 1 FROM checkout_intents ci WHERE ci.id=? AND ${due.sql}`)
+      .bind(row.id, ...due.values)
+      .first();
+    if (!stillDue) advanced++;
+  }
+  const alertDue = authorizationAlertDue(captured);
   const old = await db
     .prepare(
-      "SELECT id,authorized_at FROM checkout_intents ci WHERE flow='manual_capture' AND authorized_at IS NOT NULL AND payment_state NOT IN ('finalized','canceled') AND authorized_at<? AND NOT EXISTS(SELECT 1 FROM outbox WHERE id LIKE (CASE WHEN ci.authorized_at<? THEN 'authorization-escalated-' ELSE 'authorization-overdue-' END)||ci.id||'-%') ORDER BY authorized_at LIMIT 20"
+      `SELECT ci.id,ci.authorized_at FROM checkout_intents ci WHERE ${alertDue.sql} ORDER BY ci.authorized_at,ci.id LIMIT 20`
     )
-    .bind(
-      new Date(Date.now() - 5 * 60_000).toISOString(),
-      new Date(Date.now() - 15 * 60_000).toISOString()
-    )
+    .bind(...alertDue.values)
     .all<{ id: string; authorized_at: string }>();
   if (old.results.length) {
-    const recipients = await operationalRecipients(db);
+    const recipients = captured.recipients;
     const alertId = (row: { id: string; authorized_at: string }, to: string) =>
-      `authorization-${Date.now() - Date.parse(row.authorized_at) >= 15 * 60_000 ? 'escalated' : 'overdue'}-${row.id}-${to}`;
+      authorizationAlertId(captured, row.id, row.authorized_at, to);
     console.warn(
       JSON.stringify({
         event: 'authorization_recovery_overdue',
@@ -696,7 +713,7 @@ export async function recoverAuthorizedCheckouts(
           emailStatement(db, alertId(row, to), {
             to,
             subject:
-              Date.now() - Date.parse(row.authorized_at) >= 15 * 60_000
+              Date.parse(captured.clock) - Date.parse(row.authorized_at) > 15 * 60_000
                 ? 'Escalation: authorized checkout remains unresolved'
                 : 'Authorized checkout needs recovery',
             text: `Checkout ${row.id} has an unresolved payment operation. Inspect provider state before releasing inventory.`,
@@ -707,5 +724,5 @@ export async function recoverAuthorizedCheckouts(
       old.results.flatMap((row) => recipients.map((to) => alertId(row, to)))
     );
   }
-  return rows.results.length;
+  return advanced + old.results.length;
 }

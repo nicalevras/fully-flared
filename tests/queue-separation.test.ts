@@ -43,6 +43,18 @@ it('reports a missing queue binding instead of throwing', async () => {
   }
 });
 
+it('refuses generic maintenance routing without sending to any queue', async () => {
+  const counts = Object.values(sends).map((send) => send.mock.calls.length);
+  const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    expect(await enqueueJob({ type: 'maintenance.run', runId: 'outbox-run' })).toBe(false);
+    expect(Object.values(sends).map((send) => send.mock.calls.length)).toEqual(counts);
+    expect(log).toHaveBeenCalled();
+  } finally {
+    log.mockRestore();
+  }
+});
+
 it('broadcasts go straight to the RealtimeDO and failures are swallowed', async () => {
   await broadcastAdminRealtime('order.paid', { sessionId: 'cs_1' });
   expect(broadcast).toHaveBeenCalledWith('order.paid', { sessionId: 'cs_1' });

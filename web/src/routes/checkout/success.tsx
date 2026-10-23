@@ -34,7 +34,7 @@ type OrderView = {
 const getOrder = createServerFn({ method: 'GET' })
   .validator(validateServerInput(successOrderInputSchema))
   .handler(async ({ data }): Promise<OrderView> => {
-    const { env } = await import('cloudflare:workers');
+    const { workerEnv: env } = await import('../../server/env');
     // Order details are private: the signed token from the checkout redirect
     // or the signed-in owner of the order. The order id alone is not enough.
     const row = await env.DB.prepare(

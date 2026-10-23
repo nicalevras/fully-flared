@@ -6,7 +6,8 @@ import { addCartLine, ensureCart } from '../web/src/server/cart';
 import { adjustStock } from '../web/src/server/inventory';
 import { createPendingOrder } from '../web/src/server/checkout';
 import { attachStripeSession } from './helpers/attach-session';
-import { drainOutbox } from '../web/src/server/email';
+import { enqueueOutboxRecoveryPage, processOutboxRow } from '../web/src/server/email';
+import { recoveryContext } from '../web/src/server/recovery-eligibility';
 import { emailStatement, commitWithEmails } from '../web/src/server/outbox';
 import { requestRefund, settleRefund } from '../web/src/server/refunds';
 import { runAdminAction } from '../web/src/server/admin-actions';
@@ -141,7 +142,9 @@ it('enqueues a committed receipt immediately, and a queue failure leaves cron re
     'test'
   );
   expect(sent).toContain(`receipt-${o.orderId}`);
-  expect(await drainOutbox(db)).toBe(1);
+  expect((await enqueueOutboxRecoveryPage(db, await recoveryContext(db))).queued).toBe(1);
+  expect(emailSend).not.toHaveBeenCalled();
+  expect(await processOutboxRow(db, `receipt-${o.orderId}`)).toBe(true);
   expect(emailSend).toHaveBeenCalledTimes(1);
 });
 

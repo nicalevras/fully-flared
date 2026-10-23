@@ -324,3 +324,23 @@ uploads and prior destinations and requires both object deletion and cache purge
 Historical untracked orphan objects remain unverified. See the
 [checkpoint ledger](../web/CHECKOUT-HARDENING.md). These changes have not run the
 ordinary suite, isolated 100k gate or deployed measurements.
+
+## Conditional recovery watchdog (2026-10-23; verification pending)
+
+The 15-minute safety watchdog now checks shared business-record eligibility and
+unfinished maintenance runs before enqueueing recovery. It no longer starts seven
+families unconditionally. The intended idle acceptance case is a fully initialized
+store with no due work, no unfinished runs and no pending catalog invalidations:
+zero new recovery runs and zero Queue sends. This has not yet been measured.
+
+Recovery remains independent per family using the existing queues and D1 records.
+Outbox recovery runs on NOTIFICATIONS, queues at most 25 rows per delivery, and
+persists a created_at/id cursor for a fixed coverage cutoff. It never loops back
+while already queued mail remains pending. The consumer retains existing send
+claims, retry caps and ten-minute stale-send recovery. Delivery is not exactly once.
+
+Prepared migration 0017 adds retry/age/attempt/claim indexes. EXPLAIN QUERY PLAN,
+rows-read measurements, focused recovery tests, clean CI/build verification and
+local migration application remain pending. See the
+[checkpoint ledger](../web/RECOVERY-WATCHDOG.md). No savings or deployed capacity
+claim follows from these source changes alone.

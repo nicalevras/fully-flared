@@ -146,3 +146,19 @@ operator workflow, migration/rollback procedure and deferred acceptance cases.
 Historical green results above do not verify these changes. Tests, typechecks,
 builds, drift checks and provider/browser journeys are intentionally deferred until
 the user's review pause. No commits, pushes, deployments or remote changes ran.
+
+## Conditional recovery checkpoint — 2026-10-23
+
+The CI repair and due-only recovery changes are implemented but unverified.
+See [RECOVERY-WATCHDOG.md](RECOVERY-WATCHDOG.md) for the requirement ledger and
+operating procedure. Financial recovery now discovers eligible work instead of
+unconditionally dispatching seven families. Outbox recovery queues bounded pages
+on NOTIFICATIONS; only its consumer sends email. Existing immediate event paths,
+queues, provider deadlines and financial restrictions remain.
+
+Migration 0017 adds six indexes only and is prepared, not applied. This checkpoint
+also leaves outstanding migration 0016 unapplied. No tests, lint, type generation,
+typecheck, build, migration checks, browser/provider journeys, service restarts,
+commits, pushes or remote changes ran. Existing green results do not verify these
+changes. The implementation stops before the separately authorized verification
+and local-migration checkpoint.

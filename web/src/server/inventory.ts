@@ -9,6 +9,8 @@
 // conditional updates simply do not land when stock is insufficient, and
 // the guard triggers in migration 0004 reject negative counters.
 
+import { recoveryContext, reservationDue, type RecoveryContext } from './recovery-eligibility';
+
 export type StockItem = { sku: string; qty: number };
 
 /** Restock only units that were actually sold, once for the whole order. */
@@ -279,8 +281,11 @@ export async function releaseReservation(db: D1Database, reservationId: string) 
     .prepare('SELECT sku, qty FROM reservations WHERE id = ?')
     .bind(reservationId)
     .first<{ sku: string; qty: number }>();
-  if (!row) return;
-  await db.batch(releaseReservationStmts(db, { id: reservationId, sku: row.sku, qty: row.qty }));
+  if (!row) return false;
+  const result = await db.batch(
+    releaseReservationStmts(db, { id: reservationId, sku: row.sku, qty: row.qty })
+  );
+  return (result[0]?.meta.changes ?? 0) > 0;
 }
 
 export async function commitReservation(db: D1Database, reservationId: string) {
@@ -292,19 +297,21 @@ export async function commitReservation(db: D1Database, reservationId: string) {
   await db.batch(commitReservationStmts(db, { id: reservationId, sku: row.sku, qty: row.qty }));
 }
 
-export async function releaseExpiredReservations(db: D1Database, limit = 100): Promise<number> {
+export async function releaseExpiredReservations(
+  db: D1Database,
+  limit = 100,
+  context?: RecoveryContext
+): Promise<number> {
+  const due = reservationDue(context ?? (await recoveryContext(db)));
   const expired = await db
-    .prepare(
-      `SELECT id FROM reservations WHERE status = 'active' AND expires_at < ? AND NOT EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=reservations.order_id AND ci.flow='manual_capture' AND ci.allocation_id IS NOT NULL AND ci.payment_state NOT IN ('canceled','finalized')) ORDER BY expires_at LIMIT ?`
-    )
-    .bind(now(), limit)
+    .prepare(`SELECT r.id FROM reservations r WHERE ${due.sql} ORDER BY r.expires_at,r.id LIMIT ?`)
+    .bind(...due.values, limit)
     .all<{ id: string }>();
   let released = 0;
   for (const r of expired.results) {
     // One bad row must not stall the whole sweep (and every later sweep).
     try {
-      await releaseReservation(db, r.id);
-      released += 1;
+      if (await releaseReservation(db, r.id)) released += 1;
     } catch (err) {
       console.error('hold expiry failed for reservation', r.id, err);
     }
