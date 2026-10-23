@@ -16,6 +16,7 @@ import type { Auth } from '../lib/auth';
 
 export const CSV_IMPORT_MAX_ROWS = 1000;
 import { AccountDeletionError, deleteAccountAtomically } from './account-deletion';
+import { exportCustomerData } from './account';
 import { deleteMediaObjects, publicMediaEnvironment } from './media-delivery';
 import { SHIPPABLE_ORDER_STATUSES, SHIPPABLE_PAYMENT_STATUSES } from '../lib/order-actions';
 
@@ -1311,43 +1312,10 @@ export async function runAdminAction(
       case 'customer.export': {
         const f = parsedAction.data;
         const userId = f.userId;
-        const [profile, orders, addresses, returns] = await Promise.all([
-          db
-            .prepare(
-              'SELECT id, name, email, email_verified AS emailVerified, role, created_at AS createdAt FROM user WHERE id = ?'
-            )
-            .bind(userId)
-            .first(),
-          db
-            .prepare(
-              'SELECT id, number, status, payment_status AS paymentStatus, total_cents AS totalCents, currency, created_at AS createdAt FROM orders WHERE user_id = ? ORDER BY created_at'
-            )
-            .bind(userId)
-            .all(),
-          db
-            .prepare(
-              'SELECT id, name, line1, line2, city, state, postal_code AS postalCode, country, phone FROM addresses WHERE user_id = ?'
-            )
-            .bind(userId)
-            .all(),
-          db
-            .prepare(
-              'SELECT id, order_id AS orderId, status, reason, created_at AS createdAt FROM returns WHERE user_id = ? ORDER BY created_at'
-            )
-            .bind(userId)
-            .all(),
-        ]);
-        if (!profile) return { ok: false, error: 'Customer not found' };
+        const data = await exportCustomerData(db, userId);
+        if (!data) return { ok: false, error: 'Customer not found' };
         await audit(db, actor.id, 'customer.export', 'user', userId, {});
-        return {
-          ok: true,
-          data: z.json().parse({
-            profile,
-            orders: orders.results,
-            addresses: addresses.results,
-            returns: returns.results,
-          }),
-        };
+        return { ok: true, data: z.json().parse(data) };
       }
       case 'customer.delete': {
         const f = parsedAction.data;

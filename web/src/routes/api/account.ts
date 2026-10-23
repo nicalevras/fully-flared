@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { AuthError, getSessionUser } from '../../server/session';
-import { claimVerifiedGuestOrders } from '../../server/account';
+import { exportCustomerData } from '../../server/account';
 
 // Customer self-service API (plan Step 5): address book, data export,
 // account deletion. Every handler requires the caller's own session; a
@@ -20,33 +20,9 @@ export const Route = createFileRoute('/api/account')({
           const { env, user } = await requireUser(request);
           const url = new URL(request.url);
           if (url.searchParams.get('export') === '1') {
-            await claimVerifiedGuestOrders(
-              env.DB,
-              user as { id: string; email: string; emailVerified?: boolean }
-            );
-            const [orders, addresses] = await Promise.all([
-              env.DB.prepare(
-                'SELECT id, number, status, payment_status, total_cents, currency, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC'
-              )
-                .bind(user.id)
-                .all(),
-              env.DB.prepare(
-                'SELECT id, name, line1, line2, city, state AS region, postal_code, country, phone, is_default FROM addresses WHERE user_id = ?'
-              )
-                .bind(user.id)
-                .all(),
-            ]);
-            const payload = {
-              exportedAt: new Date().toISOString(),
-              profile: {
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                createdAt: user.createdAt,
-              },
-              orders: orders.results,
-              addresses: addresses.results,
-            };
+            const data = await exportCustomerData(env.DB, user.id);
+            if (!data) throw new AuthError('UNAUTHENTICATED', 'Sign in required');
+            const payload = { exportedAt: new Date().toISOString(), ...data };
             return new Response(JSON.stringify(payload, null, 2), {
               headers: {
                 'Content-Type': 'application/json',

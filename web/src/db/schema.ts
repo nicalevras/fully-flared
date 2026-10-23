@@ -100,14 +100,18 @@ export const account = sqliteTable('account', {
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 });
 
-export const verification = sqliteTable('verification', {
-  id: text('id').primaryKey(),
-  identifier: text('identifier').notNull(),
-  value: text('value').notNull(),
-  expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' }),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }),
-});
+export const verification = sqliteTable(
+  'verification',
+  {
+    id: text('id').primaryKey(),
+    identifier: text('identifier').notNull(),
+    value: text('value').notNull(),
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => [index('verification_identifier_idx').on(t.identifier)]
+);
 
 export const rateLimit = sqliteTable('rate_limit', {
   id: text('id').primaryKey(),
@@ -119,7 +123,9 @@ export const rateLimit = sqliteTable('rate_limit', {
 export const staffTwoFactorSessions = sqliteTable(
   'staff_two_factor_sessions',
   {
-    sessionTokenHash: text('session_token_hash').primaryKey(),
+    sessionId: text('session_id')
+      .primaryKey()
+      .references(() => session.id, { onDelete: 'cascade' }),
     userId: text('user_id')
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
@@ -798,6 +804,7 @@ export const orders = sqliteTable(
       ),
     index('orders_created_id_idx').on(t.createdAt, t.id),
     index('orders_email_idx').on(t.customerEmail),
+    index('orders_user_idx').on(t.userId, t.createdAt, t.id),
     index('orders_payment_intent_idx').on(t.stripePaymentIntentId),
     index('orders_ip_retention_idx')
       .on(t.createdAt, t.id)
@@ -959,6 +966,7 @@ export const returns = sqliteTable(
   },
   (t) => [
     index('returns_order_idx').on(t.orderId),
+    index('returns_user_idx').on(t.userId),
     index('returns_status_created_id_idx').on(t.status, t.createdAt, t.id),
     uniqueIndex('returns_active_order_unique')
       .on(t.orderId)
@@ -1046,22 +1054,26 @@ export const shippingRates = sqliteTable('shipping_rates', {
   perKgCents: integer('per_kg_cents'),
 });
 
-export const addresses = sqliteTable('addresses', {
-  id: text('id').primaryKey(),
-  userId: text('user_id')
-    .notNull()
-    .references(() => user.id, { onDelete: 'cascade' }),
-  label: text('label'),
-  isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
-  name: text('name').notNull(),
-  line1: text('line1').notNull(),
-  line2: text('line2'),
-  city: text('city').notNull(),
-  state: text('state'),
-  postalCode: text('postal_code').notNull(),
-  country: text('country').notNull(),
-  phone: text('phone'),
-});
+export const addresses = sqliteTable(
+  'addresses',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    label: text('label'),
+    isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
+    name: text('name').notNull(),
+    line1: text('line1').notNull(),
+    line2: text('line2'),
+    city: text('city').notNull(),
+    state: text('state'),
+    postalCode: text('postal_code').notNull(),
+    country: text('country').notNull(),
+    phone: text('phone'),
+  },
+  (t) => [index('addresses_user_idx').on(t.userId)]
+);
 
 // ---------- Blog & content pages ----------
 export const posts = sqliteTable(

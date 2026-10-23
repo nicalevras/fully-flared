@@ -204,7 +204,13 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "addresses_user_idx": {
+          "name": "addresses_user_idx",
+          "columns": ["user_id"],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {
         "addresses_user_id_user_id_fk": {
           "name": "addresses_user_id_user_id_fk",
@@ -3266,6 +3272,11 @@
           "columns": ["customer_email"],
           "isUnique": false
         },
+        "orders_user_idx": {
+          "name": "orders_user_idx",
+          "columns": ["user_id", "created_at", "id"],
+          "isUnique": false
+        },
         "orders_payment_intent_idx": {
           "name": "orders_payment_intent_idx",
           "columns": ["stripe_payment_intent_id"],
@@ -4364,6 +4375,11 @@
           "columns": ["order_id"],
           "isUnique": false
         },
+        "returns_user_idx": {
+          "name": "returns_user_idx",
+          "columns": ["user_id"],
+          "isUnique": false
+        },
         "returns_status_created_id_idx": {
           "name": "returns_status_created_id_idx",
           "columns": ["status", "created_at", "id"],
@@ -4638,8 +4654,8 @@
     "staff_two_factor_sessions": {
       "name": "staff_two_factor_sessions",
       "columns": {
-        "session_token_hash": {
-          "name": "session_token_hash",
+        "session_id": {
+          "name": "session_id",
           "type": "text",
           "primaryKey": true,
           "notNull": true,
@@ -4668,6 +4684,15 @@
         }
       },
       "foreignKeys": {
+        "staff_two_factor_sessions_session_id_session_id_fk": {
+          "name": "staff_two_factor_sessions_session_id_session_id_fk",
+          "tableFrom": "staff_two_factor_sessions",
+          "tableTo": "session",
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
         "staff_two_factor_sessions_user_id_user_id_fk": {
           "name": "staff_two_factor_sessions_user_id_user_id_fk",
           "tableFrom": "staff_two_factor_sessions",
@@ -5179,7 +5204,13 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "verification_identifier_idx": {
+          "name": "verification_identifier_idx",
+          "columns": ["identifier"],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},

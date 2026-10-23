@@ -127,12 +127,12 @@ export async function processOutboxRow(db: D1Database, outboxId: string): Promis
     }
     await d
       .update(outbox)
-      .set({ status: 'sent', sentAt: new Date().toISOString() })
+      .set({ status: 'sent', sentAt: new Date().toISOString(), payloadJson: '{}' })
       .where(
         and(eq(outbox.id, row.id), eq(outbox.status, 'sending'), eq(outbox.claimedAt, claimNow))
       );
     return true;
-  } catch {
+  } catch (error) {
     await d
       .update(outbox)
       .set({
@@ -143,7 +143,11 @@ export async function processOutboxRow(db: D1Database, outboxId: string): Promis
       .where(
         and(eq(outbox.id, row.id), eq(outbox.status, 'sending'), eq(outbox.claimedAt, claimNow))
       );
-    console.warn(JSON.stringify({ event: 'outbox_delivery_failed' }));
+    const code =
+      error instanceof Error && 'code' in error && typeof error.code === 'string'
+        ? error.code
+        : undefined;
+    console.warn(JSON.stringify({ event: 'outbox_delivery_failed', outboxId: row.id, code }));
     throw new Error(`Outbox row ${row.id} failed`);
   }
 }
