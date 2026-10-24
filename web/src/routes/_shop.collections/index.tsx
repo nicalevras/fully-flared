@@ -26,10 +26,6 @@ export const Route = createFileRoute('/_shop/collections/')({
   search: { middlewares: [stripSearchParams({ page: 1 })] },
   loaderDeps: ({ search: { page } }) => ({ page }),
   loader: async ({ deps }) => getCollections({ data: { page: deps.page } }),
-  headers: () => ({
-    'Cache-Control': 'public, max-age=60, stale-while-revalidate=300',
-    'CDN-Cache-Control': 'max-age=300, stale-while-revalidate=600',
-  }),
   head: ({ loaderData }) => ({
     meta: [{ title: 'Collections' }],
     links: loaderData

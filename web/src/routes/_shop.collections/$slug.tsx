@@ -27,10 +27,6 @@ export const Route = createFileRoute('/_shop/collections/$slug')({
   loaderDeps: ({ search: { page } }) => ({ page }),
   loader: async ({ params, deps }) =>
     getCollection({ data: { slug: params.slug, page: deps.page } }),
-  headers: () => ({
-    'Cache-Control': 'public, max-age=60, stale-while-revalidate=300',
-    'CDN-Cache-Control': 'max-age=300, stale-while-revalidate=600',
-  }),
   notFoundComponent: CollectionNotFound,
   head: ({ loaderData }) => {
     if (!loaderData) return { meta: [], links: [] };

@@ -14,6 +14,8 @@ const PUBLIC_PREFIX = /^\/(?:products|collections|pages|blog|shop|search)(?:\/|$
 const SITEMAP_PATH = /^\/sitemap(?:\.xml|\/[a-z]+\.xml)$/;
 
 export const isSitemapPath = (pathname: string) => SITEMAP_PATH.test(pathname);
+const RSS_PATH = '/blog/rss.xml';
+const XML_TYPES = ['application/xml', 'text/xml'];
 
 // Known click-tracking parameters that never change rendered content.
 // Anything else (pagination, filters) is preserved in the cache key.
@@ -46,7 +48,12 @@ export function publicCacheRequest(request: Request): Request | null {
   const url = new URL(request.url);
   const sitemap = isSitemapPath(url.pathname);
   const accept = request.headers.get('accept');
-  const accepted = ['text/html', '*/*', ...(sitemap ? ['application/xml', 'text/xml'] : [])];
+  const accepted = [
+    'text/html',
+    '*/*',
+    ...(sitemap ? XML_TYPES : []),
+    ...(url.pathname === RSS_PATH ? ['application/rss+xml', ...XML_TYPES] : []),
+  ];
   if (accept && !accepted.some((type) => accept.includes(type))) return null;
   if (EXCLUDED_PREFIX.test(url.pathname)) return null;
   if (url.pathname !== '/' && !sitemap && !PUBLIC_PREFIX.test(url.pathname)) return null;
@@ -114,6 +121,10 @@ export function cacheTagsForPath(pathname: string): string[] {
     tags.push('listing-@featured', 'listing-@collections');
     return tags;
   }
+  if (pathname === RSS_PATH) {
+    tags.push('editorial-index', 'listing-@posts');
+    return tags;
+  }
   const [, section, slug] = pathname.split('/');
   if (section === 'shop' || section === 'search') tags.push('listing-all');
   else if (section === 'products' && slug) tags.push(`product-${slug}`);
@@ -125,7 +136,7 @@ export function cacheTagsForPath(pathname: string): string[] {
 }
 
 /** Applies the Workers Cache storage policy to a rendered response.
- *  Only HTML without private state is storable: a page for a 60-second
+ *  Only HTML and the RSS feed without private state are storable: a page for a 60-second
  *  shared TTL with browser revalidation, a not-found page for 30 seconds
  *  so unknown slugs stop reaching storage; anything else is marked
  *  uncacheable so it can never be stored or replayed. */
@@ -133,14 +144,11 @@ export function publicCacheResponse(response: Response, tags: string[]): Respons
   const ttl = response.status === 200 ? 60 : response.status === 404 ? 30 : 0;
   const cacheable =
     ttl > 0 &&
-    (response.headers.get('content-type') ?? '').includes('text/html') &&
+    /^(?:text\/html|application\/rss\+xml)\b/.test(response.headers.get('content-type') ?? '') &&
     !response.headers.has('set-cookie') &&
     !(response.headers.get('cache-control') ?? '').includes('no-store');
   if (cacheable) {
     response.headers.set('Cache-Control', `public, max-age=0, s-maxage=${ttl}`);
-    // Some route loaders set their own longer CDN TTLs from the
-    // pre-Workers-Cache design; the entrypoint policy wins so purges
-    // and the TTL bound hold for every public page.
     response.headers.set('CDN-Cache-Control', `max-age=${ttl}`);
     response.headers.set('Cache-Tag', tags.join(','));
   } else if (!(response.headers.get('cache-control') ?? '').includes('no-store')) {

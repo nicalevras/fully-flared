@@ -25,10 +25,6 @@ export const Route = createFileRoute('/_shop/blog/')({
   loaderDeps: ({ search: { page } }) => ({ page }),
   loader: async ({ deps }) => getPosts({ data: { page: deps.page } }),
   staleTime: 20_000,
-  headers: () => ({
-    'Cache-Control': 'public, max-age=300, stale-while-revalidate=600',
-    'CDN-Cache-Control': 'max-age=3600, stale-while-revalidate=86400',
-  }),
   head: ({ loaderData }) => {
     if (!loaderData) return { meta: [], links: [] };
     const url = absoluteUrl(

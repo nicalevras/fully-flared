@@ -34,10 +34,6 @@ export const Route = createFileRoute('/_shop/search')({
   validateSearch: catalogSearch,
   loaderDeps: ({ search: { q, cursor } }) => ({ q, cursor }),
   loader: async ({ deps }) => search({ data: deps }),
-  headers: () => ({
-    'Cache-Control': 'public, max-age=30, stale-while-revalidate=120',
-    'CDN-Cache-Control': 'max-age=120, stale-while-revalidate=300',
-  }),
   head: () => ({ meta: [{ title: 'Search' }, { name: 'robots', content: 'noindex' }] }),
   component: SearchPage,
 });

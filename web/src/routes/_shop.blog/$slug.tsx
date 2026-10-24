@@ -52,10 +52,6 @@ const getPost = createServerFn({ method: 'GET' })
 export const Route = createFileRoute('/_shop/blog/$slug')({
   loader: async ({ params }) => getPost({ data: params.slug }),
   staleTime: 20_000,
-  headers: () => ({
-    'Cache-Control': 'public, max-age=300, stale-while-revalidate=600',
-    'CDN-Cache-Control': 'max-age=3600, stale-while-revalidate=86400',
-  }),
   notFoundComponent: PostNotFound,
   head: ({ loaderData }) => {
     if (!loaderData) return { meta: [{ title: 'Store' }] };

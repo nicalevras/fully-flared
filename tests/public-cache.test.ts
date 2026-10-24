@@ -170,6 +170,26 @@ it('stores private-free HTML: pages for 60s, not-found pages for 30s', () => {
   expect(json.headers.get('cache-control')).toBe('private, no-store');
 });
 
+it('edge-caches the blog RSS feed like the blog index, purged with it', () => {
+  expect(
+    publicCacheRequest(
+      new Request('https://shop.test/blog/rss.xml', {
+        headers: { accept: 'application/rss+xml, application/xml;q=0.9' },
+      })
+    )
+  ).not.toBeNull();
+  const tags = cacheTagsForPath('/blog/rss.xml');
+  expect(tags).toEqual(cacheTagsForPath('/blog'));
+  const feed = publicCacheResponse(
+    new Response('<rss version="2.0"></rss>', {
+      headers: { 'content-type': 'application/rss+xml; charset=utf-8' },
+    }),
+    tags
+  );
+  expect(feed.headers.get('cache-control')).toBe('public, max-age=0, s-maxage=60');
+  expect(feed.headers.get('cache-tag')).toBe('layout,editorial-index,listing-@posts');
+});
+
 it('maps invalidation scopes to purge tags, deduplicated', () => {
   expect(
     invalidationTags([
