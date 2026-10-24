@@ -318,10 +318,12 @@ failed put does not hold the build open. `verifyChangedReferences` logs
 soak means the pacing or the propagation assumption is wrong.
 
 The 100k gate (`npm run test:scale`, `CATALOG_SCALE=1`) is a local harness and
-needs a quiet machine. Miniflare reaches D1 over a loopback socket that can close
-after a long event-loop stall; the harness retries that transport failure once
-and logs its cause (`test_d1_transport_retry`). Production D1 does not use this
-path.
+needs a quiet machine. Miniflare reaches D1 over a pooled loopback socket, and
+workerd closes a connection idle for 5 seconds. A test process that blocks its
+event loop that long cannot run undici's 1 second idle timer, so the next calls
+meet closed sockets. The harness redelivers each such call and logs every retry
+(`test_d1_transport_retry`) until a run has spent 20 retries. Production D1 does
+not use this path.
 
 FF-16/20/21/23/24 remain measurement gates: static asset billed invocations,
 availability cache overhead, logs, D1/KV/media capacity including history, and

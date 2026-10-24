@@ -17,13 +17,17 @@ export async function applyMigrationFile(db: D1Database, file: string): Promise<
 }
 
 const TRANSPORT_CODES = new Set(['UND_ERR_SOCKET', 'ECONNRESET', 'EPIPE']);
-const MAX_TRANSPORT_RETRIES = 3;
+/** A call can meet one stale pooled socket per attempt, so this bounds the redeliveries in a run. */
+export const TRANSPORT_RETRY_BUDGET = 20;
 
-function transportCode(error: unknown): string | null {
+function transportCause(error: unknown): string | null {
   if (!(error instanceof TypeError)) return null;
   const { cause } = error;
-  if (typeof cause !== 'object' || cause === null || !('code' in cause)) return null;
-  return typeof cause.code === 'string' && TRANSPORT_CODES.has(cause.code) ? cause.code : null;
+  if (typeof cause !== 'object' || cause === null) return null;
+  if ('code' in cause && typeof cause.code === 'string' && TRANSPORT_CODES.has(cause.code))
+    return cause.code;
+  const message = cause instanceof Error ? cause.message : '';
+  return [...TRANSPORT_CODES].find((code) => message.includes(code)) ?? null;
 }
 
 function describeCause({ cause }: Error) {
@@ -35,27 +39,29 @@ function describeCause({ cause }: Error) {
   };
 }
 
-/** Miniflare serves D1 over a loopback socket, so a pooled connection the peer has closed
- *  surfaces as `TypeError: fetch failed`, which Cloudflare's D1 binding never raises. Redelivers
- *  a call once after such a socket error, at most MAX_TRANSPORT_RETRIES times per database,
- *  logging each retry; any other failure is logged with its cause and rethrown. */
+/** Miniflare serves D1 over a pooled loopback socket. workerd closes a connection idle for 5s, and
+ *  a test process that blocks its event loop that long cannot run undici's 1s idle timer, so the
+ *  next calls meet closed sockets as `TypeError: fetch failed`, which Cloudflare's D1 binding
+ *  never raises. Redelivers a call after each such socket error, logging every retry, until the
+ *  run's TRANSPORT_RETRY_BUDGET is spent; any other failure is logged with its cause and rethrown. */
 export function withTransportRetry(db: D1Database): D1Database {
   let retries = 0;
   const attempt = async <T>(operation: () => Promise<T>): Promise<T> => {
-    try {
-      return await operation();
-    } catch (error) {
-      const code = transportCode(error);
-      if (code === null || retries >= MAX_TRANSPORT_RETRIES) {
-        if (error instanceof TypeError)
-          console.error(
-            JSON.stringify({ event: 'test_d1_transport_failed', cause: describeCause(error) })
-          );
-        throw error;
+    for (;;) {
+      try {
+        return await operation();
+      } catch (error) {
+        const code = transportCause(error);
+        if (code === null || retries >= TRANSPORT_RETRY_BUDGET) {
+          if (error instanceof TypeError)
+            console.error(
+              JSON.stringify({ event: 'test_d1_transport_failed', cause: describeCause(error) })
+            );
+          throw error;
+        }
+        retries++;
+        console.warn(JSON.stringify({ event: 'test_d1_transport_retry', code, retries }));
       }
-      retries++;
-      console.warn(JSON.stringify({ event: 'test_d1_transport_retry', code, retries }));
-      return operation();
     }
   };
   const raw = new WeakMap<D1PreparedStatement, D1PreparedStatement>();
