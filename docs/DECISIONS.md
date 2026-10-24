@@ -415,3 +415,15 @@ unapplied. Verification is deferred: see
   place across the audit phases, so a remote database that applied the old chain
   cannot be upgraded. Workers Paid is required. A cold edge cache after each
   deploy is by design (`cross_version_cache: false`).
+- **Accepted audit findings.**
+  - Caching bills the loopback as its own request, so each public HTML view costs
+    two billed requests plus gateway CPU (CAT-10). Billed invocations are
+    measured on the preview.
+  - The stale-claim check compares `updated_at`, not a claim time (CAT-14). Lease
+    fencing bounds the damage, and a `claimed_at` column is a schema change.
+  - A resolvable pointer whose document is missing or invalid throws and renders
+    a 500 (CAT-15). That state means corruption, so it fails loudly.
+  - The gateway renders again only when the storefront entrypoint itself throws
+    (CAT-16). Application errors come back as a 500 response.
+  - Admin actions read `catalog_publication_state` twice (SEC-L15). Both are
+    indexed one-row reads; removing them would enqueue a wake-up for every action.

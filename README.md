@@ -9,6 +9,8 @@ restricted to staff.
 Release verification and current evidence are tracked in
 [the production-hardening ledger](docs/archive/PRODUCTION-HARDENING.md). Ordinary CI excludes
 the isolated 100k catalog gate; run that gate at a release checkpoint.
+The audit closeout, with the evidence for every finding and the preview checklist, is
+in [docs/AUDIT-CLOSEOUT.md](docs/AUDIT-CLOSEOUT.md).
 
 ## Run locally
 
