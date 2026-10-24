@@ -11,6 +11,9 @@
 
 const EXCLUDED_PREFIX = /^\/(?:api|_server|_serverFn|admin|auth|account|checkout|cart|ws)(?:\/|$)/;
 const PUBLIC_PREFIX = /^\/(?:products|collections|pages|blog|shop|search)(?:\/|$)/;
+const SITEMAP_PATH = /^\/sitemap(?:\.xml|\/[a-z]+\.xml)$/;
+
+export const isSitemapPath = (pathname: string) => SITEMAP_PATH.test(pathname);
 
 // Known click-tracking parameters that never change rendered content.
 // Anything else (pagination, filters) is preserved in the cache key.
@@ -32,6 +35,7 @@ const TRACKING_PARAMS = new Set([
 
 const PAGE_PARAMS = ['page'];
 const SEARCH_PARAMS = ['q', 'cursor'];
+const SITEMAP_PARAMS = ['from'];
 
 /** Returns the cleaned request to forward to PublicStorefront, or
  *  null when the request must render directly in the gateway. */
@@ -39,17 +43,26 @@ export function publicCacheRequest(request: Request): Request | null {
   if (request.method !== 'GET') return null;
   if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') return null;
   // Crawlers and bare HTTP clients often send no Accept or */*; they get the same HTML.
-  const accept = request.headers.get('accept');
-  if (accept && !accept.includes('text/html') && !accept.includes('*/*')) return null;
   const url = new URL(request.url);
+  const sitemap = isSitemapPath(url.pathname);
+  const accept = request.headers.get('accept');
+  const accepted = ['text/html', '*/*', ...(sitemap ? ['application/xml', 'text/xml'] : [])];
+  if (accept && !accepted.some((type) => accept.includes(type))) return null;
   if (EXCLUDED_PREFIX.test(url.pathname)) return null;
-  if (url.pathname !== '/' && !PUBLIC_PREFIX.test(url.pathname)) return null;
+  if (url.pathname !== '/' && !sitemap && !PUBLIC_PREFIX.test(url.pathname)) return null;
   const paginated =
     url.pathname === '/shop' ||
     url.pathname === '/collections' ||
     /^\/collections\/[^/]+\/?$/.test(url.pathname) ||
     url.pathname === '/blog';
-  const kept = url.pathname === '/search' ? SEARCH_PARAMS : paginated ? PAGE_PARAMS : [];
+  const kept =
+    url.pathname === '/search'
+      ? SEARCH_PARAMS
+      : paginated
+        ? PAGE_PARAMS
+        : sitemap
+          ? SITEMAP_PARAMS
+          : [];
   for (const key of [...url.searchParams.keys()])
     if (TRACKING_PARAMS.has(key.toLowerCase()) || !kept.includes(key)) url.searchParams.delete(key);
   // Page 1 renders at the bare path, so it shares that cache entry.
@@ -131,6 +144,22 @@ export function publicCacheResponse(response: Response, tags: string[]): Respons
     response.headers.set('CDN-Cache-Control', `max-age=${ttl}`);
     response.headers.set('Cache-Tag', tags.join(','));
   } else if (!(response.headers.get('cache-control') ?? '').includes('no-store')) {
+    response.headers.set('Cache-Control', 'private, no-store');
+  }
+  return response;
+}
+
+/** Sitemaps change only when the catalogue does and carry no cache tag,
+ *  so they are shared for an hour by browsers and a day at the edge. */
+export function sitemapCacheResponse(response: Response): Response {
+  const cacheable =
+    response.status === 200 &&
+    (response.headers.get('content-type') ?? '').includes('xml') &&
+    !response.headers.has('set-cookie');
+  if (cacheable) {
+    response.headers.set('Cache-Control', 'public, max-age=3600');
+    response.headers.set('CDN-Cache-Control', 'max-age=86400');
+  } else {
     response.headers.set('Cache-Control', 'private, no-store');
   }
   return response;

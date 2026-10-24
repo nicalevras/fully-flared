@@ -1,11 +1,8 @@
 import { absoluteUrl, seoMeta } from '../../lib/seo';
-import {
-  getStorefrontLayout,
-  readEditorialDocument,
-  type StorefrontLayoutSnapshot,
-} from '../../server/catalog-read';
+import { type StorefrontLayoutSnapshot } from '../../server/catalog-read';
+import { loadEditorialPage } from '../../server/storefront-pages';
 import { withRequestCanonicalBase } from '../../server/canonical-base';
-import { createFileRoute, notFound } from '@tanstack/react-router';
+import { createFileRoute } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import { validateServerInput } from '../../server/function-boundary';
 import { PageNotFound } from '../../components/NotFound';
@@ -25,14 +22,13 @@ const getPage = createServerFn({ method: 'GET' })
   .validator(validateServerInput(slugParamSchema))
   .handler(async ({ data: slug }): Promise<Page & { layout: StorefrontLayoutSnapshot }> => {
     const { env } = await import('cloudflare:workers');
-    const row = await readEditorialDocument(env.DB, env.CATALOG_KV, 'page', slug);
-    if (!row) throw notFound();
+    const { layout, doc: row } = await loadEditorialPage(env.DB, env, slug);
     return {
       slug: row.slug,
       title: row.title,
       seo_title: row.seoTitle,
       seo_description: row.seoDescription,
-      layout: withRequestCanonicalBase(await getStorefrontLayout(env.DB, env)),
+      layout: withRequestCanonicalBase(layout),
       content_html: sanitizeHtml(row.contentHtml),
     };
   });

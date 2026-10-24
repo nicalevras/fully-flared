@@ -69,6 +69,7 @@ CREATE TABLE `catalog_work` (
 	`checkpoint` text,
 	`retry_count` integer DEFAULT 0 NOT NULL,
 	`next_attempt_at` text,
+	`last_error` text,
 	`created_at` text NOT NULL,
 	`updated_at` text NOT NULL
 );

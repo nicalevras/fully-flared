@@ -12,6 +12,7 @@ import { ALL_LISTING } from '../web/src/server/catalog-models';
 class FakeKv {
   map = new Map<string, string>();
   puts = 0;
+  putKeys: string[] = [];
   invocationOps = 0;
   maxInvocationOps = 0;
   /** Marks one publisher invocation boundary for budget accounting. */
@@ -33,6 +34,7 @@ class FakeKv {
   async put(key: string, value: string) {
     this.countOp();
     this.puts++;
+    this.putKeys.push(key);
     this.map.set(key, value);
     // Real KV puts are network I/O and yield the event loop. An
     // instantly-resolving stub starves the loopback D1 socket during
@@ -181,34 +183,58 @@ it(
         .first<{ n: number }>();
       expect(backlog?.n).toBe(0);
 
-      // A single edit at 100k republishes only its containing pages.
-      await db.prepare("UPDATE products SET title='Renamed at scale' WHERE id='bp50000'").run();
-      const before = kv.puts;
-      for (let unit = 0; unit < 30; unit++) {
+      // Flush reference payloads the build left pending so the edit's
+      // key set is its own.
+      let settled = false;
+      for (let unit = 0; unit < 10_000 && !settled; unit++) {
         const delivery = await queue.deliver();
         expect(delivery.retried).toBe(false);
-        const work = await db
-          .prepare(
-            "SELECT processed_revision,target_revision FROM catalog_work WHERE id='product:bp50000'"
-          )
-          .first<{ processed_revision: number; target_revision: number }>();
-        if (work?.processed_revision === work?.target_revision) break;
+        settled = !delivery.continued;
       }
-      const processed = { processed: 1, kvPuts: kv.puts - before };
-      console.warn(
-        `100k single-edit pass: processed=${processed.processed} kvPuts=${processed.kvPuts}`
-      );
-      // Bounded per affected listing (all + the manual collection
-      // containing the product): page + directory path + reference
-      // each. No catalog-wide rewrite.
-      expect(processed.kvPuts).toBeLessThanOrEqual(10);
-      expect(kv.puts - before).toBe(processed.kvPuts);
+      expect(settled).toBe(true);
+      const pending = await db
+        .prepare('SELECT COUNT(*) AS n FROM catalog_ref_state WHERE pending_payload IS NOT NULL')
+        .first<{ n: number }>();
+      expect(pending?.n).toBe(0);
+
+      // A single edit at 100k republishes only its containing pages:
+      // page + directory path + reference for `all` and the manual
+      // collection holding the product. No catalogue-wide rewrite.
+      kv.putKeys = [];
+      await db.prepare("UPDATE products SET title='Renamed at scale' WHERE id='bp50000'").run();
+      const editStart = Date.now();
+      const edit = await queue.deliver();
+      expect(edit.retried).toBe(false);
+      const work = await db
+        .prepare(
+          "SELECT processed_revision-target_revision AS lag FROM catalog_work WHERE id='product:bp50000'"
+        )
+        .first<{ lag: number }>();
+      expect(work?.lag).toBe(0);
       const found = await db
         .prepare(
           "SELECT page FROM catalog_page_products WHERE product_id='bp50000' AND listing_id='all' AND generation=(SELECT generation FROM catalog_listings WHERE listing_id='all' AND active=1)"
         )
         .first<{ page: number }>();
-      const page = await readListingPage(db, kv, ALL_LISTING, found!.page);
+      if (!found) throw new Error('edited product is on no active page');
+      console.warn(
+        `100k single-edit: deliveries=1 d1=${edit.d1} kvOps=${edit.kv} ms=${Date.now() - editStart} puts(${kv.putKeys.length})=${JSON.stringify(kv.putKeys)}`
+      );
+      const normalized = (key: string) => key.replace(/:[0-9a-f]{16}$/, ':#');
+      expect(kv.putKeys.map(normalized).sort()).toEqual(
+        [
+          'catalog:r1:product:bp50000:#',
+          'catalog:r1:slug:product:bulk-50000',
+          `catalog:r1:listing:all:page:${found.page}:#`,
+          'catalog:r1:dir:#',
+          'catalog:r1:dir:#',
+          'catalog:r1:listing:all:current',
+          'catalog:r1:listing:cmanual:page:1:#',
+          'catalog:r1:dir:#',
+          'catalog:r1:listing:cmanual:current',
+        ].sort()
+      );
+      const page = await readListingPage(db, kv, ALL_LISTING, found.page);
       expect(page?.cards.some((c) => c.title === 'Renamed at scale')).toBe(true);
 
       // A clean queue wake-up verifies replicas without allocating a

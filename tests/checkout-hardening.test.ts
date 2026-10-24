@@ -21,7 +21,7 @@ class Kv {
   }
 }
 it.each(['incremental', 'full'])(
-  'retires renamed product pointers after %s publication',
+  'turns a renamed product pointer into a redirect after %s publication',
   async (mode) => {
     const { db, dispose } = await createTestDb(),
       kv = new Kv();
@@ -38,8 +38,8 @@ it.each(['incremental', 'full'])(
       else await processCatalogWork(db, kv);
       const old = await readProductDocument(db, kv, 'tee'),
         fresh = await readProductDocument(db, kv, 'renamed');
-      expect(old).toBeNull();
-      expect(fresh?.title).toBe('New title');
+      expect(old).toEqual({ redirect: '/products/renamed' });
+      expect(fresh).toMatchObject({ title: 'New title' });
     } finally {
       await dispose();
     }

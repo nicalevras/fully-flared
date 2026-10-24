@@ -1,4 +1,4 @@
-import { leaseGuardStatement, type CatalogLease } from './catalog-exec';
+import { BudgetExhausted, leaseGuardStatement, type CatalogLease } from './catalog-exec';
 import {
   contentRevision,
   directoryNodeSchema,
@@ -12,6 +12,9 @@ import {
 } from './catalog-models';
 
 const PAGE = 100;
+/** Artifacts one sweep unit claims and deletes together. */
+export const GC_DELETE_BATCH = 50;
+const PAGE_REVISION_DELETE_LIMIT = 500;
 export const CATALOG_RETENTION_MS = 7 * 24 * 60 * 60_000;
 const TERMINAL = "('done','acknowledged','failed','canceled')";
 export type ReclaimKv = {
@@ -396,21 +399,24 @@ export async function runCatalogGcUnit(
       )
       .bind(s.cursor)
       .all<Artifact>();
-    const eligible = rows.results.find(
-      (r) =>
-        r.mark_epoch !== s.epoch &&
-        r.unreferenced_at != null &&
-        r.unreferenced_at <= cutoff &&
-        (!r.retry_at || r.retry_at <= now)
-    );
-    if (eligible && !kv?.delete) {
+    const eligible = rows.results
+      .filter(
+        (r) =>
+          r.mark_epoch !== s.epoch &&
+          r.unreferenced_at != null &&
+          r.unreferenced_at <= cutoff &&
+          (!r.retry_at || r.retry_at <= now)
+      )
+      .slice(0, GC_DELETE_BATCH);
+    const kvDelete = kv?.delete?.bind(kv);
+    if (eligible.length > 0 && !kvDelete) {
       console.warn(JSON.stringify({ event: 'catalog_gc_delete_unavailable' }));
       s.phase = 'idle';
       s.next_run_at = new Date(nowMs + 5 * 60_000).toISOString();
       await db.batch([...guard(db, s, lease), save(db, s)]);
       return false;
     }
-    const boundary = eligible?.key ?? rows.results.at(-1)?.key ?? s.cursor;
+    const boundary = eligible.at(-1)?.key ?? rows.results.at(-1)?.key ?? s.cursor;
     const prefix = rows.results
       .filter((r) => r.key <= boundary && r.mark_epoch !== s.epoch)
       .map((r) => r.key);
@@ -422,71 +428,79 @@ export async function runCatalogGcUnit(
         )
         .bind(now, JSON.stringify(prefix), s.epoch),
     ]);
-    if (eligible) {
-      const claimed = await db.batch([
+    if (eligible.length > 0 && kvDelete) {
+      const [, , claim] = await db.batch<{ key: string }>([
         ...guard(db, s, lease),
         db
           .prepare(
-            'UPDATE catalog_artifacts SET deletion_pending=1 WHERE key=? AND mark_epoch<>? AND unreferenced_at<=?'
+            'UPDATE catalog_artifacts SET deletion_pending=1 WHERE key IN (SELECT value FROM json_each(?)) AND mark_epoch<>? AND unreferenced_at<=? RETURNING key'
           )
-          .bind(eligible.key, s.epoch, cutoff),
+          .bind(JSON.stringify(eligible.map((r) => r.key)), s.epoch, cutoff),
       ]);
-      if (!claimed[2]!.meta.changes) return false;
-      try {
-        await kv?.delete?.(eligible.key);
-      } catch (error) {
-        console.warn(
-          JSON.stringify({
-            event: 'catalog_gc_delete_failed',
-            errorType: error instanceof Error ? error.name : 'unknown',
-          })
-        );
-        await db.batch([
-          ...guard(db, s, lease),
-          db
-            .prepare('UPDATE catalog_artifacts SET retry_at=?,failure=? WHERE key=?')
-            .bind(new Date(nowMs + 5 * 60_000).toISOString(), 'KV deletion failed', eligible.key),
-        ]);
-        s.cursor = boundary;
-        await db.batch([...guard(db, s, lease), save(db, s)]);
-        return false;
+      const claimedKeys = new Set((claim?.results ?? []).map((r) => r.key));
+      const deleted: Artifact[] = [];
+      const failed: string[] = [];
+      // The binding has no bulk delete, so keys are removed one at a time.
+      for (const artifact of eligible.filter((r) => claimedKeys.has(r.key))) {
+        try {
+          await kvDelete(artifact.key);
+          deleted.push(artifact);
+        } catch (error) {
+          if (error instanceof BudgetExhausted) throw error;
+          console.warn(
+            JSON.stringify({
+              event: 'catalog_gc_delete_failed',
+              errorType: error instanceof Error ? error.name : 'unknown',
+            })
+          );
+          failed.push(artifact.key);
+        }
       }
-      const statements: D1PreparedStatement[] = [];
-      let remaining = '0',
-        args: unknown[] = [];
-      if (eligible.kind === 'document')
-        statements.push(db.prepare('DELETE FROM catalog_documents WHERE key=?').bind(eligible.key));
-      if (eligible.kind === 'directory')
-        statements.push(
-          db.prepare('DELETE FROM catalog_ref_chunks WHERE hash=?').bind(eligible.revision)
-        );
-      if (eligible.kind === 'page') {
-        args = [eligible.listing_id, eligible.page, eligible.revision];
-        statements.push(
-          db
-            .prepare(
-              'DELETE FROM catalog_listing_page_revisions WHERE (listing_id,generation,page,revision) IN (SELECT listing_id,generation,page,revision FROM catalog_listing_page_revisions WHERE listing_id=? AND page=? AND revision=? LIMIT 100)'
-            )
-            .bind(...args)
-        );
-        remaining =
-          'EXISTS(SELECT 1 FROM catalog_listing_page_revisions WHERE listing_id=? AND page=? AND revision=?)';
-      }
+      const ofKind = (kind: string) => deleted.filter((r) => r.kind === kind);
       await db.batch([
         ...guard(db, s, lease),
-        ...statements,
         db
-          .prepare(`DELETE FROM catalog_artifacts WHERE key=? AND NOT (${remaining})`)
-          .bind(eligible.key, ...args),
+          .prepare(
+            'UPDATE catalog_artifacts SET retry_at=?,failure=? WHERE key IN (SELECT value FROM json_each(?))'
+          )
+          .bind(
+            new Date(nowMs + 5 * 60_000).toISOString(),
+            'KV deletion failed',
+            JSON.stringify(failed)
+          ),
+        db
+          .prepare('DELETE FROM catalog_documents WHERE key IN (SELECT value FROM json_each(?))')
+          .bind(JSON.stringify(ofKind('document').map((r) => r.key))),
+        db
+          .prepare('DELETE FROM catalog_ref_chunks WHERE hash IN (SELECT value FROM json_each(?))')
+          .bind(JSON.stringify(ofKind('directory').map((r) => r.revision))),
+        db
+          .prepare(
+            `DELETE FROM catalog_listing_page_revisions WHERE (listing_id,generation,page,revision) IN (
+              SELECT r.listing_id,r.generation,r.page,r.revision FROM catalog_listing_page_revisions r
+              JOIN json_each(?) j ON r.listing_id=json_extract(j.value,'$[0]') AND r.page=json_extract(j.value,'$[1]') AND r.revision=json_extract(j.value,'$[2]')
+              LIMIT ${PAGE_REVISION_DELETE_LIMIT})`
+          )
+          .bind(JSON.stringify(ofKind('page').map((r) => [r.listing_id, r.page, r.revision]))),
+        db
+          .prepare(
+            `DELETE FROM catalog_artifacts WHERE key IN (SELECT value FROM json_each(?)) AND NOT EXISTS(
+              SELECT 1 FROM catalog_listing_page_revisions r WHERE catalog_artifacts.kind='page' AND r.listing_id=catalog_artifacts.listing_id AND r.page=catalog_artifacts.page AND r.revision=catalog_artifacts.revision)`
+          )
+          .bind(JSON.stringify(deleted.map((r) => r.key))),
       ]);
+      // A page whose revision rows exceed one statement's limit stays
+      // claimed; the sweep resumes at the same cursor to finish it.
       const pending = await db
-        .prepare('SELECT 1 FROM catalog_artifacts WHERE key=?')
-        .bind(eligible.key)
+        .prepare(
+          'SELECT 1 FROM catalog_artifacts WHERE key IN (SELECT value FROM json_each(?)) LIMIT 1'
+        )
+        .bind(JSON.stringify(deleted.map((r) => r.key)))
         .first();
       if (pending) return false;
     }
     s.cursor = boundary;
-    if (rows.results.length < PAGE && !eligible) {
+    if (rows.results.length < PAGE && eligible.length === 0) {
       s.phase = 'prune';
       s.step = 0;
       s.cursor = '';

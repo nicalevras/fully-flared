@@ -1,7 +1,12 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import entry from '@tanstack/react-start/server-entry';
 import { runWithRequestContext } from './exec-context';
-import { cacheTagsForPath, publicCacheResponse } from './public-cache';
+import {
+  cacheTagsForPath,
+  isSitemapPath,
+  publicCacheResponse,
+  sitemapCacheResponse,
+} from './public-cache';
 
 /** Cache-owning entrypoint for public storefront HTML (Phase 4).
  *  Workers Cache sits in front of this entrypoint's fetch; the
@@ -12,7 +17,9 @@ import { cacheTagsForPath, publicCacheResponse } from './public-cache';
 export class PublicStorefront extends WorkerEntrypoint<Cloudflare.Env, { store: string }> {
   override async fetch(request: Request): Promise<Response> {
     const response = await runWithRequestContext(this.ctx, () => entry.fetch(request));
-    return publicCacheResponse(response, cacheTagsForPath(new URL(request.url).pathname));
+    const { pathname } = new URL(request.url);
+    if (isSitemapPath(pathname)) return sitemapCacheResponse(response);
+    return publicCacheResponse(response, cacheTagsForPath(pathname));
   }
 
   /** Purges this entrypoint's cached responses for the given tags.

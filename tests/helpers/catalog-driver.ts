@@ -10,8 +10,7 @@ type KvLike = {
 };
 
 /** Test-only driver: invoke successive bounded build units until
- *  the build completes. Production never loops units inside one
- *  invocation (Round 2); queue deliveries are the successive units. */
+ *  the build completes, without the queue handler's budget. */
 export async function buildCatalogReadModels(
   db: D1Database,
   kv?: KvLike

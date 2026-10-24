@@ -1,7 +1,7 @@
 import { loadDirectoryNode, resolveDirectoryRevision } from './catalog-read';
 import { runCatalogGcUnit, type ReclaimKv } from './catalog-gc';
 import { repairCatalogUnit } from './catalog-repair';
-import { catalogWorkDue, verifyChangedReferences } from './catalog-operations';
+import { verifyChangedReferences } from './catalog-operations';
 import { publishedMediaContent } from './media-delivery';
 import { listPublishedProductsByIds, parseRule } from './catalog';
 import {
@@ -37,6 +37,7 @@ import {
   DIRECTORY_FANOUT,
   FEATURED_INDEX,
   MAX_RAILS,
+  ARTIFACT_BYTE_LIMIT,
   type CatalogCard,
   type DirectoryNode,
   type ListingPage,
@@ -67,7 +68,7 @@ const CHUNK = 88;
 // one build step outside the self-guarding cards phase, one published
 // editorial document, and one layout republish.
 const BUILD_STEP_STATEMENTS = 7;
-const EDITORIAL_DOC_STATEMENTS = 8;
+const EDITORIAL_DOC_STATEMENTS = 10;
 const LAYOUT_STATEMENTS = 14;
 const RETIRE_STATEMENTS = 7;
 
@@ -297,7 +298,7 @@ export async function mirrorDocument(
   revision: string,
   payloadJson: string
 ): Promise<void> {
-  if (new TextEncoder().encode(payloadJson).byteLength > 1_500_000)
+  if (new TextEncoder().encode(payloadJson).byteLength > ARTIFACT_BYTE_LIMIT)
     throw new Error('Catalog document exceeds artifact byte budget');
   await db
     .prepare(
@@ -316,7 +317,7 @@ async function publishDocument(
   base: string,
   value: string
 ): Promise<void> {
-  if (new TextEncoder().encode(value).byteLength > 1_500_000)
+  if (new TextEncoder().encode(value).byteLength > ARTIFACT_BYTE_LIMIT)
     throw new Error('Catalog artifact exceeds byte budget');
   const revision = contentRevision(value),
     key = immutableDocumentKey(base, revision);
@@ -334,6 +335,42 @@ async function unpublishDocument(
 ): Promise<void> {
   if (kv?.delete) await kv.delete(base);
   await db.prepare('DELETE FROM catalog_documents WHERE key=?').bind(base).run();
+}
+
+/** Points a renamed slug, and every slug redirected to it before, at
+ *  the current path. A slug that is live again keeps its own pointer. */
+async function publishMoves(
+  db: D1Database,
+  put: PutFn,
+  section: 'products' | 'blog',
+  slug: string,
+  previous: string | null
+): Promise<void> {
+  const to = `/${section}/${slug}`,
+    start = section.length + 3;
+  const moved = await db
+    .prepare(
+      `WITH RECURSIVE moved(path) AS (SELECT value FROM json_each(?) UNION SELECT r.from_path FROM redirects r JOIN moved m ON r.to_path = m.path)
+       SELECT substr(path, ?) AS slug FROM moved WHERE path <> ? AND path LIKE ? AND NOT EXISTS (SELECT 1 FROM ${section === 'products' ? 'products' : 'posts'} t WHERE t.slug = substr(path, ?))`
+    )
+    .bind(
+      JSON.stringify(previous === null ? [to] : [to, `/${section}/${previous}`]),
+      start,
+      to,
+      `/${section}/%`,
+      start
+    )
+    .all<{ slug: string }>();
+  const keys = moved.results.map((r) =>
+    section === 'products' ? productSlugKey(r.slug) : editorialKey('post', r.slug)
+  );
+  const pointer = JSON.stringify({ redirect: to });
+  for (const key of keys) await put(key, pointer);
+  if (section === 'blog' && keys.length)
+    await db
+      .prepare('DELETE FROM catalog_documents WHERE key IN (SELECT value FROM json_each(?))')
+      .bind(JSON.stringify(keys))
+      .run();
 }
 
 type PublishedIndex = typeof COLLECTION_INDEX | typeof POSTS_INDEX;
@@ -1365,7 +1402,6 @@ export async function processCatalogBuild(
           )
             continue;
           if (prev && prev.slug !== card.slug) {
-            if (kv?.delete) await kv.delete(productSlugKey(prev.slug));
             renamedScopes.push(
               { scope: 'product', scopeId: prev.slug },
               { scope: 'product', scopeId: card.slug }
@@ -1384,6 +1420,10 @@ export async function processCatalogBuild(
               payload: docJson,
             });
             if (prev?.doc_revision !== doc.revision) state.docsChanged++;
+          }
+          if (prev && prev.slug !== card.slug) {
+            await publishMoves(db, put, 'products', card.slug, prev.slug);
+            tick();
           }
           if (prev?.revision !== cardRev) state.cardsChanged++;
           if (prev?.revision !== cardRev || (doc && prev?.doc_revision !== doc.revision))
@@ -2017,14 +2057,20 @@ export async function processCatalogBuild(
   }
 }
 
+/** Failed work retries after 60 s, doubling per attempt up to an hour. */
+const WORK_RETRY_BASE_SECONDS = 60;
+const WORK_RETRY_MAX_SECONDS = 3_600;
+
+/** Delay before retrying while another invocation holds the catalogue lease. */
+export const BUSY_RETRY_SECONDS = 5;
+
 /** One bounded production unit under the shared invocation budget
  *  and the publisher lease (Round 2 execution model). Priority:
  *  continue an open build, deliver pending references, bootstrap or
  *  repair, then one incremental work pass. Returns done=false when
  *  continuation is required; the queue handler enqueues the
  *  continuation before acking. A lost lease is a harmless no-op.
- *  There is deliberately no production loop here: successive units
- *  are separate queue invocations. Test drivers live in tests/. */
+ *  The queue handler may run several units under one budget. */
 export async function runCatalogUnit(
   db: D1Database,
   kv?: KvLike,
@@ -2047,11 +2093,11 @@ export async function runCatalogUnit(
       return { done: false, busy: false, budgetExhausted: true };
     throw error;
   }
-  if (!lease) return { done: false, busy: true };
+  if (!lease) return { done: false, busy: true, retryAfterSeconds: BUSY_RETRY_SECONDS };
   cdb = fencedCatalogDb(metered, lease);
   try {
-    // Idle maintenance needs its budget before publication bookkeeping consumes it.
-    if (opts?.maintenance && !(await catalogWorkDue(cdb))) {
+    // Maintenance runs only its own step; catalogue work stays on the catalog.rebuild chain.
+    if (opts?.maintenance) {
       if (opts.maintenance === 'gc')
         return { done: (await runCatalogGcUnit(metered, kv, lease)) === null, busy: false };
       return { done: kv ? await repairCatalogUnit(cdb, kv, lease) : true, busy: false };
@@ -3327,10 +3373,8 @@ export async function processCatalogWork(
           }
           continue;
         }
-        if (prev && prev.slug !== card.slug) {
-          if (kv?.delete) await kv.delete(productSlugKey(prev.slug));
+        if (prev && prev.slug !== card.slug)
           invalidations.push({ scope: 'product', scopeId: prev.slug });
-        }
         const doc = docs.get(pid);
         const cardJson = JSON.stringify(card);
         const cardRev = contentRevision(cardJson);
@@ -3354,6 +3398,8 @@ export async function processCatalogWork(
               docJson
             );
           }
+          if (prev && prev.slug !== card.slug)
+            await publishMoves(db, put, 'products', card.slug, prev.slug);
           if (prev?.revision !== cardRev) cardChangedIds.add(pid);
           await db
             .prepare(
@@ -3599,6 +3645,8 @@ export async function processCatalogWork(
           invalidations.push({ scope: 'editorial', scopeId: row.slug });
           if (kind === 'post') invalidations.push({ scope: 'editorial', scopeId: 'index' });
           await publishDocument(db, kv, put, 'editorial', docKey, docValue);
+          if (kind === 'post' && !durablePointer)
+            await publishMoves(db, put, 'blog', row.slug, null);
         }
       }
     }
@@ -3676,7 +3724,7 @@ export async function processCatalogWork(
                 .bind(now(), row.id, token)
             : db
                 .prepare(
-                  'UPDATE catalog_work SET processed_revision = ?, build_token = NULL, retry_count = 0, next_attempt_at = NULL WHERE id = ? AND build_token = ?'
+                  'UPDATE catalog_work SET processed_revision = ?, build_token = NULL, retry_count = 0, next_attempt_at = NULL, last_error = NULL WHERE id = ? AND build_token = ?'
                 )
                 .bind(row.target_revision, row.id, token)
         ),
@@ -3706,20 +3754,25 @@ export async function processCatalogWork(
       );
       return { processed: 0, productsPublished: 0, listingsRefreshed: [], kvPuts, more: true };
     }
+    const message = (error instanceof Error ? error.message : 'unknown').slice(0, 500);
     for (const row of claimed)
       await db
         .prepare(
-          'UPDATE catalog_work SET build_token = NULL, retry_count = retry_count + 1, next_attempt_at = ? WHERE id = ? AND build_token = ?'
+          `UPDATE catalog_work SET build_token = NULL, retry_count = retry_count + 1, last_error = ?,
+           next_attempt_at = strftime('%Y-%m-%dT%H:%M:%fZ', ?, '+' || MIN(?, ? << MIN(retry_count, 6)) || ' seconds')
+           WHERE id = ? AND build_token = ?`
         )
-        .bind(new Date(Date.now() + 60_000).toISOString(), row.id, token)
+        .bind(
+          message,
+          new Date().toISOString(),
+          WORK_RETRY_MAX_SECONDS,
+          WORK_RETRY_BASE_SECONDS,
+          row.id,
+          token
+        )
         .run()
         .catch(() => undefined);
-    console.error(
-      JSON.stringify({
-        event: 'catalog_work_failed',
-        error: error instanceof Error ? error.message : 'unknown',
-      })
-    );
+    console.error(JSON.stringify({ event: 'catalog_work_failed', error: message }));
     throw error;
   }
 }

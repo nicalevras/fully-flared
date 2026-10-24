@@ -9,7 +9,7 @@ import { processOutboxRow, type JobMessage } from './server/email';
 import { failInboxEvent, processInboxEvent } from './server/checkout';
 import { getStripeProvider, providerWithBudget } from './server/payments';
 import { runCatalogUnit } from './server/catalog-publisher';
-import { CatalogBudget, countedDb } from './server/catalog-exec';
+import { CATALOG_UNIT_FLOOR_STATEMENTS, CatalogBudget, countedDb } from './server/catalog-exec';
 import { requireStaffSession } from './server/session';
 import { STAFF_SESSION_HEADER } from './do/staff-session-header';
 import { runWithRequestContext } from './server/exec-context';
@@ -308,15 +308,25 @@ async function handleQueue(
         const { runMaintenance } = await import('./server/maintenance');
         await runMaintenance(env, job.runId);
       } else if (job.type === 'catalog.rebuild') {
-        // Bounded catalog execution (Round 2): exactly one unit per
-        // invocation under the shared budget. The budget covers the
-        // unit plus this handler's follow-up (invalidation drain and
-        // realtime broadcast); when it is nearly spent the follow-up
-        // is deferred — invalidations stay queued for the next unit.
-        // Purges wait for the finished run so a multi-unit publish
-        // spends one rate-limited request instead of one per unit.
+        // Bounded catalog execution: successive units share one
+        // invocation budget until a unit finishes, waits, or the budget
+        // can no longer afford another unit. The budget also covers this
+        // handler's follow-up (invalidation drain and realtime
+        // broadcast); when it is nearly spent the follow-up is deferred
+        // and invalidations stay queued for the next unit. Purges wait
+        // for the finished run so a multi-unit publish spends one
+        // rate-limited request instead of one per unit.
         const budget = new CatalogBudget();
-        const result = await runCatalogUnit(env.DB, env.CATALOG_KV, { budget });
+        let result = await runCatalogUnit(env.DB, env.CATALOG_KV, { budget });
+        while (
+          !result.done &&
+          !result.busy &&
+          !result.budgetExhausted &&
+          result.retryAfterSeconds === undefined &&
+          budget.remainingStatements >= CATALOG_UNIT_FLOOR_STATEMENTS &&
+          !budget.spent()
+        )
+          result = await runCatalogUnit(env.DB, env.CATALOG_KV, { budget });
         if (budget.remaining > 10 && budget.remainingStatements > 5) {
           if (result.done) await drainPublicCacheInvalidations(env, ctx, budget);
           budget.tickOp();

@@ -21,6 +21,8 @@ import {
   editorialKey,
   editorialDocumentSchema,
   documentPointerSchema,
+  movedPointerSchema,
+  type MovedPointer,
   immutableDocumentKey,
   indexArtifactSchema,
   postSummarySchema,
@@ -35,15 +37,23 @@ import { parseLimits, publishedLimits, type StoreLimits } from '../schemas/limit
 import { pageWindow } from '../lib/catalog-page';
 import type { PublishedProductCard } from './catalog';
 
-export type CatalogKv = { get(key: string): Promise<string | null> };
+export type CatalogKv = {
+  get(key: string, options?: { cacheTtl?: number }): Promise<string | null>;
+};
+/** Content-addressed values never change, so their edge copy may live a day. */
+export const IMMUTABLE_KV_CACHE_TTL = 86_400;
 type EnvLike = { CATALOG_KV?: CatalogKv };
 type Json = Record<string, unknown>;
 
-async function kvValue(kv: CatalogKv | undefined, key: string): Promise<string | null> {
+async function kvValue(
+  kv: CatalogKv | undefined,
+  key: string,
+  immutable: boolean
+): Promise<string | null> {
   if (!kv) return null;
   return requestRead(kv, `kv:${key}`, async () => {
     try {
-      return await kv.get(key);
+      return await (immutable ? kv.get(key, { cacheTtl: IMMUTABLE_KV_CACHE_TTL }) : kv.get(key));
     } catch {
       console.warn(JSON.stringify({ event: 'catalog_kv_read_failed' }));
       return null;
@@ -96,7 +106,7 @@ export async function loadDirectoryNode(
         : node.entries.every(
             (e, i) => e.from <= e.to && (i === 0 || node.entries[i - 1]!.to < e.from)
           ));
-    const cached = decode(await kvValue(kv, directoryKey(hash)), directoryNodeSchema, valid);
+    const cached = decode(await kvValue(kv, directoryKey(hash), true), directoryNodeSchema, valid);
     if (cached) return cached;
     const row = await db
       .prepare('SELECT payload_json FROM catalog_ref_chunks WHERE hash=?')
@@ -138,7 +148,7 @@ export async function readListingRef(
       ref.listingId === listingId &&
       ref.pageCount === Math.max(1, Math.ceil(ref.total / ref.pageSize));
     const cached = decode(
-      await kvValue(kv, listingRefKey(listingId)),
+      await kvValue(kv, listingRefKey(listingId), false),
       listingReferenceSchema,
       valid
     );
@@ -193,7 +203,7 @@ async function pageRaw<T>(
       const valid = (value: T, body: Json) =>
         identity(value) && contentRevision(JSON.stringify(body)) === revision;
       const key = listingPageKey(ref.listingId, page, revision);
-      const cached = decode(await kvValue(kv, key), schema, valid);
+      const cached = decode(await kvValue(kv, key, true), schema, valid);
       if (cached) return cached;
       const row = await db
         .prepare(
@@ -240,16 +250,26 @@ export async function readListingPage(
 }
 
 /** `beforeFallback` runs only when KV has no pointer, before D1 is
- *  asked; it may throw to refuse the lookup. */
+ *  asked; it may throw to refuse the lookup. A renamed slug answers
+ *  with its moved pointer. */
 export async function readProductDocument(
   db: D1Database,
   kv: CatalogKv | undefined,
   slug: string,
   beforeFallback?: () => Promise<void>
-): Promise<ProductDocument | null> {
+): Promise<ProductDocument | MovedPointer | null> {
   return requestRead(kv ?? db, `product:${slug}`, async () => {
-    const pointerSchema = z.object({ id: z.string().min(1), revision: z.string().min(1) }).strict();
-    let pointer = decode(await kvValue(kv, productSlugKey(slug)), pointerSchema, () => true);
+    const pointerSchema = z.union([
+      z.object({ id: z.string().min(1), revision: z.string().min(1) }).strict(),
+      movedPointerSchema,
+    ]);
+    const current = decode(
+      await kvValue(kv, productSlugKey(slug), false),
+      pointerSchema,
+      () => true
+    );
+    if (current && 'redirect' in current) return current;
+    let pointer = current;
     if (!pointer) {
       await beforeFallback?.();
       const row = await db
@@ -267,7 +287,7 @@ export async function readProductDocument(
       doc.revision === pinned.revision &&
       bodyRevision(body) === pinned.revision;
     const doc =
-      decode(await kvValue(kv, key), productDocumentSchema, valid) ??
+      decode(await kvValue(kv, key, true), productDocumentSchema, valid) ??
       decode(await documentRaw(db, key), productDocumentSchema, valid);
     if (!doc) throw new Error('Published product document is unavailable');
     return doc;
@@ -281,14 +301,16 @@ async function readDocument<T>(
   schema: z.ZodType<T>,
   identity: (value: T) => boolean,
   pinnedKey?: string
-): Promise<T | null> {
-  let pointer = pinnedKey
+): Promise<T | MovedPointer | null> {
+  const current = pinnedKey
     ? { key: pinnedKey, revision: pinnedKey.slice(pinnedKey.lastIndexOf(':') + 1) }
     : decode(
-        await kvValue(kv, base),
-        documentPointerSchema,
-        (p) => p.key === immutableDocumentKey(base, p.revision)
+        await kvValue(kv, base, false),
+        z.union([documentPointerSchema, movedPointerSchema]),
+        (p) => 'redirect' in p || p.key === immutableDocumentKey(base, p.revision)
       );
+  if (current && 'redirect' in current) return current;
+  let pointer = current;
   if (!pointer)
     pointer = decode(
       await documentRaw(db, base),
@@ -300,7 +322,7 @@ async function readDocument<T>(
   const valid = (value: T, body: Json) =>
     identity(value) && contentRevision(JSON.stringify(body)) === revision;
   const doc =
-    decode(await kvValue(kv, pointer.key), schema, valid) ??
+    decode(await kvValue(kv, pointer.key, true), schema, valid) ??
     decode(await documentRaw(db, pointer.key), schema, valid);
   if (!doc) throw new Error('Published document is unavailable');
   return doc;
@@ -312,7 +334,7 @@ export async function readCollectionMeta(
   slug: string,
   pinnedKey?: string
 ) {
-  return readDocument(
+  const meta = await readDocument(
     db,
     kv,
     collectionMetaKey(slug),
@@ -320,6 +342,7 @@ export async function readCollectionMeta(
     (v) => v.slug === slug,
     pinnedKey
   );
+  return meta && 'redirect' in meta ? null : meta;
 }
 export async function readEditorialDocument(
   db: D1Database,
@@ -358,7 +381,7 @@ export function getStorefrontLayout(
   const kv = env.CATALOG_KV;
   return requestRead(kv ?? db, 'layout', async () => {
     const refSchema = z.object({ revision: z.string().min(1) }).strict();
-    let ref = decode(await kvValue(kv, LAYOUT_REF_KEY), refSchema, () => true);
+    let ref = decode(await kvValue(kv, LAYOUT_REF_KEY, false), refSchema, () => true);
     if (!ref) {
       const row = await db
         .prepare("SELECT root_hash FROM catalog_ref_state WHERE ref_key='layout'")
@@ -372,7 +395,7 @@ export function getStorefrontLayout(
         contentRevision(JSON.stringify({ ...body, revision: '' })) === ref!.revision &&
         Boolean(publishedLimits(value.limits));
       const model =
-        decode(await kvValue(kv, key), layoutModelSchema, valid) ??
+        decode(await kvValue(kv, key, true), layoutModelSchema, valid) ??
         decode(await documentRaw(db, key), layoutModelSchema, valid);
       if (!model) throw new Error('Published storefront layout is unavailable');
       return { ...model, limits: publishedLimits(model.limits) };

@@ -5,11 +5,13 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb } from './helpers/d1';
 import {
   ensureCatalogReadModels,
+  BUSY_RETRY_SECONDS,
   processCatalogWork,
   runCatalogUnit,
 } from '../web/src/server/catalog-publisher';
 import { readListingPage } from '../web/src/server/catalog-read';
 import {
+  CATALOG_BUDGET_LIMITS,
   CatalogBudget,
   claimCatalogLease,
   leaseGuardStatement,
@@ -105,7 +107,7 @@ async function driveUnits(max = 500): Promise<number> {
   for (; units < max; units++) {
     kv.beginInvocation();
     const res = await queue.deliver();
-    expect(res.d1).toBeLessThanOrEqual(40);
+    expect(res.d1).toBeLessThanOrEqual(CATALOG_BUDGET_LIMITS.d1Statements);
     expect(res.retried).toBe(false);
     if (!res.continued) return units + 1;
   }
@@ -188,7 +190,8 @@ describe('Round 2 bounded catalog execution', () => {
     await dispose();
   });
   it('retries a failed continuation send without acknowledging the message', async () => {
-    await seedProducts(3);
+    // Large enough that the first invocation cannot finish the publish.
+    await seedProducts(501);
     const queue = await catalogQueueHarness(db, kv);
     queue.failNextSend();
     const failed = await queue.deliver();
@@ -265,7 +268,7 @@ describe('Round 2 bounded catalog execution', () => {
     const lease = await claimCatalogLease(db);
     expect(lease).not.toBeNull();
     const res = await runCatalogUnit(db, kv, { budget: new CatalogBudget() });
-    expect(res).toEqual({ done: false, busy: true });
+    expect(res).toEqual({ done: false, busy: true, retryAfterSeconds: BUSY_RETRY_SECONDS });
     await db
       .prepare(
         'UPDATE catalog_publication_state SET lease_token = NULL, lease_expires_at = NULL WHERE id = 1'

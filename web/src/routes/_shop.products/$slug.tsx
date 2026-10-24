@@ -1,12 +1,11 @@
 import { useAvailability, purchaseAvailability } from '../../lib/availability';
 import { useState } from 'react';
 import { useStoreCurrency } from '../../lib/use-store-currency';
-import { Link, createFileRoute, notFound, redirect } from '@tanstack/react-router';
+import { Link, createFileRoute, notFound } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import { getRequest, setResponseStatus } from '@tanstack/react-start/server';
 import { validateServerInput } from '../../server/function-boundary';
-import { getStorefrontLayout } from '../../server/catalog-read';
-import { readProductDocument } from '../../server/catalog-read';
+import { loadProductPage } from '../../server/storefront-pages';
 import { requestCanonicalBase } from '../../server/canonical-base';
 import { storefrontLimited } from '../../server/storefront-limit';
 import { slugParamSchema } from '../../schemas/checkout';
@@ -53,27 +52,20 @@ const getProduct = createServerFn({ method: 'GET' })
   .validator(validateServerInput(slugParamSchema))
   .handler(async ({ data: slug }): Promise<ProductDetail> => {
     const { env } = await import('cloudflare:workers');
-    const layout = await getStorefrontLayout(env.DB, env);
-    const base = {
+    const { layout, doc } = await loadProductPage(env.DB, env, slug, async () => {
+      if (await storefrontLimited(env.STOREFRONT_LIMITER, 'product', getRequest())) {
+        setResponseStatus(429);
+        throw notFound();
+      }
+    });
+    return {
+      ...doc,
       limits: layout.limits,
       storeName: layout.storeName,
       seoTitleTemplate: layout.seoTitleTemplate,
       canonicalBaseUrl: requestCanonicalBase(layout.canonicalBaseUrl),
       currency: layout.currency,
     };
-    // Published documents fall back only to their exact durable mirror.
-    const cached = await readProductDocument(env.DB, env.CATALOG_KV, slug, async () => {
-      if (await storefrontLimited(env.STOREFRONT_LIMITER, 'product', getRequest())) {
-        setResponseStatus(429);
-        throw notFound();
-      }
-    });
-    if (cached && cached.status === 'active') return { ...cached, ...base };
-    const moved = await env.DB.prepare('SELECT to_path FROM redirects WHERE from_path = ?')
-      .bind(`/products/${slug}`)
-      .first<{ to_path: string }>();
-    if (moved) throw redirect({ to: moved.to_path });
-    throw notFound();
   });
 
 export const Route = createFileRoute('/_shop/products/$slug')({

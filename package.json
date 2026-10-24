@@ -10,6 +10,7 @@
     "typecheck": "npm --prefix web run typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:scale": "CATALOG_SCALE=1 vitest run tests/catalog-scale-100k.test.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
