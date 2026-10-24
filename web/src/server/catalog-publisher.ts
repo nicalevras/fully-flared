@@ -3449,7 +3449,7 @@ export async function processCatalogWork(
             const chunk = idList.slice(i, i + CHUNK);
             const containing = await db
               .prepare(
-                `SELECT DISTINCT listing_id FROM catalog_page_products WHERE product_id IN (${placeholders(chunk.length)})`
+                `SELECT DISTINCT pp.listing_id FROM catalog_page_products pp JOIN catalog_listings l ON l.listing_id=pp.listing_id AND l.generation=pp.generation AND l.active=1 WHERE pp.product_id IN (${placeholders(chunk.length)})`
               )
               .bind(...chunk)
               .all<{ listing_id: string }>();

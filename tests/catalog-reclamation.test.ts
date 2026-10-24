@@ -52,8 +52,9 @@ import {
   listingPageKey,
   layoutKey,
 } from '../web/src/server/catalog-models';
-import { processCatalogWork } from '../web/src/server/catalog-publisher';
+import { processCatalogWork, runCatalogUnit } from '../web/src/server/catalog-publisher';
 import { catalogQueueHarness } from './helpers/catalog-queue';
+import { buildCatalogReadModels } from './helpers/catalog-driver';
 const start = Date.now();
 class Kv {
   map = new Map<string, string>();
@@ -92,6 +93,13 @@ async function cycle(kv: Kv, at: number) {
   } finally {
     await releaseCatalogLease(db, lease);
   }
+}
+async function settle(target: D1Database, kv: Kv) {
+  for (let pass = 0; pass < 20; pass++) {
+    const result = await processCatalogWork(target, kv);
+    if (!result.more && result.processed === 0) return;
+  }
+  throw new Error('catalogue work did not settle');
 }
 async function doc(key: string) {
   await db
@@ -399,4 +407,58 @@ it('deletes a batch of eligible artifacts in one sweep unit and keeps a failed k
     expect(kv.map.has(key)).toBe(true);
     expect(await has(key)).toBe(true);
   }
+});
+
+it('a deleted collection leaves product edits alone and its membership is reclaimed', async () => {
+  const kv = new Kv();
+  await seedProduct(db);
+  await db.batch([
+    db.prepare(
+      "INSERT INTO collections(id,slug,title,description,kind,created_at) VALUES('gone','gone','Gone','','manual','2026-01-01')"
+    ),
+    db.prepare("INSERT INTO product_collections(product_id,collection_id) VALUES('p1','gone')"),
+  ]);
+  await buildCatalogReadModels(db, kv);
+  const members = async () =>
+    (
+      await db
+        .prepare("SELECT COUNT(*) AS n FROM catalog_membership WHERE listing_id='gone'")
+        .first<{ n: number }>()
+    )?.n;
+  expect(await members()).toBe(1);
+  let probes = 0;
+  const counted = new Proxy(db, {
+    get(target, prop) {
+      const value: unknown = Reflect.get(target, prop);
+      if (prop === 'prepare')
+        return (sql: string) => {
+          if (sql.includes('collection-meta-pointer')) probes++;
+          return target.prepare(sql);
+        };
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  await db.batch([
+    db.prepare("DELETE FROM product_collections WHERE collection_id='gone'"),
+    db.prepare("DELETE FROM collections WHERE id='gone'"),
+  ]);
+  await settle(counted, kv);
+  expect(probes).toBe(1);
+  await db.prepare("UPDATE products SET title='Tee 2' WHERE id='p1'").run();
+  await settle(counted, kv);
+  expect(probes).toBe(1);
+  // Drain the queued index rebuild; only reference verification may still wait.
+  for (let units = 1; ; units++) {
+    const unit = await runCatalogUnit(db, kv);
+    if (unit.done || unit.retryAfterSeconds) break;
+    expect(units).toBeLessThan(50);
+  }
+  await cycle(kv, Date.now() + 2 * CATALOG_RETENTION_MS + 1);
+  expect(await members()).toBe(0);
+  expect(
+    await db.prepare("SELECT 1 FROM catalog_listings WHERE listing_id='gone'").first()
+  ).toBeNull();
+  expect(
+    await db.prepare("SELECT 1 FROM catalog_membership WHERE listing_id='all'").first()
+  ).not.toBeNull();
 });

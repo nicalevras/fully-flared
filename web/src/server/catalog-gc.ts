@@ -9,6 +9,7 @@ import {
   productSlugKey,
   layoutKey,
   LAYOUT_REF_KEY,
+  ALL_LISTING,
 } from './catalog-models';
 
 const PAGE = 100;
@@ -553,11 +554,12 @@ export async function runCatalogGcUnit(
     }
     const old = await db
       .prepare(
-        `SELECT l.listing_id,l.generation FROM catalog_listings l WHERE l.active=0 AND l.updated_at<? AND NOT EXISTS(SELECT 1 FROM catalog_listing_ref_history h WHERE h.listing_id=l.listing_id AND h.generation=l.generation) ORDER BY l.updated_at,l.listing_id,l.generation LIMIT 1`
+        `SELECT l.listing_id,l.generation,l.listing_id<>'${ALL_LISTING}' AND NOT EXISTS(SELECT 1 FROM collections c WHERE c.id=l.listing_id) AND NOT EXISTS(SELECT 1 FROM catalog_listings a WHERE a.listing_id=l.listing_id AND a.active=1) AS retired FROM catalog_listings l WHERE l.active=0 AND l.updated_at<? AND NOT EXISTS(SELECT 1 FROM catalog_listing_ref_history h WHERE h.listing_id=l.listing_id AND h.generation=l.generation) ORDER BY l.updated_at,l.listing_id,l.generation LIMIT 1`
       )
       .bind(cutoff)
-      .first<{ listing_id: string; generation: number }>();
+      .first<{ listing_id: string; generation: number; retired: number }>();
     if (old) {
+      // A retired listing keeps its last generation row until its membership is gone.
       await db.batch([
         ...guard(db, s, lease),
         db
@@ -565,11 +567,27 @@ export async function runCatalogGcUnit(
             'DELETE FROM catalog_page_products WHERE (product_id,listing_id,generation,page) IN (SELECT product_id,listing_id,generation,page FROM catalog_page_products WHERE listing_id=? AND generation=? LIMIT 100)'
           )
           .bind(old.listing_id, old.generation),
+        ...(old.retired
+          ? [
+              db
+                .prepare(
+                  'DELETE FROM catalog_membership WHERE (listing_id,product_id) IN (SELECT listing_id,product_id FROM catalog_membership WHERE listing_id=? LIMIT 100)'
+                )
+                .bind(old.listing_id),
+            ]
+          : []),
         db
           .prepare(
-            'DELETE FROM catalog_listings WHERE listing_id=? AND generation=? AND active=0 AND NOT EXISTS(SELECT 1 FROM catalog_page_products WHERE listing_id=? AND generation=?)'
+            'DELETE FROM catalog_listings WHERE listing_id=? AND generation=? AND active=0 AND NOT EXISTS(SELECT 1 FROM catalog_page_products WHERE listing_id=? AND generation=?) AND NOT EXISTS(SELECT 1 FROM catalog_membership WHERE listing_id=? AND ?)'
           )
-          .bind(old.listing_id, old.generation, old.listing_id, old.generation),
+          .bind(
+            old.listing_id,
+            old.generation,
+            old.listing_id,
+            old.generation,
+            old.listing_id,
+            old.retired
+          ),
       ]);
       return false;
     }
