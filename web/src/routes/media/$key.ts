@@ -1,6 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { VARIANT_WIDTHS, variantKey } from '../../server/media';
 
+import { SVG_CSP } from '../../lib/image-input';
+
 const VARIANT_WIDTH_SET = new Set<number>(VARIANT_WIDTHS);
 
 export const Route = createFileRoute('/media/$key')({
@@ -40,6 +42,10 @@ export const Route = createFileRoute('/media/$key')({
           exact ? 'public, max-age=31536000, immutable' : 'public, max-age=300, must-revalidate'
         );
         if (!headers.has('Content-Type')) headers.set('Content-Type', 'image/jpeg');
+
+        headers.set('X-Content-Type-Options', 'nosniff');
+        if (headers.get('Content-Type')?.split(';')[0] === 'image/svg+xml')
+          headers.set('Content-Security-Policy', SVG_CSP);
 
         const ifNoneMatch = request.headers.get('If-None-Match');
         if (

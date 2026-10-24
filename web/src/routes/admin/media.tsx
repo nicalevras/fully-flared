@@ -1,3 +1,4 @@
+import { IMAGE_ACCEPT, IMAGE_GUIDANCE } from '../../lib/image-input';
 import { useState } from 'react';
 import { staffMiddleware } from '../../server/staff-middleware';
 import { formatDate } from '../../lib/format';
@@ -168,7 +169,7 @@ function AdminMedia() {
           {uploading ? 'Uploading…' : 'Upload image'}
           <input
             type="file"
-            accept="image/jpeg,image/png,image/webp,image/gif"
+            accept={IMAGE_ACCEPT}
             className="sr-only"
             aria-label="Upload image"
             onChange={async (e) => {
@@ -192,6 +193,7 @@ function AdminMedia() {
         </label>
       </div>
 
+      <p className="text-xs text-zinc-500">{IMAGE_GUIDANCE}</p>
       {media.length === 0 ? (
         <p className={`${cardCls} mt-6 p-5 text-sm text-zinc-500`} role="status">
           No media yet. Upload your first image above, or add one from a product page.

@@ -1,3 +1,4 @@
+import { IMAGE_ACCEPT, IMAGE_GUIDANCE } from '../lib/image-input';
 import { useState } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -46,7 +47,7 @@ export function BlogEditor({
   async function addImage() {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = 'image/jpeg,image/png,image/webp,image/gif';
+    input.accept = IMAGE_ACCEPT;
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
@@ -109,6 +110,7 @@ export function BlogEditor({
         <button type="button" className={tool} aria-label="Insert image" onClick={addImage}>
           Insert image
         </button>
+        <p className="text-xs text-zinc-500">{IMAGE_GUIDANCE}</p>
         {uploadError ? (
           <span className="px-2 text-[13px] text-red-600" role="alert">
             {uploadError}

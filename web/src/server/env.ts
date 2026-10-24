@@ -15,6 +15,7 @@ export type WorkerEnv = Cloudflare.Env & {
   DEV_TRUSTED_ORIGINS?: string;
   PUBLIC_MEDIA?: R2Bucket;
   MEDIA_ZONE_ID?: string;
+  SVG_VERIFIED_PUBLIC_ORIGIN?: string;
   MEDIA_PURGE_TOKEN?: string;
 };
 
@@ -33,5 +34,6 @@ export const runtimeConfigSchema = z.object({
     .regex(/^[a-f0-9]{32}$/i)
     .optional(),
   MEDIA_PURGE_TOKEN: z.string().min(1).optional(),
+  SVG_VERIFIED_PUBLIC_ORIGIN: z.url().optional(),
 });
 export { exactDevOrigins } from './origins';

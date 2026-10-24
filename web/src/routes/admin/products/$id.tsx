@@ -1,3 +1,4 @@
+import { IMAGE_ACCEPT, IMAGE_GUIDANCE } from '../../../lib/image-input';
 import { useState } from 'react';
 import { staffMiddleware } from '../../../server/staff-middleware';
 import { useStoreCurrency } from '../../../lib/use-store-currency';
@@ -336,14 +337,14 @@ function EditForm({
           <div>
             <h2 className="text-sm font-medium text-zinc-950">Images</h2>
             <p className={hintCls}>
-              The first image is the cover shown in listings. JPG, PNG, WebP, or GIF.
+              The first image is the cover shown in listings. {IMAGE_GUIDANCE}
             </p>
           </div>
           <label className={`${btnSmall} cursor-pointer`}>
             {uploading ? 'Uploading…' : 'Add image'}
             <input
               type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif"
+              accept={IMAGE_ACCEPT}
               className="sr-only"
               aria-label="Add product image"
               onChange={async (e) => {

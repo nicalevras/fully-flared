@@ -33,7 +33,7 @@ export type ReportQuery = z.infer<typeof reportQuerySchema>;
 
 export const mediaUploadMetaSchema = z.object({
   filename: z.string().min(1).max(255),
-  contentType: z.enum(['image/jpeg', 'image/png', 'image/webp', 'image/gif']),
+  contentType: z.enum(['image/webp', 'image/svg+xml']),
   sizeBytes: z
     .number()
     .int()

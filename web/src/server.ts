@@ -35,7 +35,8 @@ const CONTENT_SECURITY_POLICY = [
 
 function withSecurityHeaders(response: Response, request?: Request): Response {
   const headers = new Headers(response.headers);
-  headers.set('Content-Security-Policy', CONTENT_SECURITY_POLICY);
+  if (!headers.has('Content-Security-Policy'))
+    headers.set('Content-Security-Policy', CONTENT_SECURITY_POLICY);
   if (request) {
     if (privateResponse(request, response)) {
       headers.set('Cache-Control', 'private, no-store');

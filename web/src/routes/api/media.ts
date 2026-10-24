@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { requireStaff, requireStaffPermission } from '../../server/session';
-import { VARIANT_WIDTHS, detectImageType, variantKey } from '../../server/media';
+import { VARIANT_WIDTHS, variantKey } from '../../server/media';
 import { mediaUploadMetaSchema } from '../../schemas/account';
 import { getSettings } from '../../server/settings';
 import {
@@ -8,6 +8,8 @@ import {
   publicMediaEnvironment,
   purgePublicMedia,
 } from '../../server/media-delivery';
+import { inspectRaster } from '../../lib/image-input';
+import { sanitizeStaticSvg } from '../../server/svg';
 import { enqueueCatalogRebuild } from '../../server/catalog-publisher';
 
 export const Route = createFileRoute('/api/media')({
@@ -43,23 +45,40 @@ export const Route = createFileRoute('/api/media')({
             { status: 400 }
           );
         }
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        const detected = detectImageType(bytes);
-        const settings = await getSettings(env.DB),
-          deliveryEnv = publicMediaEnvironment(env);
-        if (!detected) return Response.json({ error: 'Unsupported image type' }, { status: 400 });
-        if (file.type && file.type !== detected.contentType) {
+        let bytes = new Uint8Array(await file.arrayBuffer());
+        const detected =
+          file.type === 'image/svg+xml'
+            ? { contentType: 'image/svg+xml', extension: 'svg' }
+            : { contentType: 'image/webp', extension: 'webp' };
+        try {
+          if (detected.extension === 'svg') bytes = new Uint8Array(await sanitizeStaticSvg(bytes));
+          else if (inspectRaster(bytes).type !== 'webp')
+            throw Error('Only static WebP or SVG uploads are accepted.');
+        } catch (error) {
           return Response.json(
-            { error: 'File contents do not match the declared image type' },
+            { error: error instanceof Error ? error.message : 'Invalid image' },
             { status: 400 }
           );
         }
+        const settings = await getSettings(env.DB),
+          deliveryEnv = publicMediaEnvironment(env);
+        if (
+          detected.extension === 'svg' &&
+          settings.mediaPublicBaseUrl &&
+          deliveryEnv.SVG_VERIFIED_PUBLIC_ORIGIN !== new URL(settings.mediaPublicBaseUrl).origin
+        )
+          return Response.json(
+            { error: 'Public SVG delivery requires verified CDN security headers.' },
+            { status: 503 }
+          );
         // Variant upload: the admin browser generated a resized copy of an
         // already-uploaded original. Store it under the derived variant key
         // (no media row; the serving route negotiates ?w= against it).
         const variantOf = form.get('variant_of');
         const variantWidth = Number(form.get('variant_width') ?? 0);
         if (form.has('variant_of') || form.has('variant_width')) {
+          if (detected.extension === 'svg')
+            return Response.json({ error: 'SVG does not use raster variants' }, { status: 400 });
           if (typeof variantOf !== 'string' || variantOf.length === 0 || variantOf.length > 200) {
             return Response.json({ error: 'Original image is required' }, { status: 400 });
           }

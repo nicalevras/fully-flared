@@ -122,6 +122,8 @@ export async function publishMediaObject(
   baseUrl: string
 ): Promise<string | null> {
   if (!baseUrl) return null;
+  if (contentType === 'image/svg+xml' && env.SVG_VERIFIED_PUBLIC_ORIGIN !== new URL(baseUrl).origin)
+    throw Error('Public SVG delivery requires verified CDN security headers');
   if (!env.PUBLIC_MEDIA || !env.MEDIA_ZONE_ID || !env.MEDIA_PURGE_TOKEN)
     throw Error('Public media storage and purge configuration are required');
   const publicUrl = `${baseUrl.replace(/\/$/, '')}/media/${encodeURIComponent(key)}`;
@@ -234,12 +236,13 @@ export async function publishExistingMediaPage(env: WorkerEnv, cursor: string, c
   const object = await env.MEDIA.get(row.r2_key);
   if (!object || object.size > 10 * 1024 * 1024)
     throw Error('Source image is missing or exceeds the upload limit');
+  const bytes = new Uint8Array(await object.arrayBuffer());
   const url = await publishMediaObject(
     env.DB,
     env,
     row.media_id,
     row.r2_key,
-    new Uint8Array(await object.arrayBuffer()),
+    bytes,
     row.content_type,
     settings.mediaPublicBaseUrl
   );

@@ -1,31 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectImageType, variantKey, variantWidthsFor } from '../web/src/server/media';
-
-describe('upload byte detection', () => {
-  it('detects supported images from bytes, not declared MIME', () => {
-    expect(detectImageType(new Uint8Array([0xff, 0xd8, 0xff, 0x00]))).toEqual({
-      contentType: 'image/jpeg',
-      extension: 'jpg',
-    });
-    expect(
-      detectImageType(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
-    ).toEqual({ contentType: 'image/png', extension: 'png' });
-    expect(detectImageType(new TextEncoder().encode('GIF89a'))).toEqual({
-      contentType: 'image/gif',
-      extension: 'gif',
-    });
-    const webp = new Uint8Array(12);
-    webp.set(new TextEncoder().encode('RIFF'), 0);
-    webp.set(new TextEncoder().encode('WEBP'), 8);
-    expect(detectImageType(webp)).toEqual({ contentType: 'image/webp', extension: 'webp' });
-  });
-
-  it('rejects scripts, SVG, and spoofed content', () => {
-    expect(detectImageType(new TextEncoder().encode('<svg onload=alert(1)>'))).toBeNull();
-    expect(detectImageType(new TextEncoder().encode('<script>alert(1)</script>'))).toBeNull();
-    expect(detectImageType(new Uint8Array([0x00, 0x01, 0x02]))).toBeNull();
-  });
-});
+import { variantKey, variantWidthsFor } from '../web/src/server/media';
 
 describe('responsive variants', () => {
   it('derives variant keys next to the original, matching the serving route', () => {
@@ -42,4 +16,47 @@ describe('responsive variants', () => {
     expect(variantWidthsFor(0)).toEqual([]);
     expect(variantWidthsFor(Number.NaN)).toEqual([]);
   });
+});
+
+it('bounds static containers and rejects animation, cropped AVIF and inconsistent WebP frames', async () => {
+  const { inspectRaster } = await import('../web/src/lib/image-input');
+  const { png, webp } = await import('./helpers/image-fixtures');
+  const box = (name: string, ...parts: Uint8Array[]) => {
+    const bytes = new Uint8Array(8 + parts.reduce((n, p) => n + p.length, 0));
+    new DataView(bytes.buffer).setUint32(0, bytes.length);
+    bytes.set(new TextEncoder().encode(name), 4);
+    let offset = 8;
+    for (const part of parts) {
+      bytes.set(part, offset);
+      offset += part.length;
+    }
+    return bytes;
+  };
+  const avif = (brand = 'avif', cropped = false, width = 640) => {
+    const dims = new Uint8Array(12),
+      view = new DataView(dims.buffer);
+    view.setUint32(4, width);
+    view.setUint32(8, 480);
+    const ftyp = box('ftyp', new TextEncoder().encode(`${brand}0000${brand}`));
+    const meta = box(
+      'meta',
+      new Uint8Array(4),
+      box('iprp', box('ipco', box('ispe', dims), ...(cropped ? [box('clap')] : [])))
+    );
+    return new Uint8Array([...ftyp, ...meta]);
+  };
+  expect(inspectRaster(avif()).type).toBe('avif');
+  expect(inspectRaster(png()).width).toBe(640);
+  const inconsistent = webp();
+  new DataView(inconsistent.buffer).setUint16(44, 12000, true);
+  for (const bytes of [
+    avif('avis'),
+    avif('avif', true),
+    avif('avif', false, 12000),
+    avif().slice(0, -1),
+    png(640, 480, true),
+    webp(640, 480, true),
+    inconsistent,
+  ])
+    expect(() => inspectRaster(bytes)).toThrow();
 });

@@ -1,8 +1,3 @@
-// Image type detection from magic bytes. The browser-supplied MIME type is
-// never trusted: a file is an image only if its bytes say so, and the stored
-// content type/extension come from the detected type.
-export type DetectedImage = { contentType: string; extension: string };
-
 /** Responsive variant widths served by /media/$key?w=. Variants are
  * generated in the admin browser at upload time (Workers has no image
  * codec) and stored next to the original under a derived key. */
@@ -136,31 +131,4 @@ export function variantKey(key: string, width: number): string {
 export function variantWidthsFor(naturalWidth: number): number[] {
   if (!Number.isFinite(naturalWidth) || naturalWidth <= 0) return [];
   return VARIANT_WIDTHS.filter((w) => w < naturalWidth);
-}
-
-function startsWith(bytes: Uint8Array, signature: number[], offset = 0): boolean {
-  return signature.every((value, i) => bytes[offset + i] === value);
-}
-
-export function detectImageType(bytes: Uint8Array): DetectedImage | null {
-  if (bytes.length >= 3 && startsWith(bytes, [0xff, 0xd8, 0xff])) {
-    return { contentType: 'image/jpeg', extension: 'jpg' };
-  }
-  if (bytes.length >= 8 && startsWith(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) {
-    return { contentType: 'image/png', extension: 'png' };
-  }
-  if (bytes.length >= 6) {
-    const header = new TextDecoder().decode(bytes.slice(0, 6));
-    if (header === 'GIF87a' || header === 'GIF89a') {
-      return { contentType: 'image/gif', extension: 'gif' };
-    }
-  }
-  if (
-    bytes.length >= 12 &&
-    new TextDecoder().decode(bytes.slice(0, 4)) === 'RIFF' &&
-    new TextDecoder().decode(bytes.slice(8, 12)) === 'WEBP'
-  ) {
-    return { contentType: 'image/webp', extension: 'webp' };
-  }
-  return null;
 }

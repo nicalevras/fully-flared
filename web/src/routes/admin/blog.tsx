@@ -1,3 +1,4 @@
+import { IMAGE_ACCEPT, IMAGE_GUIDANCE } from '../../lib/image-input';
 import { useState } from 'react';
 import { staffMiddleware } from '../../server/staff-middleware';
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router';
@@ -290,7 +291,7 @@ function AdminBlog() {
               Upload a cover image
               <input
                 type="file"
-                accept="image/jpeg,image/png,image/webp,image/gif"
+                accept={IMAGE_ACCEPT}
                 className="sr-only"
                 aria-label="Upload cover image"
                 onChange={async (e) => {
@@ -306,6 +307,7 @@ function AdminBlog() {
                 }}
               />
             </label>
+            <p className="mt-2 text-xs text-zinc-500">{IMAGE_GUIDANCE}</p>
           </div>
           <div className="lg:col-span-3">
             <label className={labelCls} htmlFor="b-excerpt">
