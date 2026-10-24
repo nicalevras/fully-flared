@@ -3391,11 +3391,6 @@
           "columns": ["status", "claimed_at", "id"],
           "isUnique": false,
           "where": "\"outbox\".\"attempts\"<3"
-        },
-        "outbox_retention_idx": {
-          "name": "outbox_retention_idx",
-          "columns": ["status", "COALESCE(\"sent_at\",\"created_at\")", "id"],
-          "isUnique": false
         }
       },
       "foreignKeys": {},
@@ -5310,11 +5305,6 @@
           "name": "webhook_inbox_due_idx",
           "columns": ["status", "retry_after", "received_at"],
           "isUnique": false
-        },
-        "webhook_inbox_retention_idx": {
-          "name": "webhook_inbox_retention_idx",
-          "columns": ["status", "COALESCE(\"processed_at\",\"received_at\")", "id"],
-          "isUnique": false
         }
       },
       "foreignKeys": {},
@@ -5329,23 +5319,5 @@
     "schemas": {},
     "tables": {},
     "columns": {}
-  },
-  "internal": {
-    "indexes": {
-      "outbox_retention_idx": {
-        "columns": {
-          "COALESCE(\"sent_at\",\"created_at\")": {
-            "isExpression": true
-          }
-        }
-      },
-      "webhook_inbox_retention_idx": {
-        "columns": {
-          "COALESCE(\"processed_at\",\"received_at\")": {
-            "isExpression": true
-          }
-        }
-      }
-    }
   }
 }

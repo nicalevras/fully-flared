@@ -1146,14 +1146,7 @@ export const webhookInbox = sqliteTable(
     receivedAt: text('received_at').notNull(),
     processedAt: text('processed_at'),
   },
-  (t) => [
-    index('webhook_inbox_due_idx').on(t.status, t.retryAfter, t.receivedAt),
-    index('webhook_inbox_retention_idx').on(
-      t.status,
-      sql`COALESCE(${t.processedAt},${t.receivedAt})`,
-      t.id
-    ),
-  ]
+  (t) => [index('webhook_inbox_due_idx').on(t.status, t.retryAfter, t.receivedAt)]
 );
 
 export const outbox = sqliteTable(
@@ -1176,7 +1169,6 @@ export const outbox = sqliteTable(
     index('outbox_claim_due_idx')
       .on(t.status, t.claimedAt, t.id)
       .where(sql`${t.attempts}<3`),
-    index('outbox_retention_idx').on(t.status, sql`COALESCE(${t.sentAt},${t.createdAt})`, t.id),
   ]
 );
 
