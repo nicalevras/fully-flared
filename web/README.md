@@ -51,7 +51,7 @@ npm run cf-typegen
 npm run check
 npm run check:migrations
 node scripts/verify-tracer.mjs
-node scripts/verify-http.mjs
+npm run verify:http
 node scripts/reconcile.mjs
 node scripts/load-test.mjs
 ```

@@ -119,6 +119,9 @@ Run `npm test` and `npm run lint` from the root. From `web`, run `npm run check`
 and `npm run check:migrations`. HTTP, browser and load checks require a running
 local server; see the web README for commands.
 
+The root pins TypeScript 5.9 because typescript-eslint supports only `<6.1`;
+`web` builds and typechecks with TypeScript 7.
+
 The maintained application, Wrangler configuration and migration chain are in
 `web`; the root package provides tooling and delegates application commands.
 The historical root API was removed during the architecture refactor.

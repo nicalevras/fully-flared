@@ -8,5 +8,5 @@ package-lock.json
 web/src/routeTree.gen.ts
 
 
-# User-owned planning document; not project source.
-new-plan.md
+# Archived audit ledgers and planning documents; kept verbatim.
+docs/archive/
