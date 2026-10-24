@@ -3,6 +3,7 @@ import { loadPostsIndex } from '../../server/storefront-pages';
 import { withRequestCanonicalBase } from '../../server/canonical-base';
 import { Link, createFileRoute, stripSearchParams } from '@tanstack/react-router';
 import { formatDate } from '../../lib/format';
+import { mediaSrcSet, mediaUrl } from '../../lib/media-url';
 import { createServerFn } from '@tanstack/react-start';
 import { validateServerInput } from '../../server/function-boundary';
 import { homePageInputSchema } from '../../schemas/checkout';
@@ -45,7 +46,7 @@ export const Route = createFileRoute('/_shop/blog/')({
 
 function BlogIndex() {
   const { posts, page, pageCount } = Route.useLoaderData();
-  const [first, ...rest] = posts;
+  const firstCoverIndex = posts.findIndex((post) => post.cover_key);
   return (
     <main className="py-10 lg:py-14">
       <div className="max-w-2xl">
@@ -55,8 +56,62 @@ function BlogIndex() {
           what is coming next.
         </p>
       </div>
+      {posts.length === 0 ? (
+        <Card
+          className="mt-10 border-dashed px-6 py-14 text-center text-sm text-zinc-500"
+          role="status"
+        >
+          No articles published yet. The first post written in Admin → Blog will appear here.
+        </Card>
+      ) : (
+        <div className="mt-8 grid grid-cols-2 gap-x-5 gap-y-10 lg:grid-cols-4">
+          {posts.map((post, index) => (
+            <article key={post.slug} className="group">
+              <Link to="/blog/$slug" params={{ slug: post.slug }} className="block">
+                <div className="relative flex aspect-[4/5] items-center justify-center overflow-hidden rounded-xl bg-zinc-100">
+                  {post.cover_key ? (
+                    <img
+                      src={mediaUrl(
+                        {
+                          key: post.cover_key,
+                          publicUrl: post.cover_public_url,
+                          variants: post.cover_variants,
+                        },
+                        640
+                      )}
+                      srcSet={mediaSrcSet({ key: post.cover_key, variants: post.cover_variants })}
+                      sizes="(min-width: 1280px) 289px, (min-width: 1024px) calc((100vw - 124px) / 4), (min-width: 640px) calc((100vw - 68px) / 2), calc((100vw - 52px) / 2)"
+                      alt={post.title}
+                      loading={index === firstCoverIndex ? 'eager' : 'lazy'}
+                      className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+                    />
+                  ) : (
+                    <span
+                      className="text-6xl leading-none font-light text-zinc-300 select-none transition-transform duration-500 group-hover:scale-105"
+                      aria-hidden
+                    >
+                      {post.title.slice(0, 1).toUpperCase()}
+                    </span>
+                  )}
+                </div>
+                <div className="pt-3">
+                  <h2 className="text-sm leading-snug font-medium text-zinc-950">{post.title}</h2>
+                  <time className="mt-1 block text-xs text-zinc-400" dateTime={post.published_at}>
+                    {formatDate(post.published_at)}
+                  </time>
+                  {post.excerpt ? (
+                    <p className="mt-2 line-clamp-3 text-sm leading-6 text-zinc-500">
+                      {post.excerpt}
+                    </p>
+                  ) : null}
+                </div>
+              </Link>
+            </article>
+          ))}
+        </div>
+      )}
       {pageCount > 1 ? (
-        <Pagination className="mt-6 justify-start" aria-label="Journal pages">
+        <Pagination className="mt-10 justify-start" aria-label="Journal pages">
           <PaginationContent>
             {page > 1 ? (
               <PaginationItem>
@@ -84,55 +139,6 @@ function BlogIndex() {
           </PaginationContent>
         </Pagination>
       ) : null}
-
-      {posts.length === 0 ? (
-        <Card
-          className="mt-10 border-dashed px-6 py-14 text-center text-sm text-zinc-500"
-          role="status"
-        >
-          No articles published yet. The first post written in Admin → Blog will appear here.
-        </Card>
-      ) : (
-        <>
-          {first ? (
-            <Link to="/blog/$slug" params={{ slug: first.slug }} className="group mt-10 block">
-              <Card className="bg-zinc-950 p-7 text-white sm:p-9">
-                <time className="text-xs font-medium text-white/50" dateTime={first.published_at}>
-                  {formatDate(first.published_at)}
-                </time>
-                <h2 className="mt-2.5 max-w-2xl text-[26px] leading-snug font-medium group-hover:underline group-hover:underline-offset-4">
-                  {first.title}
-                </h2>
-                {first.excerpt ? (
-                  <p className="mt-2.5 line-clamp-3 max-w-2xl leading-7 text-white/65">
-                    {first.excerpt}
-                  </p>
-                ) : null}
-                <span className="mt-5 inline-block text-sm font-medium underline underline-offset-4">
-                  Read article
-                </span>
-              </Card>
-            </Link>
-          ) : null}
-          <div className="mt-6 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-            {rest.map((p) => (
-              <Link key={p.slug} to="/blog/$slug" params={{ slug: p.slug }} className="group">
-                <Card className="h-full p-5 transition-colors group-hover:border-zinc-300">
-                  <time className="text-xs font-medium text-zinc-400" dateTime={p.published_at}>
-                    {formatDate(p.published_at)}
-                  </time>
-                  <h3 className="mt-2 text-base leading-snug font-medium text-zinc-950 group-hover:underline group-hover:underline-offset-4">
-                    {p.title}
-                  </h3>
-                  {p.excerpt ? (
-                    <p className="mt-2 line-clamp-3 text-sm leading-6 text-zinc-500">{p.excerpt}</p>
-                  ) : null}
-                </Card>
-              </Link>
-            ))}
-          </div>
-        </>
-      )}
     </main>
   );
 }

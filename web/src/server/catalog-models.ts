@@ -226,6 +226,9 @@ export const postSummarySchema = z.object({
   title: z.string(),
   excerpt: z.string(),
   published_at: z.string(),
+  cover_key: z.string().nullable(),
+  cover_public_url: z.string().nullable(),
+  cover_variants: z.array(z.object({ width: z.number(), url: z.string() })),
 });
 export const indexArtifactSchema = z
   .object({
