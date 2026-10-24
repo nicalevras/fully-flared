@@ -49,7 +49,7 @@ async function pendingRefCount() {
   const row = await db
     .prepare('SELECT COUNT(*) AS n FROM catalog_ref_state WHERE pending_payload IS NOT NULL')
     .first<{ n: number }>();
-  return row!.n;
+  return row?.n;
 }
 afterEach(async () => {
   vi.useRealTimers();
