@@ -1,4 +1,21 @@
+import { z } from 'zod';
 import { listingRefKey, LAYOUT_REF_KEY } from './catalog-models';
+
+const refDigestSchema = z.object({
+  rootHash: z.string().optional(),
+  revision: z.string().optional(),
+});
+
+/** The content hash a listing or layout reference points at; null for a missing or unreadable payload. */
+function refDigest(payload: string | null): string | null {
+  if (payload === null) return null;
+  try {
+    const parsed = refDigestSchema.safeParse(JSON.parse(payload));
+    return parsed.success ? (parsed.data.rootHash ?? parsed.data.revision ?? null) : null;
+  } catch {
+    return null;
+  }
+}
 
 export async function catalogWorkDue(db: D1Database) {
   return Boolean(
@@ -75,6 +92,16 @@ export async function verifyChangedReferences(
     const actual = await kv.get(key);
     if (actual !== row.expected_payload) {
       if (row.last_write_at && Date.now() - Date.parse(row.last_write_at) < 1100) continue;
+      console.warn(
+        JSON.stringify({
+          event: 'catalog_ref_mismatch',
+          refKey: row.ref_key,
+          committedSeq: row.committed_seq,
+          expectedRootHash: refDigest(row.expected_payload),
+          actualRootHash: refDigest(actual),
+          ageMs: row.last_write_at ? Date.now() - Date.parse(row.last_write_at) : null,
+        })
+      );
       await kv.put(key, row.expected_payload);
       await db
         .prepare(

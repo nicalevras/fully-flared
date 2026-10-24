@@ -16,8 +16,87 @@ export async function applyMigrationFile(db: D1Database, file: string): Promise<
   }
 }
 
+const TRANSPORT_CODES = new Set(['UND_ERR_SOCKET', 'ECONNRESET', 'EPIPE']);
+/** A call can meet one stale pooled socket per attempt, so this bounds the redeliveries in a run. */
+export const TRANSPORT_RETRY_BUDGET = 20;
+
+function transportCause(error: unknown): string | null {
+  if (!(error instanceof TypeError)) return null;
+  const { cause } = error;
+  if (typeof cause !== 'object' || cause === null) return null;
+  if ('code' in cause && typeof cause.code === 'string' && TRANSPORT_CODES.has(cause.code))
+    return cause.code;
+  const message = cause instanceof Error ? cause.message : '';
+  return [...TRANSPORT_CODES].find((code) => message.includes(code)) ?? null;
+}
+
+function describeCause({ cause }: Error) {
+  if (typeof cause !== 'object' || cause === null) return { message: String(cause) };
+  return {
+    name: cause instanceof Error ? cause.name : undefined,
+    code: 'code' in cause ? cause.code : undefined,
+    message: cause instanceof Error ? cause.message : undefined,
+  };
+}
+
+/** Miniflare serves D1 over a pooled loopback socket. workerd closes a connection idle for 5s, and
+ *  a test process that blocks its event loop that long cannot run undici's 1s idle timer, so the
+ *  next calls meet closed sockets as `TypeError: fetch failed`, which Cloudflare's D1 binding
+ *  never raises. Redelivers a call after each such socket error, logging every retry, until the
+ *  run's TRANSPORT_RETRY_BUDGET is spent; any other failure is logged with its cause and rethrown. */
+export function withTransportRetry(db: D1Database): D1Database {
+  let retries = 0;
+  const attempt = async <T>(operation: () => Promise<T>): Promise<T> => {
+    for (;;) {
+      try {
+        return await operation();
+      } catch (error) {
+        const code = transportCause(error);
+        if (code === null || retries >= TRANSPORT_RETRY_BUDGET) {
+          if (error instanceof TypeError)
+            console.error(
+              JSON.stringify({ event: 'test_d1_transport_failed', cause: describeCause(error) })
+            );
+          throw error;
+        }
+        retries++;
+        console.warn(JSON.stringify({ event: 'test_d1_transport_retry', code, retries }));
+      }
+    }
+  };
+  const raw = new WeakMap<D1PreparedStatement, D1PreparedStatement>();
+  const wrap = (statement: D1PreparedStatement): D1PreparedStatement => {
+    const wrapped = new Proxy(statement, {
+      get(target, prop) {
+        const member: unknown = Reflect.get(target, prop);
+        if (typeof member !== 'function') return member;
+        if (prop === 'bind') return (...values: unknown[]) => wrap(target.bind(...values));
+        if (prop === 'run' || prop === 'all' || prop === 'first' || prop === 'raw')
+          return (...args: unknown[]) => attempt(async () => Reflect.apply(member, target, args));
+        return member.bind(target);
+      },
+    });
+    raw.set(wrapped, statement);
+    return wrapped;
+  };
+  return new Proxy(db, {
+    get(target, prop) {
+      const member: unknown = Reflect.get(target, prop);
+      if (typeof member !== 'function') return member;
+      if (prop === 'prepare') return (sql: string) => wrap(target.prepare(sql));
+      if (prop === 'batch')
+        return (statements: D1PreparedStatement[]) =>
+          attempt(() =>
+            target.batch(statements.map((statement) => raw.get(statement) ?? statement))
+          );
+      if (prop === 'exec') return (query: string) => attempt(() => target.exec(query));
+      return member.bind(target);
+    },
+  });
+}
+
 export async function createTestDb(
-  opts: { skipFiles?: string[]; through?: string } = {}
+  opts: { skipFiles?: string[]; through?: string; transportRetry?: boolean } = {}
 ): Promise<{ db: D1Database; dispose: () => Promise<void> }> {
   const mf = new Miniflare(
     convertV4MiniflareOptions({
@@ -41,7 +120,7 @@ export async function createTestDb(
   for (const file of files) {
     await applyMigrationFile(db, file);
   }
-  return { db, dispose: () => mf.dispose() };
+  return { db: opts.transportRetry ? withTransportRetry(db) : db, dispose: () => mf.dispose() };
 }
 
 export async function seedProduct(

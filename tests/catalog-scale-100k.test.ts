@@ -52,7 +52,7 @@ it(
   // Includes physical handler work, revision acknowledgement and replica sweep.
   { timeout: 3_600_000 },
   async () => {
-    const { db, dispose } = await createTestDb();
+    const { db, dispose } = await createTestDb({ transportRetry: true });
     const kv = new FakeKv();
     try {
       const rows = Array.from({ length: 100_000 }, (_, i) => ({
@@ -183,15 +183,8 @@ it(
         .first<{ n: number }>();
       expect(backlog?.n).toBe(0);
 
-      // Flush reference payloads the build left pending so the edit's
-      // key set is its own.
-      let settled = false;
-      for (let unit = 0; unit < 10_000 && !settled; unit++) {
-        const delivery = await queue.deliver();
-        expect(delivery.retried).toBe(false);
-        settled = !delivery.continued;
-      }
-      expect(settled).toBe(true);
+      // A build is done only once every reference it committed is delivered, so the
+      // edit's key set below is its own.
       const pending = await db
         .prepare('SELECT COUNT(*) AS n FROM catalog_ref_state WHERE pending_payload IS NOT NULL')
         .first<{ n: number }>();

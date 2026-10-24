@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { env } from 'cloudflare:workers';
 import { deliverStripeEvent } from './helpers/webhook';
 import { createTestDb, seedProduct } from './helpers/d1';
 import { settleRefund } from '../web/src/server/refunds';
@@ -970,4 +971,26 @@ it('calculated refund edge cases: itemless excludes shipping, zero and unknown a
       refundableCents: 400,
     })
   ).toBe(400);
+});
+
+it('a collection edit never changes its slug, so no published collection URL can go stale', async () => {
+  await db
+    .prepare(
+      "INSERT INTO collections(id,slug,title,kind,created_at) VALUES('c','tees','Tees','manual','2026-01-01')"
+    )
+    .run();
+
+  const result = await runAdminAction(db, env, owner, 'collection.update', {
+    collectionId: 'c',
+    slug: 'renamed',
+    title: 'Renamed tees',
+    description: '',
+    featuredRank: null,
+  });
+
+  expect(result.ok).toBe(true);
+  const row = await db
+    .prepare("SELECT slug,title FROM collections WHERE id='c'")
+    .first<{ slug: string; title: string }>();
+  expect(row).toEqual({ slug: 'tees', title: 'Renamed tees' });
 });

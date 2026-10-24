@@ -5,6 +5,7 @@ import {
   type CatalogBuildResult,
   type CatalogWorkResult,
 } from '../../web/src/server/catalog-publisher';
+import { vi } from 'vitest';
 import { CatalogBudget } from '../../web/src/server/catalog-exec';
 
 type KvLike = {
@@ -55,7 +56,8 @@ export async function catalogWork(
 }
 
 /** Test-only driver: invoke successive bounded build units until
- *  the build completes, each under its own invocation budget. */
+ *  the build completes, each under its own invocation budget. Under a faked clock the
+ *  requested retry delay elapses instantly, as in the queue harness. */
 export async function buildCatalogReadModels(
   db: D1Database,
   kv?: KvLike
@@ -63,6 +65,8 @@ export async function buildCatalogReadModels(
   for (let guard = 0; guard < 100_000; guard++) {
     const step = await processCatalogBuild(db, kv, { budget: new CatalogBudget() });
     if (step.done) return step.result!;
+    if (step.retryAfterSeconds && vi.isFakeTimers())
+      vi.setSystemTime(Date.now() + step.retryAfterSeconds * 1000);
   }
   throw new Error('catalog build did not converge');
 }
