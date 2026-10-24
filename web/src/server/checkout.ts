@@ -909,8 +909,7 @@ export const reconcileLateRefunds = reconcileRefundOperations;
 /** A verified capture refunded before fulfillment must terminate without another refund. */
 export async function compensateRefundedCheckout(
   db: D1Database,
-  orderId: string,
-  verifiedLegacyPayment?: { sessionId: string; amountCents: number }
+  orderId: string
 ): Promise<boolean> {
   const transition = crypto.randomUUID();
   const gate = {
@@ -922,18 +921,11 @@ export async function compensateRefundedCheckout(
       .prepare(
         `UPDATE orders SET status='canceled',payment_status=CASE WHEN payment_status='disputed' THEN 'disputed' ELSE 'refunded' END,transition_id=?,updated_at=?
       WHERE id=? AND status IN ('pending_payment','canceled') AND total_cents>0
-      AND COALESCE((SELECT SUM(amount_cents) FROM refunds WHERE order_id=orders.id AND status='succeeded'),0)>=MAX(total_cents,COALESCE(?,total_cents))
-      AND (EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=orders.id AND ci.captured_at IS NOT NULL AND ci.payment_state='captured')
-        OR (stripe_checkout_session_id=? AND NOT EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=orders.id)))
+      AND COALESCE((SELECT SUM(amount_cents) FROM refunds WHERE order_id=orders.id AND status='succeeded'),0)>=total_cents
+      AND EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=orders.id AND ci.captured_at IS NOT NULL AND ci.payment_state='captured')
       AND NOT EXISTS(SELECT 1 FROM reservations WHERE order_id=orders.id AND status='committed')`
       )
-      .bind(
-        transition,
-        now(),
-        orderId,
-        verifiedLegacyPayment?.amountCents ?? null,
-        verifiedLegacyPayment?.sessionId ?? null
-      ),
+      .bind(transition, now(), orderId),
     db
       .prepare(
         `UPDATE checkout_intents SET payment_state='finalized',payment_next_at=NULL,updated_at=? WHERE order_id=? AND ${gate.sql}`
@@ -998,7 +990,7 @@ export async function markOrderPaid(
   const statements = [
     db
       .prepare(
-        `UPDATE orders SET status = 'paid', payment_status = CASE WHEN payment_status='disputed' THEN 'disputed' WHEN EXISTS(SELECT 1 FROM refunds WHERE order_id=orders.id AND status='succeeded') THEN 'partially_refunded' ELSE 'paid' END, transition_id = ?, stripe_payment_intent_id = ?, tax_cents = CASE WHEN EXISTS(SELECT 1 FROM checkout_intents WHERE order_id=orders.id) THEN tax_cents ELSE ? END, total_cents = ?, shipping_name = COALESCE(?,shipping_name), shipping_address_json = COALESCE(?,shipping_address_json), updated_at = ?
+        `UPDATE orders SET status = 'paid', payment_status = CASE WHEN payment_status='disputed' THEN 'disputed' WHEN EXISTS(SELECT 1 FROM refunds WHERE order_id=orders.id AND status='succeeded') THEN 'partially_refunded' ELSE 'paid' END, transition_id = ?, stripe_payment_intent_id = ?, total_cents = ?, shipping_name = COALESCE(?,shipping_name), shipping_address_json = COALESCE(?,shipping_address_json), updated_at = ?
     WHERE id = ? AND status IN ('pending_payment','canceled') AND payment_status IN ('unpaid','failed','partially_refunded','disputed')
     AND (total_cents=0 OR COALESCE((SELECT SUM(amount_cents) FROM refunds WHERE order_id=orders.id AND status='succeeded'),0)<total_cents)
     AND NOT EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=orders.id AND (ci.cancel_requested=1 OR ci.superseded_by IS NOT NULL))
@@ -1017,7 +1009,6 @@ export async function markOrderPaid(
       .bind(
         transition,
         pi,
-        amountTotal - order.total_cents,
         amountTotal,
         address?.name ?? null,
         address ? JSON.stringify(address.address) : null,
@@ -1159,8 +1150,7 @@ export async function markOrderPaid(
     .bind(order.id)
     .first<{ status: string; payment_status: string }>();
   if (current && !['pending_payment', 'canceled'].includes(current.status)) return;
-  if (await compensateRefundedCheckout(db, order.id, { sessionId, amountCents: amountTotal }))
-    return;
+  if (await compensateRefundedCheckout(db, order.id)) return;
   if (amountTotal === 0) {
     await cancelOrderById(db, order.id, { expiredFree: true, recoveryReason });
     return;
