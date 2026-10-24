@@ -380,3 +380,38 @@ not change. Optional application bindings use WorkerEnv rather than relying on
 local-secret inference in generated types. Migration 0017 is index-only and remains
 unapplied. Verification is deferred: see
 [RECOVERY-WATCHDOG.md](archive/RECOVERY-WATCHDOG.md).
+
+## 2026-10-24: v4 audit hardening
+
+- **A build is done only once its references are delivered.** The deliver phase
+  counts pending references up to the sequence the build committed. A key written
+  less than a second ago stays pending, and the unit retries after two seconds;
+  KV allows one write per second per key. `verifyChangedReferences` logs
+  `catalog_ref_mismatch` when KV holds a different reference than D1 expects.
+- **A collection slug never changes after creation.** Edits cannot leave a
+  published collection URL stale, so a rename needs no old-slug purge.
+- **`catalog_invalidations` has no `AUTOINCREMENT`.** A reused rowid is safe
+  because the purge cutoff compares the rowid and the write time, and a test pins
+  it.
+- **An unreachable admission controller backs settlement off for 60 seconds.**
+  Checkout start answers `503 CHECKOUT_UNAVAILABLE` instead of failing open;
+  settlement retries after a minute. A busy controller retries after its hint
+  plus up to four seconds of jitter.
+- **Customer exports use camelCase keys** in both the self export and the admin
+  export. The discount check takes no email: the per-customer cap is evaluated
+  for the signed-in account, and checkout enforces it for every order.
+- **CSRF covers unsafe `/api/*` requests, including `/api/auth/*`.** A sign-in
+  POST with no Origin, Referer or Sec-Fetch-Site gets 403. The Stripe webhook is
+  exempt because Stripe signs it.
+- **Media keys are unique per upload, so `/media` is `immutable` for a year.** A
+  deleted image can stay in browser caches for that long; there is no edge copy
+  to purge.
+- **The CSP keeps `script-src 'unsafe-inline'` (D12) and gains HSTS.** A nonce or
+  hash policy is deferred until after launch.
+- **MONEY-06 follow-up closed.** The reserve-before-payment path and the payment
+  arms it left unreachable are deleted. Every order has exactly one checkout
+  intent, and every Stripe session carries `order_id` and `attempt_id`.
+- **The first deploy needs a recreated remote D1.** Migrations were edited in
+  place across the audit phases, so a remote database that applied the old chain
+  cannot be upgraded. Workers Paid is required. A cold edge cache after each
+  deploy is by design (`cross_version_cache: false`).

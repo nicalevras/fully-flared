@@ -18,6 +18,14 @@ ships in `web/src/`.
 | 9   | USD hardcoded in checkout; free-shipping default; tax enabled without tax codes                  | Store-settings-driven currency/shipping/tax            | `tests/defect-regressions.test.ts` (#9) — session currency equals store setting                                                                                 |
 | 10  | Test/CI coverage deleted during a rewrite and never restored                                     | Restored suites + CI gate                              | `tests/helpers.test.ts`, `tests/discounts.test.ts` passing; CI gate on every PR                                                                                 |
 
+## Catalogue publication, v4 audit
+
+| #   | Defect class                                                                                | Closed by                                                | Regression test                                                           |
+| --- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------- |
+| 11  | Two open-build queries disagreed, so publication froze                                      | `index` builds excluded from `processCatalogBuild`       | `tests/catalog-reader-coherence.test.ts`                                  |
+| 12  | A build finished while its references were still undelivered, so KV served an older listing | Delivery gate on the committed sequence with a 2 s retry | `tests/catalog-ref-delivery-pacing.test.ts`                               |
+| 13  | Orders created by the legacy hold-at-creation path with no checkout intent                  | Path and its unreachable payment arms deleted            | `tests/checkout-intents.test.ts`, `tests/authorization-lifecycle.test.ts` |
+
 ## Commerce remediation evidence — 2026-10-18
 
 Earlier milestone rows describe historical defects, not deployed acceptance.

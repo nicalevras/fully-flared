@@ -310,6 +310,19 @@ page-load-only with its five-second internal cache, and public HTML keeps its
 existing TTL/private boundary. Optional public media advertises only ready
 immutable variants; editorial and SEO URLs use the same published metadata.
 
+A build reports done only after the references it committed reach KV. KV allows
+one write per second per key, so a reference written under a second ago stays
+pending and the unit retries after two seconds. Five minutes of backoff after a
+failed put does not hold the build open. `verifyChangedReferences` logs
+`catalog_ref_mismatch` when KV disagrees with D1; any steady stream of it in a
+soak means the pacing or the propagation assumption is wrong.
+
+The 100k gate (`npm run test:scale`, `CATALOG_SCALE=1`) is a local harness and
+needs a quiet machine. Miniflare reaches D1 over a loopback socket that can close
+after a long event-loop stall; the harness retries that transport failure once
+and logs its cause (`test_d1_transport_retry`). Production D1 does not use this
+path.
+
 FF-16/20/21/23/24 remain measurement gates: static asset billed invocations,
 availability cache overhead, logs, D1/KV/media capacity including history, and
 regional cache hit/latency/purge freshness. Neither compiler success nor local
