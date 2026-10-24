@@ -8,6 +8,7 @@ import { idString } from '../../../schemas/common';
 import { useAdminAction, type AdminPayload } from '../../../components/AdminNav';
 import { formatMoney } from '../../../lib/format';
 import { uploadMedia } from '../../../lib/upload';
+import { applyVariantEdits, type VariantEdits } from '../../../lib/variant-edits';
 import {
   btnDestructive,
   btnPrimary,
@@ -148,7 +149,7 @@ function EditForm({
   setMsg: (s: string) => void;
   busy: boolean;
   setBusy: (b: boolean) => void;
-  refresh: () => void;
+  refresh: () => Promise<void>;
 }) {
   const adminAction = useAdminAction();
   const currency = useStoreCurrency();
@@ -161,7 +162,14 @@ function EditForm({
     seoTitle: product.seo_title ?? '',
     seoDescription: product.seo_description ?? '',
   });
-  const [variants, setVariants] = useState(product.variants);
+  const [edits, setEdits] = useState<VariantEdits<VariantRow>>({});
+  const variants = applyVariantEdits(product.variants, edits);
+  const editVariant = (id: string, patch: Partial<VariantRow>) =>
+    setEdits((current) => ({ ...current, [id]: { ...current[id], ...patch } }));
+  const discardEdits = (ids: readonly string[]) =>
+    setEdits((current) =>
+      Object.fromEntries(Object.entries(current).filter(([id]) => !ids.includes(id)))
+    );
   const [selectedVariants, setSelectedVariants] = useState<string[]>([]);
   const [bulk, setBulk] = useState({ price: '', stockDelta: '' });
   const [newVariant, setNewVariant] = useState({ sku: '', title: '', price: '29.99' });
@@ -177,7 +185,7 @@ function EditForm({
     setBusy(false);
     if (r.ok) {
       setMsg(okMsg);
-      refresh();
+      await refresh();
       return true;
     }
     setMsg(r.error ?? 'Failed');
@@ -450,6 +458,7 @@ function EditForm({
                   `Bulk update applied to ${selectedVariants.length} variant${selectedVariants.length === 1 ? '' : 's'}.`
                 );
                 if (ok) {
+                  discardEdits(selectedVariants);
                   setSelectedVariants([]);
                   setBulk({ price: '', stockDelta: '' });
                 }
@@ -500,11 +509,7 @@ function EditForm({
                       id={`v-sku-${v.id}`}
                       className={inputCls}
                       value={v.sku}
-                      onChange={(e) =>
-                        setVariants(
-                          variants.map((x) => (x.id === v.id ? { ...x, sku: e.target.value } : x))
-                        )
-                      }
+                      onChange={(e) => editVariant(v.id, { sku: e.target.value })}
                     />
                   </div>
                   <div>
@@ -515,11 +520,7 @@ function EditForm({
                       id={`v-title-${v.id}`}
                       className={inputCls}
                       value={v.title}
-                      onChange={(e) =>
-                        setVariants(
-                          variants.map((x) => (x.id === v.id ? { ...x, title: e.target.value } : x))
-                        )
-                      }
+                      onChange={(e) => editVariant(v.id, { title: e.target.value })}
                     />
                   </div>
                   <div>
@@ -532,13 +533,9 @@ function EditForm({
                       className={inputCls}
                       value={(v.price_cents / 100).toString()}
                       onChange={(e) =>
-                        setVariants(
-                          variants.map((x) =>
-                            x.id === v.id
-                              ? { ...x, price_cents: Math.round(Number(e.target.value || 0) * 100) }
-                              : x
-                          )
-                        )
+                        editVariant(v.id, {
+                          price_cents: Math.round(Number(e.target.value || 0) * 100),
+                        })
                       }
                     />
                   </div>
@@ -555,19 +552,10 @@ function EditForm({
                       }
                       placeholder="Optional"
                       onChange={(e) =>
-                        setVariants(
-                          variants.map((x) =>
-                            x.id === v.id
-                              ? {
-                                  ...x,
-                                  compare_at_cents:
-                                    e.target.value === ''
-                                      ? null
-                                      : Math.round(Number(e.target.value) * 100),
-                                }
-                              : x
-                          )
-                        )
+                        editVariant(v.id, {
+                          compare_at_cents:
+                            e.target.value === '' ? null : Math.round(Number(e.target.value) * 100),
+                        })
                       }
                     />
                   </div>
@@ -577,7 +565,7 @@ function EditForm({
                     onClick={async () => {
                       const cur = variants[vi];
                       if (!cur) return;
-                      await act(
+                      const saved = await act(
                         'variant.save',
                         {
                           variantId: cur.id,
@@ -591,6 +579,7 @@ function EditForm({
                         },
                         `Variant ${cur.sku} saved.`
                       );
+                      if (saved) discardEdits([cur.id]);
                     }}
                   >
                     Save
@@ -606,17 +595,9 @@ function EditForm({
                       className={inputCls}
                       value={v.weight_grams ?? ''}
                       onChange={(e) =>
-                        setVariants(
-                          variants.map((x) =>
-                            x.id === v.id
-                              ? {
-                                  ...x,
-                                  weight_grams:
-                                    e.target.value === '' ? null : Number(e.target.value),
-                                }
-                              : x
-                          )
-                        )
+                        editVariant(v.id, {
+                          weight_grams: e.target.value === '' ? null : Number(e.target.value),
+                        })
                       }
                     />
                   </label>
@@ -625,11 +606,7 @@ function EditForm({
                       type="checkbox"
                       checked={Boolean(v.continue_selling)}
                       onChange={(e) =>
-                        setVariants(
-                          variants.map((x) =>
-                            x.id === v.id ? { ...x, continue_selling: e.target.checked ? 1 : 0 } : x
-                          )
-                        )
+                        editVariant(v.id, { continue_selling: e.target.checked ? 1 : 0 })
                       }
                     />
                     Continue selling when out of stock
