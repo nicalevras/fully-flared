@@ -14,6 +14,11 @@ Every finding in the v4 audit was re-checked against the final code: 77 rows
 MONEY-06 follow-up closed: the reserve-before-payment path was deleted in
 `f73de82`, and `cb46e32` deleted the payment arms it left unreachable.
 
+Gates at this tip: lint 0 errors and 0 warnings, typecheck, format check, migration
+check, web build and bundle check pass. The full suite excluding the 100k gate passes (104 files, 683 tests),
+and the 100k gate passes (`CATALOG_SCALE=1`, 980 s, 100,000 products built and served
+with bounded values).
+
 Evidence is `file:line` at this tip. The fail-before and pass-after runs for each
 fix are in the phase pull requests; this pass did not rerun them. Rows without a
 test are compile-time, bundle, lint or documentation changes, named in the Note
