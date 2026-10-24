@@ -3,7 +3,7 @@ import { loadPostsIndex } from '../../server/storefront-pages';
 import { withRequestCanonicalBase } from '../../server/canonical-base';
 import { Link, createFileRoute, stripSearchParams } from '@tanstack/react-router';
 import { formatDate } from '../../lib/format';
-import { mediaUrl } from '../../lib/media-url';
+import { mediaSrcSet, mediaUrl } from '../../lib/media-url';
 import { createServerFn } from '@tanstack/react-start';
 import { validateServerInput } from '../../server/function-boundary';
 import { homePageInputSchema } from '../../schemas/checkout';
@@ -46,6 +46,7 @@ export const Route = createFileRoute('/_shop/blog/')({
 
 function BlogIndex() {
   const { posts, page, pageCount } = Route.useLoaderData();
+  const firstCoverIndex = posts.findIndex((post) => post.cover_key);
   return (
     <main className="py-10 lg:py-14">
       <div className="max-w-2xl">
@@ -64,15 +65,24 @@ function BlogIndex() {
         </Card>
       ) : (
         <div className="mt-8 grid grid-cols-2 gap-x-5 gap-y-10 lg:grid-cols-4">
-          {posts.map((post) => (
+          {posts.map((post, index) => (
             <article key={post.slug} className="group">
               <Link to="/blog/$slug" params={{ slug: post.slug }} className="block">
                 <div className="relative flex aspect-[4/5] items-center justify-center overflow-hidden rounded-xl bg-zinc-100">
                   {post.cover_key ? (
                     <img
-                      src={mediaUrl({ key: post.cover_key, publicUrl: post.cover_public_url })}
+                      src={mediaUrl(
+                        {
+                          key: post.cover_key,
+                          publicUrl: post.cover_public_url,
+                          variants: post.cover_variants,
+                        },
+                        640
+                      )}
+                      srcSet={mediaSrcSet({ key: post.cover_key, variants: post.cover_variants })}
+                      sizes="(min-width: 1280px) 289px, (min-width: 1024px) calc((100vw - 124px) / 4), (min-width: 640px) calc((100vw - 68px) / 2), calc((100vw - 52px) / 2)"
                       alt={post.title}
-                      loading="lazy"
+                      loading={index === firstCoverIndex ? 'eager' : 'lazy'}
                       className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
                     />
                   ) : (

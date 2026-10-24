@@ -29,6 +29,7 @@ import {
   listingRefKey,
   productDocKey,
   productSlugKey,
+  postSummarySchema,
   serializeListingPage,
   listingPageRevision,
   immutableDocumentKey,
@@ -499,11 +500,25 @@ async function processPublishedIndex(
         : (
             await db
               .prepare(
-                "SELECT p.id,p.slug,p.title,p.excerpt,COALESCE(p.published_at,'') AS published_at,m.r2_key AS cover_key,m.public_url AS cover_public_url FROM posts p LEFT JOIN media m ON m.id=p.cover_media_id AND m.ready=1 AND m.deletion_pending=0 WHERE p.id IN (SELECT value FROM json_each(?))"
+                "SELECT p.id,p.slug,p.title,p.excerpt,COALESCE(p.published_at,'') AS published_at,m.r2_key AS cover_key,m.public_url AS cover_public_url,(SELECT json_group_array(json_object('width',width,'url',COALESCE(public_url,''))) FROM (SELECT width,public_url FROM media_variants WHERE media_id=m.id AND ready=1 ORDER BY width)) AS cover_variants_json FROM posts p LEFT JOIN media m ON m.id=p.cover_media_id AND m.ready=1 AND m.deletion_pending=0 WHERE p.id IN (SELECT value FROM json_each(?))"
               )
               .bind(JSON.stringify(ids))
-              .all<Record<string, unknown>>()
-          ).results;
+              .all<
+                Omit<ReturnType<typeof postSummarySchema.parse>, 'cover_variants'> & {
+                  cover_variants_json: string;
+                }
+              >()
+          ).results.map(({ cover_variants_json, ...post }) => ({
+            ...post,
+            cover_variants: postSummarySchema.shape.cover_variants
+              .parse(JSON.parse(cover_variants_json))
+              .map((variant) => ({
+                ...variant,
+                url:
+                  variant.url ||
+                  `/media/${encodeURIComponent(post.cover_key ?? '')}?w=${variant.width}`,
+              })),
+          }));
       const byId = new Map(data.map((row) => [row.id, row]));
       const items = ids.map((id) => byId.get(id)).filter(Boolean);
       const payload = JSON.stringify({ listingId, page: state.page, pageSize, items });
