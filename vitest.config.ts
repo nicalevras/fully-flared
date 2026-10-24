@@ -5,6 +5,7 @@ export default defineConfig({
     alias: {
       'cloudflare:workers': new URL('./tests/helpers/cloudflare-workers-stub.ts', import.meta.url)
         .pathname,
+      '@': new URL('./web/src', import.meta.url).pathname,
     },
   },
   test: {

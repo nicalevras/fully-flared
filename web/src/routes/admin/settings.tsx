@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { staffMiddleware } from '../../server/staff-middleware';
+import { requireStaffPermission } from '../../server/session';
 import { createFileRoute } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import {
@@ -24,7 +25,8 @@ import {
 
 const getData = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
-  .handler(async () => {
+  .handler(async ({ context }) => {
+    requireStaffPermission(context.staff, 'settings', 'view');
     const { env } = await import('cloudflare:workers');
     return getSettings(env.DB);
   });

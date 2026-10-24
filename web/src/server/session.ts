@@ -1,13 +1,7 @@
-import {
-  getAuthInstance,
-  hashSessionToken,
-  isStaff,
-  ownerEmailsFromEnv,
-  type Auth,
-} from '../lib/auth';
+import { getAuthInstance, isStaff, ownerEmailsFromEnv, type Auth } from '../lib/auth';
 import { getSettings } from './settings';
 import { workerEnv, exactDevOrigins, runtimeConfigSchema } from './env';
-import { roles, type StaffRole, type statement } from '../lib/permissions';
+import { roleCan, type statement } from '../lib/permissions';
 
 export type AuthErrorCode = 'UNAUTHENTICATED' | 'FORBIDDEN' | 'TWO_FACTOR_REQUIRED';
 
@@ -27,9 +21,7 @@ export function requireStaffPermission(
   resource: keyof typeof statement,
   action: string
 ): void {
-  const role =
-    staff.role && Object.hasOwn(roles, staff.role) ? roles[staff.role as StaffRole] : null;
-  if (!role?.authorize({ [resource]: [action] }).success) {
+  if (!roleCan(staff.role, resource, action)) {
     throw new AuthError('FORBIDDEN', `Permission required: ${resource}.${action}`);
   }
 }
@@ -112,13 +104,10 @@ export async function getSessionUser(db: D1Database, request: Request) {
   return session?.user ?? null;
 }
 
-export async function hasPassedTwoFactor(db: D1Database, sessionToken: string): Promise<boolean> {
-  const sessionTokenHash = await hashSessionToken(sessionToken);
+export async function hasPassedTwoFactor(db: D1Database, sessionId: string): Promise<boolean> {
   const row = await db
-    .prepare(
-      'SELECT session_token_hash FROM staff_two_factor_sessions WHERE session_token_hash = ?'
-    )
-    .bind(sessionTokenHash)
+    .prepare('SELECT session_id FROM staff_two_factor_sessions WHERE session_id = ?')
+    .bind(sessionId)
     .first();
   return Boolean(row);
 }
@@ -134,6 +123,10 @@ export function twoFactorEnabledOf(user: unknown): boolean {
 }
 
 export async function requireStaff(db: D1Database, request: Request) {
+  return (await requireStaffSession(db, request)).user;
+}
+
+export async function requireStaffSession(db: D1Database, request: Request) {
   const session = await getSession(db, request);
   const user = session?.user;
   if (!user) throw new AuthError('UNAUTHENTICATED', 'Sign in required');
@@ -148,8 +141,8 @@ export async function requireStaff(db: D1Database, request: Request) {
   const twoFactorEnabled = twoFactorEnabledOf(user);
   if (!twoFactorEnabled)
     throw new AuthError('TWO_FACTOR_REQUIRED', 'Two-factor authentication required');
-  if (!session.session?.token || !(await hasPassedTwoFactor(db, session.session.token))) {
+  if (!session.session?.id || !(await hasPassedTwoFactor(db, session.session.id))) {
     throw new AuthError('TWO_FACTOR_REQUIRED', 'Two-factor authentication required');
   }
-  return user;
+  return { user, sessionId: session.session.id };
 }

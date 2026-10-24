@@ -156,7 +156,7 @@ it('a dispute closed as prevented clears the dispute', async () => {
 });
 
 it('a dispute without a PaymentIntent is logged and skipped without emailing anyone', async () => {
-  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   await deliverDispute('evt_unmatched_open', 'charge.dispute.created', {
     id: 'dp_unmatched',
     payment_intent: null,
@@ -168,7 +168,7 @@ it('a dispute without a PaymentIntent is logged and skipped without emailing any
   });
   expect(await inboxRow('evt_unmatched_open')).toMatchObject({ status: 'processed' });
   expect(await inboxRow('evt_unmatched_closed')).toMatchObject({ status: 'processed' });
-  expect(log).toHaveBeenCalledWith(expect.stringContaining('webhook_dispute_unmatched'));
+  expect(warn).toHaveBeenCalledWith(expect.stringContaining('webhook_dispute_unmatched'));
   expect((await db.prepare('SELECT COUNT(*) n FROM outbox').first())?.n).toBe(0);
 });
 

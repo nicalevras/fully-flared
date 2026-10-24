@@ -2,6 +2,7 @@ import { useServerFn } from '@tanstack/react-start';
 import { useRef } from 'react';
 import type { z } from 'zod';
 import { adminActionFn } from '../lib/adminFns';
+import { roleCan, type statement } from '../lib/permissions';
 import type { ComponentType } from 'react';
 import { Link, linkOptions } from '@tanstack/react-router';
 import {
@@ -33,9 +34,20 @@ type AdminPath =
   | '/admin/reports'
   | '/admin/settings';
 const nav = (to: AdminPath) => linkOptions({ to });
-type NavItem = { link: ReturnType<typeof nav>; label: string; Icon: IconType };
+type NavItem = {
+  link: ReturnType<typeof nav>;
+  label: string;
+  Icon: IconType;
+  requires?: readonly [keyof typeof statement, string];
+};
+const settingsItem: NavItem = {
+  link: nav('/admin/settings'),
+  label: 'Settings',
+  Icon: SettingsIcon,
+  requires: ['settings', 'view'],
+};
 const sections: Array<{ label?: string; items: NavItem[] }> = [
-  { items: [{ link: nav('/admin'), label: 'Home', Icon: HomeIcon }] },
+  { items: [{ link: nav('/admin'), label: 'Home', Icon: HomeIcon, requires: ['report', 'view'] }] },
   {
     label: 'Catalog',
     items: [
@@ -47,7 +59,12 @@ const sections: Array<{ label?: string; items: NavItem[] }> = [
   {
     label: 'Sales',
     items: [
-      { link: nav('/admin/orders'), label: 'Orders', Icon: OrdersIcon },
+      {
+        link: nav('/admin/orders'),
+        label: 'Orders',
+        Icon: OrdersIcon,
+        requires: ['order', 'view'],
+      },
       { link: nav('/admin/customers'), label: 'Customers', Icon: UserIcon },
       { link: nav('/admin/shipping'), label: 'Shipping', Icon: TruckIcon },
     ],
@@ -62,7 +79,14 @@ const sections: Array<{ label?: string; items: NavItem[] }> = [
   },
   {
     label: 'Insights',
-    items: [{ link: nav('/admin/reports'), label: 'Reports', Icon: ChartIcon }],
+    items: [
+      {
+        link: nav('/admin/reports'),
+        label: 'Reports',
+        Icon: ChartIcon,
+        requires: ['report', 'view'],
+      },
+    ],
   },
 ];
 
@@ -71,7 +95,17 @@ const itemCls =
 const itemActive =
   'flex items-center gap-2.5 rounded-lg bg-zinc-950 px-3 py-2 text-sm font-medium text-white';
 
-export function AdminNav({ storeName = 'Your store' }: { storeName?: string }) {
+export function AdminNav({
+  storeName = 'Your store',
+  role,
+}: {
+  storeName?: string;
+  role: string | null | undefined;
+}) {
+  const visible = (item: NavItem) => !item.requires || roleCan(role, ...item.requires);
+  const visibleSections = sections
+    .map((s) => ({ ...s, items: s.items.filter(visible) }))
+    .filter((s) => s.items.length > 0);
   return (
     <>
       <aside
@@ -88,7 +122,7 @@ export function AdminNav({ storeName = 'Your store' }: { storeName?: string }) {
           </span>
         </div>
         <nav className="flex-1 space-y-6 overflow-y-auto px-3 pb-4">
-          {sections.map((s) => (
+          {visibleSections.map((s) => (
             <div key={s.label ?? 'main'}>
               {s.label ? (
                 <p className="px-3 pb-2 text-xs font-medium text-zinc-400">{s.label}</p>
@@ -111,9 +145,15 @@ export function AdminNav({ storeName = 'Your store' }: { storeName?: string }) {
           ))}
         </nav>
         <div className="space-y-0.5 border-t border-zinc-200 px-3 py-3">
-          <Link to="/admin/settings" className={itemCls} activeProps={{ className: itemActive }}>
-            <SettingsIcon className="h-[18px] w-[18px] shrink-0" /> Settings
-          </Link>
+          {visible(settingsItem) ? (
+            <Link
+              {...settingsItem.link}
+              className={itemCls}
+              activeProps={{ className: itemActive }}
+            >
+              <SettingsIcon className="h-[18px] w-[18px] shrink-0" /> Settings
+            </Link>
+          ) : null}
           <Link to="/" className={itemCls}>
             <StoreIcon className="h-[18px] w-[18px] shrink-0" /> View store
           </Link>
@@ -124,9 +164,9 @@ export function AdminNav({ storeName = 'Your store' }: { storeName?: string }) {
         className="mb-5 flex gap-1 overflow-x-auto rounded-xl border border-zinc-200 bg-white p-1.5 lg:hidden"
         aria-label="Admin"
       >
-        {sections
+        {visibleSections
           .flatMap((s) => s.items)
-          .concat([{ link: nav('/admin/settings'), label: 'Settings', Icon: SettingsIcon }])
+          .concat(visible(settingsItem) ? [settingsItem] : [])
           .map(({ link, label, Icon }) => (
             <Link
               key={link.to}

@@ -9,4 +9,9 @@ CREATE TABLE `cache_purge_gate` (
 --> statement-breakpoint
 INSERT INTO cache_purge_gate(id,tokens,refilled_at) VALUES(1,25,0);
 --> statement-breakpoint
-ALTER TABLE `collections` ADD `featured_rank` integer;
+ALTER TABLE `collections` ADD `featured_rank` integer;--> statement-breakpoint
+CREATE INDEX `addresses_user_idx` ON `addresses` (`user_id`);--> statement-breakpoint
+CREATE INDEX `orders_user_idx` ON `orders` (`user_id`,`created_at`,`id`);--> statement-breakpoint
+CREATE INDEX `returns_user_idx` ON `returns` (`user_id`);--> statement-breakpoint
+CREATE INDEX `verification_identifier_idx` ON `verification` (`identifier`);--> statement-breakpoint
+PRAGMA optimize;

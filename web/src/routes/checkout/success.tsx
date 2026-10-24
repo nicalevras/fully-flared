@@ -49,7 +49,14 @@ const getOrder = createServerFn({ method: 'GET' })
       const user = await getSessionUser(env.DB, getRequest()).catch(() => null);
       if (!user || row.user_id !== user.id) return null;
     }
-    const { user_id: _userId, ...order } = row;
+    const order = {
+      number: row.number,
+      status: row.status,
+      payment_status: row.payment_status,
+      total_cents: row.total_cents,
+      currency: row.currency,
+      customer_email: row.customer_email,
+    };
     const cart = parseCartCookie(getRequest().headers.get('cookie'));
     if (
       cart &&

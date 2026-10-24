@@ -142,6 +142,10 @@ function AccountPage() {
   });
   const [deleteConfirm, setDeleteConfirm] = useState('');
   const [totpUri, setTotpUri] = useState('');
+  const [backupCodes, setBackupCodes] = useState<string[]>([]);
+  const [backupCodesSaved, setBackupCodesSaved] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({ current: '', next: '' });
+  const [passwordMsg, setPasswordMsg] = useState('');
   const [totpCode, setTotpCode] = useState('');
   const [password, setPassword] = useState('');
   const returnsByOrder = groupReturnsByOrder(returns);
@@ -644,9 +648,10 @@ function AccountPage() {
                   variant="outline"
                   onClick={async () => {
                     const res = await authClient.twoFactor.enable({ password });
-                    const uri = res.data && 'totpURI' in res.data ? res.data.totpURI : '';
-                    if (uri) setTotpUri(uri);
-                    else
+                    if (res.data && 'totpURI' in res.data && res.data.totpURI) {
+                      setTotpUri(res.data.totpURI);
+                      setBackupCodes(res.data.backupCodes);
+                    } else
                       setMsg(
                         res.error?.message ??
                           'Could not start two-factor setup. Check your password.'
@@ -658,13 +663,38 @@ function AccountPage() {
               </span>
             ) : (
               <span className="flex flex-wrap items-end gap-2">
-                <span className="min-w-0">
+                <span className="block w-full min-w-0 space-y-2">
                   <span className="block text-[13px] text-zinc-500">
-                    Add this to your authenticator app:
+                    Add this to your authenticator app, or type the secret key in manually:
                   </span>
-                  <code className="block max-w-full truncate rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-700">
+                  <code className="block max-w-full rounded-lg bg-zinc-50 px-3 py-2 text-xs break-all text-zinc-700 select-all">
                     {totpUri}
                   </code>
+                  <span className="block text-[13px] text-zinc-500">Secret key</span>
+                  <code className="block max-w-full rounded-lg bg-zinc-50 px-3 py-2 font-mono text-sm break-all text-zinc-950 select-all">
+                    {new URL(totpUri).searchParams.get('secret') ?? ''}
+                  </code>
+                  {backupCodes.length > 0 ? (
+                    <>
+                      <span className="block text-[13px] text-zinc-500">
+                        Backup codes. Each works once if you lose your authenticator. They are shown
+                        only now, so store them somewhere safe:
+                      </span>
+                      <code className="grid max-w-md grid-cols-2 gap-1 rounded-lg bg-zinc-50 px-3 py-2 font-mono text-sm text-zinc-950 select-all">
+                        {backupCodes.map((code) => (
+                          <span key={code}>{code}</span>
+                        ))}
+                      </code>
+                      <label className="flex items-center gap-2 text-sm text-zinc-700">
+                        <input
+                          type="checkbox"
+                          checked={backupCodesSaved}
+                          onChange={(e) => setBackupCodesSaved(e.target.checked)}
+                        />
+                        I saved my backup codes
+                      </label>
+                    </>
+                  ) : null}
                 </span>
                 <span>
                   <Label htmlFor="tf-code">6-digit code</Label>
@@ -678,11 +708,13 @@ function AccountPage() {
                 </span>
                 <Button
                   variant="outline"
+                  disabled={backupCodes.length > 0 && !backupCodesSaved}
                   onClick={async () => {
                     const res = await authClient.twoFactor.verifyTotp({ code: totpCode });
                     if (res.error) setMsg(res.error.message ?? 'That code did not verify.');
                     else {
                       setMsg('Two-factor is on. Your admin access is unlocked.');
+                      setBackupCodes([]);
                       router.invalidate();
                     }
                   }}
@@ -694,12 +726,65 @@ function AccountPage() {
           </>
         )}
       </Card>
+      <Card className="mt-4 space-y-3 p-5">
+        <p className="text-sm text-zinc-950">Change password</p>
+        <form
+          className="flex flex-wrap items-end gap-2"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const res = await authClient.changePassword({
+              currentPassword: passwordForm.current,
+              newPassword: passwordForm.next,
+              revokeOtherSessions: true,
+            });
+            if (res.error) {
+              setPasswordMsg(res.error.message ?? 'Could not change your password.');
+            } else {
+              setPasswordForm({ current: '', next: '' });
+              setPasswordMsg('Password changed. Your other sessions were signed out.');
+            }
+          }}
+        >
+          <span>
+            <Label htmlFor="cp-current">Current password</Label>
+            <Input
+              id="cp-current"
+              type="password"
+              autoComplete="current-password"
+              className="w-64"
+              required
+              value={passwordForm.current}
+              onChange={(e) => setPasswordForm({ ...passwordForm, current: e.target.value })}
+            />
+          </span>
+          <span>
+            <Label htmlFor="cp-next">New password</Label>
+            <Input
+              id="cp-next"
+              type="password"
+              autoComplete="new-password"
+              className="w-64"
+              required
+              value={passwordForm.next}
+              onChange={(e) => setPasswordForm({ ...passwordForm, next: e.target.value })}
+            />
+          </span>
+          <Button type="submit" variant="outline">
+            Change password
+          </Button>
+        </form>
+        {passwordMsg ? (
+          <p className="text-sm text-zinc-600" role="status">
+            {passwordMsg}
+          </p>
+        ) : null}
+      </Card>
 
       <h2 className="mt-12 pb-4 text-xl font-medium">Your data</h2>
       <Card className="space-y-4 p-5">
         <div className="flex flex-wrap items-center gap-3">
           <p className="text-sm text-zinc-500">
-            Download everything this store holds about you: profile, orders, and addresses.
+            Download everything this store holds about you: profile, orders, returns, and addresses.
           </p>
           <a
             href="/api/account?export=1"

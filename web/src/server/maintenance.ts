@@ -367,7 +367,7 @@ export async function runMaintenance(env: WorkerEnv, runId: string) {
       ))
     )
       throw Error('Maintenance continuation enqueue failed');
-    console.log(
+    console.warn(
       JSON.stringify({
         event: 'maintenance_progress',
         task: run.task,
@@ -441,7 +441,7 @@ export async function wakeDueMaintenance(
     if (delivery.status === 'fulfilled' && delivery.value) queued++;
     else failed++;
   }
-  console.log(
+  console.warn(
     JSON.stringify({
       event: 'maintenance_backlog',
       due: dueRuns.length,

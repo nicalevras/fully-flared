@@ -11,9 +11,15 @@ export async function pruneRetention(
   reservations: number;
   carts: number;
   checkoutIntents: number;
+  rateLimit: number;
+  sessions: number;
+  verifications: number;
+  failedOutbox: number;
+  deadWebhookInbox: number;
 }> {
   const ninetyDaysAgo = new Date(cutoffMs - 90 * 24 * 60 * 60_000).toISOString();
   const yearAgo = new Date(cutoffMs - 365 * 24 * 60 * 60_000).toISOString();
+  const thirtyDaysAgo = new Date(cutoffMs - 30 * 24 * 60 * 60_000).toISOString();
   /* IP data has its own hourly bounded job. */
   const carts = await db
     .prepare(
@@ -36,6 +42,47 @@ export async function pruneRetention(
   // Bounded pages, like carts/intents above: each run deletes at most
   // 1000 rows per table and the next cron run continues the backlog,
   // so a large backlog never becomes one long write.
+  // Auth tables store epoch milliseconds. The longest rate-limit window is
+  // 60s, so a day-old counter can never affect a decision.
+  const [rateLimit, sessions, verifications, failedOutbox, deadWebhookInbox] = await Promise.all([
+    db
+      .prepare(
+        'DELETE FROM rate_limit WHERE id IN (SELECT id FROM rate_limit WHERE last_request < ? LIMIT 1000)'
+      )
+      .bind(cutoffMs - 24 * 60 * 60_000)
+      .run(),
+    db
+      .prepare(
+        'DELETE FROM session WHERE id IN (SELECT id FROM session WHERE expires_at < ? LIMIT 1000)'
+      )
+      .bind(cutoffMs)
+      .run(),
+    db
+      .prepare(
+        'DELETE FROM verification WHERE id IN (SELECT id FROM verification WHERE expires_at < ? LIMIT 1000)'
+      )
+      .bind(cutoffMs)
+      .run(),
+    db
+      .prepare(
+        `DELETE FROM outbox WHERE id IN (SELECT id FROM outbox WHERE status = 'failed' AND attempts >= 3 AND created_at < ? ORDER BY created_at,id LIMIT 1000)`
+      )
+      .bind(thirtyDaysAgo)
+      .run(),
+    db
+      .prepare(
+        `DELETE FROM webhook_inbox WHERE id IN (SELECT id FROM webhook_inbox WHERE status = 'dead' AND received_at < ? ORDER BY received_at,id LIMIT 1000)`
+      )
+      .bind(ninetyDaysAgo)
+      .run(),
+  ]);
+  if ((deadWebhookInbox.meta.changes ?? 0) > 0)
+    console.warn(
+      JSON.stringify({
+        event: 'retention_dead_webhooks_deleted',
+        count: deadWebhookInbox.meta.changes,
+      })
+    );
   const [webhookInbox, outbox, reservations] = await Promise.all([
     db
       .prepare(
@@ -62,5 +109,10 @@ export async function pruneRetention(
     reservations: reservations.meta.changes ?? 0,
     carts: carts.meta.changes ?? 0,
     checkoutIntents: checkoutIntents.meta.changes ?? 0,
+    rateLimit: rateLimit.meta.changes ?? 0,
+    sessions: sessions.meta.changes ?? 0,
+    verifications: verifications.meta.changes ?? 0,
+    failedOutbox: failedOutbox.meta.changes ?? 0,
+    deadWebhookInbox: deadWebhookInbox.meta.changes ?? 0,
   };
 }

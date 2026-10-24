@@ -308,7 +308,7 @@ CREATE TABLE `shipping_zones` (
 	`created_at` text NOT NULL
 );
 CREATE TABLE staff_two_factor_sessions (
-  session_token_hash text PRIMARY KEY NOT NULL,
+  session_id text PRIMARY KEY NOT NULL REFERENCES session(id) ON DELETE CASCADE,
   user_id text NOT NULL REFERENCES user(id) ON DELETE CASCADE,
   verified_at text NOT NULL
 );
@@ -416,7 +416,6 @@ CREATE INDEX product_media_product_idx ON product_media (product_id);
 CREATE INDEX `products_created_id_idx` ON `products` (`created_at`,`id`);
 CREATE UNIQUE INDEX `products_slug_unique` ON `products` (`slug`);
 CREATE INDEX `products_status_idx` ON `products` (`status`);
-CREATE UNIQUE INDEX rate_limit_key_idx ON rate_limit (key);
 CREATE UNIQUE INDEX `rate_limit_key_unique` ON `rate_limit` (`key`);
 CREATE UNIQUE INDEX `redirects_from_path_unique` ON `redirects` (`from_path`);
 CREATE INDEX refunds_order_idx ON refunds (order_id);
@@ -505,10 +504,10 @@ WHEN OLD.key='currency' AND (NEW.key!='currency' OR NEW.value!=OLD.value)
  AND (EXISTS(SELECT 1 FROM orders WHERE status='pending_payment') OR EXISTS(SELECT 1 FROM settings WHERE key='currency_locked' AND value='1'))
 BEGIN SELECT RAISE(ABORT,'currency is locked by a pending or paid order'); END;
 CREATE TRIGGER discount_customer_cap_insert BEFORE INSERT ON discount_usage
-WHEN (SELECT COUNT(*) FROM discount_usage WHERE discount_id=NEW.discount_id AND lower(customer_email)=lower(NEW.customer_email)) >= (SELECT usage_per_customer FROM discounts WHERE id=NEW.discount_id)
+WHEN (SELECT COUNT(*) FROM discount_usage WHERE discount_id=NEW.discount_id AND customer_email=NEW.customer_email) >= (SELECT usage_per_customer FROM discounts WHERE id=NEW.discount_id)
 BEGIN SELECT RAISE(ABORT,'discount_usage customer limit reached'); END;
 CREATE TRIGGER discount_customer_cap_update BEFORE UPDATE OF discount_id,customer_email ON discount_usage
-WHEN (SELECT COUNT(*) FROM discount_usage WHERE id!=OLD.id AND discount_id=NEW.discount_id AND lower(customer_email)=lower(NEW.customer_email)) >= (SELECT usage_per_customer FROM discounts WHERE id=NEW.discount_id)
+WHEN NEW.customer_email!='deleted@invalid' AND (SELECT COUNT(*) FROM discount_usage WHERE id!=OLD.id AND discount_id=NEW.discount_id AND customer_email=NEW.customer_email) >= (SELECT usage_per_customer FROM discounts WHERE id=NEW.discount_id)
 BEGIN SELECT RAISE(ABORT,'discount_usage customer limit reached'); END;
 CREATE TRIGGER discount_percentage_insert BEFORE INSERT ON discounts
 WHEN NEW.type='percentage' AND (NEW.value<0 OR NEW.value>100)

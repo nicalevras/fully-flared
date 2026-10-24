@@ -17,6 +17,7 @@ export const Route = createFileRoute('/media/$key')({
           .first();
         if (!active) return new Response('Not found', { status: 404 });
         let object: R2ObjectBody | null = null;
+        let exact = true;
         if (VARIANT_WIDTH_SET.has(requestedWidth)) {
           const variant = await env.DB.prepare(
             'SELECT v.r2_key FROM media_variants v JOIN media m ON m.id=v.media_id WHERE m.r2_key=? AND v.width=? AND v.ready=1 AND m.deletion_pending=0'
@@ -25,13 +26,19 @@ export const Route = createFileRoute('/media/$key')({
             .first<{ r2_key: string }>();
           object = await env.MEDIA.get(variant?.r2_key ?? variantKey(params.key, requestedWidth));
         }
-        object ??= await env.MEDIA.get(params.key);
+        if (!object) {
+          exact = !url.searchParams.has('w');
+          object = await env.MEDIA.get(params.key);
+        }
         if (!object) return new Response('Not found', { status: 404 });
 
         const headers = new Headers();
         object.writeHttpMetadata(headers);
         headers.set('ETag', object.httpEtag);
-        headers.set('Cache-Control', 'public, max-age=300, must-revalidate');
+        headers.set(
+          'Cache-Control',
+          exact ? 'public, max-age=31536000, immutable' : 'public, max-age=300, must-revalidate'
+        );
         if (!headers.has('Content-Type')) headers.set('Content-Type', 'image/jpeg');
 
         const ifNoneMatch = request.headers.get('If-None-Match');

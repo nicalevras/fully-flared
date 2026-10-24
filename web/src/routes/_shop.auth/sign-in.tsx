@@ -1,9 +1,7 @@
 import { useRef, useState } from 'react';
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router';
-import { createServerFn } from '@tanstack/react-start';
-import { validateServerInput } from '../../server/function-boundary';
-import * as z from 'zod';
 import { authClient } from '../../lib/auth-client';
+import { getAuthConfig } from '../../lib/authFns';
 import { TurnstileWidget } from '../../components/TurnstileWidget';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,15 +10,6 @@ import { Card } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { getSettings } from '../../server/settings';
-
-const getAuthConfig = createServerFn({ method: 'GET' })
-  .validator(validateServerInput(z.object({})))
-  .handler(async () => {
-    const { env } = await import('cloudflare:workers');
-    const settings = await getSettings(env.DB);
-    return { turnstileSiteKey: settings.turnstileSiteKey };
-  });
 
 export const Route = createFileRoute('/_shop/auth/sign-in')({
   loader: async () => getAuthConfig({ data: {} }),
@@ -199,6 +188,16 @@ function SignInPage() {
           >
             {busy ? 'One moment…' : mode === 'signin' ? 'Sign in' : 'Create account'}
           </Button>
+          {mode === 'signin' ? (
+            <p className="text-center text-[13px]">
+              <Link
+                to="/auth/forgot"
+                className="font-medium text-zinc-950 underline underline-offset-2"
+              >
+                Forgot your password?
+              </Link>
+            </p>
+          ) : null}
         </form>
 
         {needsTotp ? (

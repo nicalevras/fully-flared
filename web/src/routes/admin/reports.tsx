@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { staffMiddleware } from '../../server/staff-middleware';
+import { requireStaffPermission } from '../../server/session';
 import { useStoreCurrency } from '../../lib/use-store-currency';
 import { createServerFn } from '@tanstack/react-start';
 import { formatMoney } from '../../components/ProductCard';
@@ -10,6 +11,7 @@ import { roles, type StaffRole } from '../../lib/permissions';
 const getData = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
   .handler(async ({ context }) => {
+    requireStaffPermission(context.staff, 'report', 'view');
     const { env } = await import('cloudflare:workers');
     const revenues = await paidRevenueByCurrency(env.DB);
     const low = await env.DB.prepare(

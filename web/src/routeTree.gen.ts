@@ -37,6 +37,8 @@ import { Route as CheckoutSuccessRouteImport } from './routes/checkout/success'
 import { Route as MediaKeyRouteImport } from './routes/media/$key'
 import { Route as ShopAccountIndexRouteImport } from './routes/_shop.account/index'
 import { Route as ShopAuthIndexRouteImport } from './routes/_shop.auth/index'
+import { Route as ShopAuthForgotRouteImport } from './routes/_shop.auth/forgot'
+import { Route as ShopAuthResetRouteImport } from './routes/_shop.auth/reset'
 import { Route as ShopAuthSignInRouteImport } from './routes/_shop.auth/sign-in'
 import { Route as ShopBlogIndexRouteImport } from './routes/_shop.blog/index'
 import { Route as ShopBlogSlugRouteImport } from './routes/_shop.blog/$slug'
@@ -192,6 +194,16 @@ const ShopAuthIndexRoute = ShopAuthIndexRouteImport.update({
   path: '/auth/',
   getParentRoute: () => ShopRoute,
 } as any)
+const ShopAuthForgotRoute = ShopAuthForgotRouteImport.update({
+  id: '/auth/forgot',
+  path: '/auth/forgot',
+  getParentRoute: () => ShopRoute,
+} as any)
+const ShopAuthResetRoute = ShopAuthResetRouteImport.update({
+  id: '/auth/reset',
+  path: '/auth/reset',
+  getParentRoute: () => ShopRoute,
+} as any)
 const ShopAuthSignInRoute = ShopAuthSignInRouteImport.update({
   id: '/auth/sign-in',
   path: '/auth/sign-in',
@@ -294,6 +306,8 @@ export interface FileRoutesByFullPath {
   '/media/$key': typeof MediaKeyRoute
   '/admin/': typeof AdminIndexRoute
   '/checkout/': typeof CheckoutIndexRoute
+  '/auth/forgot': typeof ShopAuthForgotRoute
+  '/auth/reset': typeof ShopAuthResetRoute
   '/auth/sign-in': typeof ShopAuthSignInRoute
   '/blog/$slug': typeof ShopBlogSlugRoute
   '/blog/rss.xml': typeof ShopBlogRssDotxmlRoute
@@ -336,6 +350,8 @@ export interface FileRoutesByTo {
   '/': typeof ShopIndexRoute
   '/admin': typeof AdminIndexRoute
   '/checkout': typeof CheckoutIndexRoute
+  '/auth/forgot': typeof ShopAuthForgotRoute
+  '/auth/reset': typeof ShopAuthResetRoute
   '/auth/sign-in': typeof ShopAuthSignInRoute
   '/blog/$slug': typeof ShopBlogSlugRoute
   '/blog/rss.xml': typeof ShopBlogRssDotxmlRoute
@@ -382,6 +398,8 @@ export interface FileRoutesById {
   '/_shop/': typeof ShopIndexRoute
   '/admin/': typeof AdminIndexRoute
   '/checkout/': typeof CheckoutIndexRoute
+  '/_shop/auth/forgot': typeof ShopAuthForgotRoute
+  '/_shop/auth/reset': typeof ShopAuthResetRoute
   '/_shop/auth/sign-in': typeof ShopAuthSignInRoute
   '/_shop/blog/$slug': typeof ShopBlogSlugRoute
   '/_shop/blog/rss.xml': typeof ShopBlogRssDotxmlRoute
@@ -428,6 +446,8 @@ export interface FileRouteTypes {
     | '/media/$key'
     | '/admin/'
     | '/checkout/'
+    | '/auth/forgot'
+    | '/auth/reset'
     | '/auth/sign-in'
     | '/blog/$slug'
     | '/blog/rss.xml'
@@ -470,6 +490,8 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/checkout'
+    | '/auth/forgot'
+    | '/auth/reset'
     | '/auth/sign-in'
     | '/blog/$slug'
     | '/blog/rss.xml'
@@ -515,6 +537,8 @@ export interface FileRouteTypes {
     | '/_shop/'
     | '/admin/'
     | '/checkout/'
+    | '/_shop/auth/forgot'
+    | '/_shop/auth/reset'
     | '/_shop/auth/sign-in'
     | '/_shop/blog/$slug'
     | '/_shop/blog/rss.xml'
@@ -747,6 +771,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShopAuthIndexRouteImport
       parentRoute: typeof ShopRoute
     }
+    '/_shop/auth/forgot': {
+      id: '/_shop/auth/forgot'
+      path: '/auth/forgot'
+      fullPath: '/auth/forgot'
+      preLoaderRoute: typeof ShopAuthForgotRouteImport
+      parentRoute: typeof ShopRoute
+    }
+    '/_shop/auth/reset': {
+      id: '/_shop/auth/reset'
+      path: '/auth/reset'
+      fullPath: '/auth/reset'
+      preLoaderRoute: typeof ShopAuthResetRouteImport
+      parentRoute: typeof ShopRoute
+    }
     '/_shop/auth/sign-in': {
       id: '/_shop/auth/sign-in'
       path: '/auth/sign-in'
@@ -912,6 +950,8 @@ interface ShopRouteChildren {
   ShopSearchRoute: typeof ShopSearchRoute
   ShopShopRoute: typeof ShopShopRoute
   ShopIndexRoute: typeof ShopIndexRoute
+  ShopAuthForgotRoute: typeof ShopAuthForgotRoute
+  ShopAuthResetRoute: typeof ShopAuthResetRoute
   ShopAuthSignInRoute: typeof ShopAuthSignInRoute
   ShopBlogSlugRoute: typeof ShopBlogSlugRoute
   ShopBlogRssDotxmlRoute: typeof ShopBlogRssDotxmlRoute
@@ -929,6 +969,8 @@ const ShopRouteChildren: ShopRouteChildren = {
   ShopSearchRoute: ShopSearchRoute,
   ShopShopRoute: ShopShopRoute,
   ShopIndexRoute: ShopIndexRoute,
+  ShopAuthForgotRoute: ShopAuthForgotRoute,
+  ShopAuthResetRoute: ShopAuthResetRoute,
   ShopAuthSignInRoute: ShopAuthSignInRoute,
   ShopBlogSlugRoute: ShopBlogSlugRoute,
   ShopBlogRssDotxmlRoute: ShopBlogRssDotxmlRoute,

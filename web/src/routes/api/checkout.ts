@@ -285,7 +285,7 @@ async function prepareCheckoutRequest(
   // never reach the provider.
   const permit = await acquireCheckoutPermit(env.CHECKOUT_ADMISSION, 'start');
   if (permit.kind === 'busy') {
-    console.log(
+    console.warn(
       JSON.stringify({
         event: 'checkout_admission_busy',
         retryAfterSeconds: permit.retryAfterSeconds,
@@ -493,7 +493,7 @@ async function respondForIntent(
   if (!opts.permitHeld) {
     const permit = await acquireCheckoutPermit(opts.admission, 'start');
     if (permit.kind === 'busy') {
-      console.log(
+      console.warn(
         JSON.stringify({
           event: 'checkout_admission_busy',
           retryAfterSeconds: permit.retryAfterSeconds,
