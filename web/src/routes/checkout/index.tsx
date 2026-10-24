@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStoreCurrency } from '../../lib/use-store-currency';
 import { Link, createFileRoute } from '@tanstack/react-router';
-import { checkoutQuoteFn } from '../../lib/shopFns';
+import { checkoutQuoteFn, validateDiscountFn } from '../../lib/shopFns';
 import { validateServerInput } from '../../server/function-boundary';
 import { confirmCheckoutFn } from '../../lib/checkoutFns';
 import type { ReviewQuote } from '../../server/authorized-checkout';
@@ -161,7 +161,6 @@ function CheckoutPage() {
   async function applyCode() {
     setApplyingCode(true);
     try {
-      const { validateDiscountFn } = await import('../../lib/shopFns');
       const data = await validateDiscountFn({ data: { code, subtotalCents: subtotal } });
       if (data.valid) {
         setDiscountAmount(data.amountCents ?? 0);

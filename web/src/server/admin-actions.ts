@@ -354,7 +354,7 @@ export async function runAdminAction(
           .bind(f.slug)
           .first();
         if (dupeSlug) return { ok: false, error: `A product with slug ${f.slug} already exists` };
-        for (const v of (f.variants as { sku: string }[] | undefined) ?? []) {
+        for (const v of f.variants) {
           const dupeSku = await db
             .prepare('SELECT sku FROM variants WHERE sku = ?')
             .bind(v.sku)
@@ -438,7 +438,7 @@ export async function runAdminAction(
             f.type || 'percentage',
             f.value,
             f.minPurchaseCents,
-            (f.usageLimit as number | null) ?? null,
+            f.usageLimit ?? null,
             f.startsAt || null,
             f.expiresAt || null,
             now()
@@ -473,7 +473,7 @@ export async function runAdminAction(
       case 'shipping.addRate': {
         const f = parsedAction.data;
         const rateId = id();
-        const freeOver = (f.freeOverCents as number | null) ?? null;
+        const freeOver = f.freeOverCents ?? null;
         await db
           .prepare(
             'INSERT INTO shipping_rates (id, zone_id, name, kind, amount_cents, free_over_cents, per_kg_cents) VALUES (?, ?, ?, ?, ?, ?, ?)'
@@ -547,7 +547,7 @@ export async function runAdminAction(
           db,
           env,
           f.orderId,
-          f.amountCents as number | undefined,
+          f.amountCents,
           Boolean(f.restock),
           f.requestId
         );
@@ -876,11 +876,11 @@ export async function runAdminAction(
       }
       case 'variant.bulkUpdate': {
         const f = parsedAction.data;
-        const variantIds = (f.variantIds as string[] | undefined) ?? [];
+        const variantIds = f.variantIds;
         if (variantIds.length === 0) return { ok: false, error: 'Select at least one variant' };
         if (variantIds.length > 50)
           return { ok: false, error: 'Bulk edit is capped at 50 variants at a time' };
-        const priceCents = f.priceCents as number | null | undefined;
+        const priceCents = f.priceCents;
         const stockDelta = Number(f.stockDelta ?? 0);
         // Atomic: validate everything before any write, then apply all
         // edits in one batch. A missing variant or a stock guard failure
@@ -1072,7 +1072,7 @@ export async function runAdminAction(
               sku,
               f.title || 'Default',
               priceCents,
-              (f.compareAtCents as number | null) ?? null,
+              f.compareAtCents ?? null,
               f.continueSelling ? 1 : 0,
               f.weightGrams,
               variantId
@@ -1093,7 +1093,7 @@ export async function runAdminAction(
               sku,
               f.title || 'Default',
               priceCents,
-              (f.compareAtCents as number | null) ?? null,
+              f.compareAtCents ?? null,
               f.continueSelling ? 1 : 0,
               f.weightGrams,
               now()
@@ -1234,7 +1234,7 @@ export async function runAdminAction(
       }
       case 'collection.setProducts': {
         const f = parsedAction.data;
-        const productIds = (f.productIds as string[] | undefined) ?? [];
+        const productIds = f.productIds;
         await db.batch([
           db
             .prepare('DELETE FROM product_collections WHERE collection_id = ?')

@@ -28,8 +28,10 @@ const getNavigation = createServerFn({ method: 'GET' }).handler(async () => {
   }
 });
 export const Route = createFileRoute('/admin')({
-  beforeLoad: async () => {
+  beforeLoad: async ({ location }) => {
     const navigation = await getNavigation();
+    if (navigation.redirect === '/auth/sign-in')
+      throw redirect({ to: navigation.redirect, search: { redirect: location.href } });
     if (navigation.redirect) throw redirect({ to: navigation.redirect });
     return navigation;
   },

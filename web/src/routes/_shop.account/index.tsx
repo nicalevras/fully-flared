@@ -22,6 +22,7 @@ import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/p
 import { cn } from '@/lib/utils';
 import { addToCart, openCart } from '../../lib/cart';
 import { reorderItems } from '../../lib/reorder';
+import { accountActionFn, createReturnFn } from '../../lib/shopFns';
 import { useRouter } from '@tanstack/react-router';
 import type { AccountActionInput } from '../../schemas/account';
 import {
@@ -154,7 +155,6 @@ function AccountPage() {
   const returnsByOrder = groupReturnsByOrder(returns);
 
   async function accountAction(payload: AccountActionInput) {
-    const { accountActionFn } = await import('../../lib/shopFns');
     const data = await accountActionFn({ data: payload });
     if (data.ok) router.invalidate();
     else setMsg(data.error);
@@ -337,7 +337,6 @@ function AccountPage() {
                           onClick={async () => {
                             setReturnBusy(true);
                             try {
-                              const { createReturnFn } = await import('../../lib/shopFns');
                               const items = o.items
                                 .map((i) => ({
                                   orderItemId: i.id,

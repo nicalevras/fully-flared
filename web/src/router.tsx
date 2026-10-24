@@ -14,9 +14,8 @@ export function getRouter() {
     // trusted for 10s, and navigations always revalidate (staleTime 0 default).
     defaultPreloadStaleTime: 10_000,
     defaultStructuralSharing: true,
-    // No full-page pending spinner: the root progress bar is the single
-    // loading indicator, and hover preloading makes most swaps instant.
-    // (Two indicators at once read as flicker.)
+    // No pending component or progress bar: hover preloading makes most swaps
+    // instant, and a slower navigation keeps the current page until data arrives.
   });
 }
 

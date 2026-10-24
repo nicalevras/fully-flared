@@ -119,9 +119,9 @@ function AdminHome() {
   const replay = async (eventId: string) => {
     setReplaying(eventId);
     setReplayError('');
-    const r = (await adminAction('webhook.replay', { eventId })) as { ok?: boolean };
+    const r = await adminAction('webhook.replay', { eventId });
     setReplaying(null);
-    if (r?.ok === false) {
+    if (!r.ok) {
       setReplayError('Replay could not be queued. The event stays quarantined.');
       return;
     }

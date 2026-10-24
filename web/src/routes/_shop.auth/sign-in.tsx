@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router';
 import { authClient } from '../../lib/auth-client';
 import { getAuthConfig } from '../../lib/authFns';
+import { signInSearch } from '../../lib/search-params';
 import { TurnstileWidget } from '../../components/TurnstileWidget';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,6 +13,7 @@ import { Separator } from '@/components/ui/separator';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 
 export const Route = createFileRoute('/_shop/auth/sign-in')({
+  validateSearch: signInSearch,
   loader: async () => getAuthConfig({ data: {} }),
   head: () => ({ meta: [{ title: 'Sign in' }, { name: 'robots', content: 'noindex' }] }),
   component: SignInPage,
@@ -20,6 +22,7 @@ export const Route = createFileRoute('/_shop/auth/sign-in')({
 function SignInPage() {
   const router = useRouter();
   const { turnstileSiteKey } = Route.useLoaderData();
+  const { redirect: returnTo = '/account' } = Route.useSearch();
   const [turnstileToken, setTurnstileToken] = useState('');
   const turnstileResetRef = useRef<(() => void) | null>(null);
   const captchaFetchOptions = turnstileToken
@@ -63,7 +66,7 @@ function SignInPage() {
         setMessage('Enter the 6-digit code from your authenticator app.');
       } else {
         await router.invalidate();
-        router.navigate({ to: '/account' });
+        router.navigate({ href: returnTo });
       }
     }
     resetCaptcha();
@@ -77,7 +80,7 @@ function SignInPage() {
       setMessage(error.message ?? 'That code did not verify. Try the current code from your app.');
     else {
       await router.invalidate();
-      router.navigate({ to: '/account' });
+      router.navigate({ href: returnTo });
     }
     setBusy(false);
   }
@@ -85,7 +88,7 @@ function SignInPage() {
     setBusy(true);
     const { error } = await authClient.signIn.magicLink({
       email,
-      callbackURL: '/account',
+      callbackURL: returnTo,
       fetchOptions: captchaFetchOptions,
     });
     setMessage(
