@@ -8,7 +8,6 @@ import {
   publicCacheResponse,
   takePurgeToken,
 } from '../web/src/server/public-cache';
-import { processCatalogWork } from '../web/src/server/catalog-publisher';
 
 // Phase 4 policy surface: gateway classification, response storage
 // policy, cache tags and the invalidation drain. Actual edge cache
@@ -489,12 +488,11 @@ it('a hard-deleted post still invalidates its editorial document', async () => {
         "INSERT INTO posts (id, slug, title, excerpt, content_html, status, published_at, created_at, updated_at) VALUES ('post1', 'hello-world', 'Hello', '', '<p>hi</p>', 'published', '2026-01-01', '2026-01-01', '2026-01-01')"
       )
       .run();
-    const { processCatalogWork } = await import('../web/src/server/catalog-publisher');
     const { editorialKey } = await import('../web/src/server/catalog-models');
-    await processCatalogWork(db, kv as never);
+    await catalogWork(db, kv as never);
     expect(kv.map.has(editorialKey('post', 'hello-world'))).toBe(true);
     await db.prepare("DELETE FROM posts WHERE id = 'post1'").run();
-    await processCatalogWork(db, kv as never);
+    await catalogWork(db, kv as never);
     expect(kv.map.has(editorialKey('post', 'hello-world'))).toBe(false);
     const inv = await db
       .prepare("SELECT scope_id FROM catalog_invalidations WHERE scope = 'editorial'")
@@ -525,9 +523,8 @@ it('a due scheduled post is promoted and published by the catalog pass', async (
         "INSERT INTO posts (id, slug, title, excerpt, content_html, status, published_at, created_at, updated_at) VALUES ('post2', 'due-post', 'Due', '', '<p>due</p>', 'scheduled', '2000-01-01T00:00:00.000Z', '2026-01-01', '2026-01-01')"
       )
       .run();
-    const { processCatalogWork } = await import('../web/src/server/catalog-publisher');
     const { editorialKey } = await import('../web/src/server/catalog-models');
-    await processCatalogWork(db, kv as never);
+    await catalogWork(db, kv as never);
     const post = await db
       .prepare("SELECT status FROM posts WHERE id = 'post2'")
       .first<{ status: string }>();
@@ -568,7 +565,7 @@ it('publishing a product edit records the invalidations its pages need', async (
     await db.prepare('DELETE FROM catalog_invalidations').run();
 
     await db.prepare("UPDATE products SET title = 'Tee V2' WHERE id = 'p1'").run();
-    await processCatalogWork(db, kv);
+    await catalogWork(db, kv);
     const rows = await db
       .prepare(
         'SELECT scope, scope_id AS scopeId FROM catalog_invalidations ORDER BY scope, scope_id'
@@ -583,4 +580,4 @@ it('publishing a product edit records the invalidations its pages need', async (
     await dispose();
   }
 });
-import { buildCatalogReadModels } from './helpers/catalog-driver';
+import { buildCatalogReadModels, catalogWork } from './helpers/catalog-driver';

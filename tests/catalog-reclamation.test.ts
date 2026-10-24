@@ -52,9 +52,9 @@ import {
   listingPageKey,
   layoutKey,
 } from '../web/src/server/catalog-models';
-import { processCatalogWork, runCatalogUnit } from '../web/src/server/catalog-publisher';
+import { runCatalogUnit } from '../web/src/server/catalog-publisher';
 import { catalogQueueHarness } from './helpers/catalog-queue';
-import { buildCatalogReadModels } from './helpers/catalog-driver';
+import { buildCatalogReadModels, catalogPass, catalogWork } from './helpers/catalog-driver';
 const start = Date.now();
 class Kv {
   map = new Map<string, string>();
@@ -96,7 +96,7 @@ async function cycle(kv: Kv, at: number) {
 }
 async function settle(target: D1Database, kv: Kv) {
   for (let pass = 0; pass < 20; pass++) {
-    const result = await processCatalogWork(target, kv);
+    const result = await catalogWork(target, kv);
     if (!result.more && result.processed === 0) return;
   }
   throw new Error('catalogue work did not settle');
@@ -342,7 +342,7 @@ it('incremental layout commits a durable GC root before mutable delivery', async
       "INSERT INTO settings(key,value,updated_at) VALUES('store_name','New name','2026') ON CONFLICT(key) DO UPDATE SET value=excluded.value"
     )
     .run();
-  await processCatalogWork(db, kv);
+  await catalogPass(db, kv);
   const reference = await db
     .prepare("SELECT root_hash,pending_payload FROM catalog_ref_state WHERE ref_key='layout'")
     .first<{ root_hash: string; pending_payload: string }>();
@@ -449,7 +449,7 @@ it('a deleted collection leaves product edits alone and its membership is reclai
   expect(probes).toBe(1);
   // Drain the queued index rebuild; only reference verification may still wait.
   for (let units = 1; ; units++) {
-    const unit = await runCatalogUnit(db, kv);
+    const unit = await runCatalogUnit(db, kv, { budget: new CatalogBudget() });
     if (unit.done || unit.retryAfterSeconds) break;
     expect(units).toBeLessThan(50);
   }

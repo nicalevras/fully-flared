@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { createTestDb, seedProduct } from './helpers/d1';
-import { buildCatalogReadModels } from './helpers/catalog-driver';
-import {
-  processCatalogWork,
-  requestCatalogSourceRebuild,
-  runCatalogUnit,
-} from '../web/src/server/catalog-publisher';
+import { buildCatalogReadModels, catalogWork } from './helpers/catalog-driver';
+import { requestCatalogSourceRebuild, runCatalogUnit } from '../web/src/server/catalog-publisher';
 import { CATALOG_RETENTION_MS, runCatalogGcUnit } from '../web/src/server/catalog-gc';
-import { claimCatalogLease, releaseCatalogLease } from '../web/src/server/catalog-exec';
+import {
+  CatalogBudget,
+  claimCatalogLease,
+  releaseCatalogLease,
+} from '../web/src/server/catalog-exec';
 import { editorialKey, productSlugKey } from '../web/src/server/catalog-models';
 import { loadPostPage, loadProductPage } from '../web/src/server/storefront-pages';
 
@@ -46,7 +46,7 @@ afterEach(async () => dispose());
 
 async function publish() {
   for (let pass = 0; pass < 20; pass++) {
-    const result = await processCatalogWork(db, kv);
+    const result = await catalogWork(db, kv);
     if (!result.more && result.processed === 0) return;
   }
   throw new Error('catalogue work did not settle');
@@ -172,7 +172,7 @@ it('keeps redirect pointers through catalogue GC so old URLs still 301 from KV',
   await rename('products', 'p1', 'tee', 'tee-2');
   await rename('posts', 'post', 'launch', 'launch-2');
   for (let units = 1; ; units++) {
-    const unit = await runCatalogUnit(db, kv);
+    const unit = await runCatalogUnit(db, kv, { budget: new CatalogBudget() });
     if (unit.done || unit.retryAfterSeconds) break;
     expect(units).toBeLessThan(50);
   }

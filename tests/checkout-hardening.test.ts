@@ -1,7 +1,6 @@
 import { it, expect } from 'vitest';
 import { createTestDb, seedProduct } from './helpers/d1';
-import { buildCatalogReadModels } from './helpers/catalog-driver';
-import { processCatalogWork } from '../web/src/server/catalog-publisher';
+import { buildCatalogReadModels, catalogWork } from './helpers/catalog-driver';
 import { readProductDocument } from '../web/src/server/catalog-read';
 import { createPendingOrder, cancelOrderById, processInboxEvent } from '../web/src/server/checkout';
 import { attachStripeSession } from './helpers/attach-session';
@@ -35,7 +34,7 @@ it.each(['incremental', 'full'])(
         )
         .run();
       if (mode === 'full') await buildCatalogReadModels(db, kv);
-      else await processCatalogWork(db, kv);
+      else await catalogWork(db, kv);
       const old = await readProductDocument(db, kv, 'tee'),
         fresh = await readProductDocument(db, kv, 'renamed');
       expect(old).toEqual({ redirect: '/products/renamed' });
