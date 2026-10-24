@@ -21,6 +21,8 @@ import {
   editorialKey,
   editorialDocumentSchema,
   documentPointerSchema,
+  movedPointerSchema,
+  type MovedPointer,
   immutableDocumentKey,
   indexArtifactSchema,
   postSummarySchema,
@@ -248,16 +250,26 @@ export async function readListingPage(
 }
 
 /** `beforeFallback` runs only when KV has no pointer, before D1 is
- *  asked; it may throw to refuse the lookup. */
+ *  asked; it may throw to refuse the lookup. A renamed slug answers
+ *  with its moved pointer. */
 export async function readProductDocument(
   db: D1Database,
   kv: CatalogKv | undefined,
   slug: string,
   beforeFallback?: () => Promise<void>
-): Promise<ProductDocument | null> {
+): Promise<ProductDocument | MovedPointer | null> {
   return requestRead(kv ?? db, `product:${slug}`, async () => {
-    const pointerSchema = z.object({ id: z.string().min(1), revision: z.string().min(1) }).strict();
-    let pointer = decode(await kvValue(kv, productSlugKey(slug), false), pointerSchema, () => true);
+    const pointerSchema = z.union([
+      z.object({ id: z.string().min(1), revision: z.string().min(1) }).strict(),
+      movedPointerSchema,
+    ]);
+    const current = decode(
+      await kvValue(kv, productSlugKey(slug), false),
+      pointerSchema,
+      () => true
+    );
+    if (current && 'redirect' in current) return current;
+    let pointer = current;
     if (!pointer) {
       await beforeFallback?.();
       const row = await db
@@ -289,14 +301,16 @@ async function readDocument<T>(
   schema: z.ZodType<T>,
   identity: (value: T) => boolean,
   pinnedKey?: string
-): Promise<T | null> {
-  let pointer = pinnedKey
+): Promise<T | MovedPointer | null> {
+  const current = pinnedKey
     ? { key: pinnedKey, revision: pinnedKey.slice(pinnedKey.lastIndexOf(':') + 1) }
     : decode(
         await kvValue(kv, base, false),
-        documentPointerSchema,
-        (p) => p.key === immutableDocumentKey(base, p.revision)
+        z.union([documentPointerSchema, movedPointerSchema]),
+        (p) => 'redirect' in p || p.key === immutableDocumentKey(base, p.revision)
       );
+  if (current && 'redirect' in current) return current;
+  let pointer = current;
   if (!pointer)
     pointer = decode(
       await documentRaw(db, base),
@@ -320,7 +334,7 @@ export async function readCollectionMeta(
   slug: string,
   pinnedKey?: string
 ) {
-  return readDocument(
+  const meta = await readDocument(
     db,
     kv,
     collectionMetaKey(slug),
@@ -328,6 +342,7 @@ export async function readCollectionMeta(
     (v) => v.slug === slug,
     pinnedKey
   );
+  return meta && 'redirect' in meta ? null : meta;
 }
 export async function readEditorialDocument(
   db: D1Database,

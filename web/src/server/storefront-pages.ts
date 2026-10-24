@@ -29,9 +29,10 @@ export async function loadProductPage(
     getStorefrontLayout(db, env),
     readProductDocument(db, env.CATALOG_KV, slug, beforeFallback),
   ]);
+  if (doc && 'redirect' in doc) throw redirect({ to: doc.redirect, statusCode: 301 });
   if (doc && doc.status === 'active') return { layout, doc };
   const moved = await movedPath(db, `/products/${slug}`);
-  if (moved) throw redirect({ to: moved });
+  if (moved) throw redirect({ to: moved, statusCode: 301 });
   throw notFound();
 }
 
@@ -40,9 +41,10 @@ export async function loadPostPage(db: D1Database, env: StorefrontEnv, slug: str
     getStorefrontLayout(db, env),
     readEditorialDocument(db, env.CATALOG_KV, 'post', slug),
   ]);
+  if (doc && 'redirect' in doc) throw redirect({ to: doc.redirect, statusCode: 301 });
   if (doc) return { layout, doc };
   const moved = await movedPath(db, `/blog/${slug}`);
-  if (moved) throw redirect({ to: moved });
+  if (moved) throw redirect({ to: moved, statusCode: 301 });
   throw notFound();
 }
 
@@ -51,7 +53,7 @@ export async function loadEditorialPage(db: D1Database, env: StorefrontEnv, slug
     getStorefrontLayout(db, env),
     readEditorialDocument(db, env.CATALOG_KV, 'page', slug),
   ]);
-  if (!doc) throw notFound();
+  if (!doc || 'redirect' in doc) throw notFound();
   return { layout, doc };
 }
 

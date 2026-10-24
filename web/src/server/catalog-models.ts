@@ -212,6 +212,11 @@ export const layoutKey = (revision: string) => `${NS}:layout:${revision}`;
 export const LAYOUT_REF_KEY = `${NS}:layout:current`;
 export const editorialKey = (kind: 'post' | 'page', slug: string) => `${NS}:doc:${kind}:${slug}`;
 export const documentPointerSchema = z.object({ key: z.string(), revision: z.string() }).strict();
+/** A renamed product or post slug's pointer names the current path. */
+export const movedPointerSchema = z
+  .object({ redirect: z.string().regex(/^\/(products|blog)\/[a-z0-9-]+$/) })
+  .strict();
+export type MovedPointer = z.infer<typeof movedPointerSchema>;
 export const immutableDocumentKey = (base: string, revision: string) => `${base}:v:${revision}`;
 export const COLLECTION_INDEX = '@collections';
 export const POSTS_INDEX = '@posts';

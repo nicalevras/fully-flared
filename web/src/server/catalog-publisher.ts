@@ -68,7 +68,7 @@ const CHUNK = 88;
 // one build step outside the self-guarding cards phase, one published
 // editorial document, and one layout republish.
 const BUILD_STEP_STATEMENTS = 7;
-const EDITORIAL_DOC_STATEMENTS = 8;
+const EDITORIAL_DOC_STATEMENTS = 10;
 const LAYOUT_STATEMENTS = 14;
 const RETIRE_STATEMENTS = 7;
 
@@ -335,6 +335,42 @@ async function unpublishDocument(
 ): Promise<void> {
   if (kv?.delete) await kv.delete(base);
   await db.prepare('DELETE FROM catalog_documents WHERE key=?').bind(base).run();
+}
+
+/** Points a renamed slug, and every slug redirected to it before, at
+ *  the current path. A slug that is live again keeps its own pointer. */
+async function publishMoves(
+  db: D1Database,
+  put: PutFn,
+  section: 'products' | 'blog',
+  slug: string,
+  previous: string | null
+): Promise<void> {
+  const to = `/${section}/${slug}`,
+    start = section.length + 3;
+  const moved = await db
+    .prepare(
+      `WITH RECURSIVE moved(path) AS (SELECT value FROM json_each(?) UNION SELECT r.from_path FROM redirects r JOIN moved m ON r.to_path = m.path)
+       SELECT substr(path, ?) AS slug FROM moved WHERE path <> ? AND path LIKE ? AND NOT EXISTS (SELECT 1 FROM ${section === 'products' ? 'products' : 'posts'} t WHERE t.slug = substr(path, ?))`
+    )
+    .bind(
+      JSON.stringify(previous === null ? [to] : [to, `/${section}/${previous}`]),
+      start,
+      to,
+      `/${section}/%`,
+      start
+    )
+    .all<{ slug: string }>();
+  const keys = moved.results.map((r) =>
+    section === 'products' ? productSlugKey(r.slug) : editorialKey('post', r.slug)
+  );
+  const pointer = JSON.stringify({ redirect: to });
+  for (const key of keys) await put(key, pointer);
+  if (section === 'blog' && keys.length)
+    await db
+      .prepare('DELETE FROM catalog_documents WHERE key IN (SELECT value FROM json_each(?))')
+      .bind(JSON.stringify(keys))
+      .run();
 }
 
 type PublishedIndex = typeof COLLECTION_INDEX | typeof POSTS_INDEX;
@@ -1366,7 +1402,6 @@ export async function processCatalogBuild(
           )
             continue;
           if (prev && prev.slug !== card.slug) {
-            if (kv?.delete) await kv.delete(productSlugKey(prev.slug));
             renamedScopes.push(
               { scope: 'product', scopeId: prev.slug },
               { scope: 'product', scopeId: card.slug }
@@ -1385,6 +1420,10 @@ export async function processCatalogBuild(
               payload: docJson,
             });
             if (prev?.doc_revision !== doc.revision) state.docsChanged++;
+          }
+          if (prev && prev.slug !== card.slug) {
+            await publishMoves(db, put, 'products', card.slug, prev.slug);
+            tick();
           }
           if (prev?.revision !== cardRev) state.cardsChanged++;
           if (prev?.revision !== cardRev || (doc && prev?.doc_revision !== doc.revision))
@@ -3334,10 +3373,8 @@ export async function processCatalogWork(
           }
           continue;
         }
-        if (prev && prev.slug !== card.slug) {
-          if (kv?.delete) await kv.delete(productSlugKey(prev.slug));
+        if (prev && prev.slug !== card.slug)
           invalidations.push({ scope: 'product', scopeId: prev.slug });
-        }
         const doc = docs.get(pid);
         const cardJson = JSON.stringify(card);
         const cardRev = contentRevision(cardJson);
@@ -3361,6 +3398,8 @@ export async function processCatalogWork(
               docJson
             );
           }
+          if (prev && prev.slug !== card.slug)
+            await publishMoves(db, put, 'products', card.slug, prev.slug);
           if (prev?.revision !== cardRev) cardChangedIds.add(pid);
           await db
             .prepare(
@@ -3606,6 +3645,8 @@ export async function processCatalogWork(
           invalidations.push({ scope: 'editorial', scopeId: row.slug });
           if (kind === 'post') invalidations.push({ scope: 'editorial', scopeId: 'index' });
           await publishDocument(db, kv, put, 'editorial', docKey, docValue);
+          if (kind === 'post' && !durablePointer)
+            await publishMoves(db, put, 'blog', row.slug, null);
         }
       }
     }
