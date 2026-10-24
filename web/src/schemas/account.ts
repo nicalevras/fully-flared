@@ -20,6 +20,7 @@ export const accountActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('account.delete'), confirmEmail: emailString }),
 ]);
 export type AccountAction = z.infer<typeof accountActionSchema>;
+export type AccountActionInput = z.input<typeof accountActionSchema>;
 
 export const reportQuerySchema = z.object({
   type: z
