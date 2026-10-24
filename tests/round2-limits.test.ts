@@ -6,7 +6,7 @@ import { createPendingOrder, cancelOrderById, quoteOrder } from '../web/src/serv
 import { requestRefund, reconcileRefundOperations } from '../web/src/server/refunds';
 import { adjustStock } from '../web/src/server/inventory';
 import { readFileSync } from 'node:fs';
-import { LIMIT_KEYS, LIMIT_DEFINITIONS } from '../web/src/schemas/limits';
+import { LIMIT_KEYS, LIMIT_DEFINITIONS } from '../web/src/lib/settings-definitions';
 
 let db: D1Database, dispose: () => Promise<void>;
 beforeAll(async () => {

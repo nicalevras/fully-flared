@@ -2,7 +2,7 @@ import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { getDb } from '../db/client';
 import { sha256Hex } from '../lib/hash';
 import { getSettings } from './settings';
-import { StoreLimitError } from '../schemas/limits';
+import { StoreLimitError } from '../lib/settings-definitions';
 import {
   cartItems,
   carts,

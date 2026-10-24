@@ -1,12 +1,12 @@
 import * as z from 'zod';
+import { limitValueSchema, admissionValueSchema } from './limits';
 import {
   LIMIT_KEYS,
   isLimitKey,
-  limitValueSchema,
   ADMISSION_KEYS,
-  admissionValueSchema,
+  SUPPORTED_CURRENCIES,
   type AdmissionKey,
-} from './limits';
+} from '../lib/settings-definitions';
 
 const ADMISSION_KEY_SET = new Set<string>(ADMISSION_KEYS);
 export function isAdmissionKey(key: string): key is AdmissionKey {
@@ -42,7 +42,6 @@ export const settingKeySchema = z.enum([
 ]);
 export type SettingKey = z.infer<typeof settingKeySchema>;
 
-export const SUPPORTED_CURRENCIES = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'NZD', 'CHF'] as const;
 export const currencyCodeSchema = z.enum(SUPPORTED_CURRENCIES);
 
 export function validateSetting(key: string, value: string): void {

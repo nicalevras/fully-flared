@@ -259,6 +259,13 @@ it('shipping eligibility and refund messages respect partial refunds, pending ba
   expect(refundActionMessage({ refundStatus: 'failed', amountCents: 800 }, 'EUR')).toContain(
     'No refund completed'
   );
+  for (const malformed of [
+    null,
+    'ok',
+    { refundStatus: 'failed' },
+    { refundStatus: 1, amountCents: 8 },
+  ])
+    expect(refundActionMessage(malformed, 'EUR')).toContain('Refund result unavailable');
 });
 it('pages tied timestamps and keeps older pending returns ahead of newer decided rows', async () => {
   await db.batch([

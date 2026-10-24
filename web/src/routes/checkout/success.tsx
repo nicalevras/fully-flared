@@ -17,7 +17,8 @@ import {
 import { cn } from '@/lib/utils';
 import { getRequest, appendResponseHeader } from '@tanstack/react-start/server';
 import { parseCartCookie, clearCartCookieHeader, cartCountCookieHeader } from '../../server/cart';
-import { successOrderInputSchema, successSearchSchema } from '../../schemas/checkout';
+import { successOrderInputSchema } from '../../schemas/checkout';
+import { successSearch } from '../../lib/search-params';
 import { verifyOrderAccessToken } from '../../server/checkout';
 import { getSessionUser } from '../../server/session';
 
@@ -78,7 +79,7 @@ const getOrder = createServerFn({ method: 'GET' })
   });
 
 export const Route = createFileRoute('/checkout/success')({
-  validateSearch: successSearchSchema,
+  validateSearch: successSearch,
   loaderDeps: ({ search: { order, t } }) => ({ order, t }),
   loader: async ({ deps }) =>
     deps.order ? getOrder({ data: { orderId: deps.order, token: deps.t } }) : null,

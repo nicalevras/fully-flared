@@ -66,6 +66,9 @@ jobs:
       - name: Build web (Vite + typecheck)
         run: cd web && npm run build
 
+      - name: Bundle boundaries (no zod in the browser, lean Worker startup)
+        run: cd web && npm run check:bundle
+
       - name: Check generated Worker types
         run: cd web && npx wrangler types --check
 

@@ -5,7 +5,8 @@ import { Link, createFileRoute, stripSearchParams } from '@tanstack/react-router
 import { formatDate } from '../../lib/format';
 import { createServerFn } from '@tanstack/react-start';
 import { validateServerInput } from '../../server/function-boundary';
-import { collectionSearchSchema, homePageInputSchema } from '../../schemas/checkout';
+import { homePageInputSchema } from '../../schemas/checkout';
+import { storefrontPageSearch } from '../../lib/search-params';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/pagination';
@@ -19,7 +20,7 @@ const getPosts = createServerFn({ method: 'GET' })
   });
 
 export const Route = createFileRoute('/_shop/blog/')({
-  validateSearch: collectionSearchSchema,
+  validateSearch: storefrontPageSearch,
   search: { middlewares: [stripSearchParams({ page: 1 })] },
   loaderDeps: ({ search: { page } }) => ({ page }),
   loader: async ({ deps }) => getPosts({ data: { page: deps.page } }),

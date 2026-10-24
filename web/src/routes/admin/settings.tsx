@@ -8,10 +8,10 @@ import {
   LIMIT_DEFINITIONS,
   ADMISSION_KEYS,
   ADMISSION_DEFINITIONS,
-} from '../../schemas/limits';
+  SUPPORTED_CURRENCIES,
+} from '../../lib/settings-definitions';
 import { saveSettings } from '../../lib/settings-save';
 import { getSettings } from '../../server/settings';
-import { SUPPORTED_CURRENCIES } from '../../schemas/settings';
 import { useAdminAction } from '../../components/AdminNav';
 import {
   btnPrimary,

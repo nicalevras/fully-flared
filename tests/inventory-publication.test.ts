@@ -1,6 +1,6 @@
 import { PUBLISHED_SETTING_KEYS } from '../web/src/schemas/settings';
 import { deliverStripeEvent } from './helpers/webhook';
-import { LIMIT_DEFINITIONS, isLimitKey } from '../web/src/schemas/limits';
+import { LIMIT_DEFINITIONS, isLimitKey } from '../web/src/lib/settings-definitions';
 import { createPendingOrder, cancelOrderById } from '../web/src/server/checkout';
 import { attachStripeSession } from './helpers/attach-session';
 import { requestRefund } from '../web/src/server/refunds';

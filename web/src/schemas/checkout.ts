@@ -1,5 +1,6 @@
 import * as z from 'zod';
-import { LIMIT_DEFINITIONS } from './limits';
+import { LIMIT_DEFINITIONS } from '../lib/settings-definitions';
+import { MAX_STOREFRONT_PAGE } from '../lib/search-params';
 import { emailString, idString, slugString } from './common';
 
 export const checkoutLineSchema = z.object({
@@ -92,20 +93,10 @@ export type ReturnCreateBody = z.infer<typeof returnCreateBodySchema>;
 export const slugParamSchema = slugString;
 export const collectionPageInputSchema = z.object({
   slug: slugString,
-  page: z.number().int().min(1).max(100_000).catch(1).default(1),
-});
-export const collectionSearchSchema = z.object({
-  page: z.coerce.number().int().min(1).max(100_000).catch(1).default(1),
+  page: z.number().int().min(1).max(MAX_STOREFRONT_PAGE).catch(1).default(1),
 });
 export const homePageInputSchema = z.object({
-  page: z.number().int().min(1).max(100_000).catch(1).default(1),
-});
-export const searchQueryParamSchema = z.object({
-  q: z.string().max(200).catch(''),
-});
-export const successSearchSchema = z.object({
-  order: z.string().max(100).catch(''),
-  t: z.string().max(200).catch(''),
+  page: z.number().int().min(1).max(MAX_STOREFRONT_PAGE).catch(1).default(1),
 });
 
 export const successOrderInputSchema = z.object({

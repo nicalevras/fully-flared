@@ -1,6 +1,7 @@
 import * as z from 'zod';
 import { centsInt, emailString, idString, nonEmptyString, slugString } from './common';
-import { EDITORIAL_HTML_BYTE_LIMIT, MAX_RAILS } from '../server/catalog-models';
+import { EDITORIAL_HTML_BYTE_LIMIT } from '../server/catalog-models';
+import { MAX_RAILS } from '../lib/catalog-limits';
 
 // Every admin action is one member of this discriminated union. The action
 // switch receives only parsed, typed payloads — no str()/num() coercion of

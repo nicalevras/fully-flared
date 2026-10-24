@@ -6,7 +6,7 @@ import {
   ADMISSION_KEYS,
   LIMIT_DEFINITIONS,
   LIMIT_KEYS,
-} from '../web/src/schemas/limits';
+} from '../web/src/lib/settings-definitions';
 
 const limits = Object.fromEntries(LIMIT_KEYS.map((key) => [key, LIMIT_DEFINITIONS[key].default]));
 const admission = Object.fromEntries(

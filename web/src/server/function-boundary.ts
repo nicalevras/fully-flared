@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { AuthError } from './session';
 import { CheckoutError } from './checkout';
 import { InsufficientStock } from './inventory';
-import { StoreLimitError } from '../schemas/limits';
+import { StoreLimitError } from '../lib/settings-definitions';
 
 // Start's Standard Schema adapter turns issues into a plain Error. Calling
 // parse preserves ZodError so the HTTP boundary can return the correct status.

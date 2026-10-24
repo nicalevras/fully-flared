@@ -3,7 +3,7 @@ import {
   parseAdmissionConfigFromDefaults,
   type AdmissionStorage,
 } from '../../web/src/server/checkout-admission';
-import type { AdmissionConfig } from '../../web/src/schemas/limits';
+import type { AdmissionConfig } from '../../web/src/lib/settings-definitions';
 
 function admissionObject(config: AdmissionConfig) {
   const bucket = { tokens: null as number | null, updatedAtMs: 0 };

@@ -36,7 +36,6 @@ import {
   POSTS_INDEX,
   DIRECTORY_FANOUT,
   FEATURED_INDEX,
-  MAX_RAILS,
   ARTIFACT_BYTE_LIMIT,
   type CatalogCard,
   type DirectoryNode,
@@ -44,6 +43,7 @@ import {
   type ListingReference,
   type ProductDocument,
 } from './catalog-models';
+import { MAX_RAILS } from '../lib/catalog-limits';
 
 // Partitioned catalog publisher (Phase 3A). Builds the D1 read-model
 // projections and the versioned KV namespace alongside the live

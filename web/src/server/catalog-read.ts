@@ -33,7 +33,8 @@ import {
   type ProductDocument,
 } from './catalog-models';
 import { requestRead } from './exec-context';
-import { parseLimits, publishedLimits, type StoreLimits } from '../schemas/limits';
+import { parseLimits, publishedLimits } from '../schemas/limits';
+import type { StoreLimits } from '../lib/settings-definitions';
 import { pageWindow } from '../lib/catalog-page';
 import type { PublishedProductCard } from './catalog';
 

@@ -19,7 +19,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { addToCart, openCart } from '../../lib/cart';
-import type { StoreLimits } from '../../schemas/limits';
+import type { StoreLimits } from '../../lib/settings-definitions';
 import { mediaUrl, mediaSrcSet, type MediaSource } from '../../lib/media-url';
 
 type Variant = {

@@ -16,6 +16,7 @@
     "check": "npm run build && wrangler types --check",
     "predeploy": "node scripts/validate-deploy.mjs",
     "check:migrations": "node scripts/check-migrations.mjs",
+    "check:bundle": "node scripts/check-bundle.mjs",
     "verify:http": "node scripts/verify-http.mjs"
   },
   "dependencies": {

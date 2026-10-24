@@ -3,6 +3,7 @@ import { staffMiddleware } from '../../server/staff-middleware';
 import { requireStaffPermission } from '../../server/session';
 import { adminCustomers } from '../../server/admin-lists';
 import { pageInputSchema } from '../../schemas/pagination';
+import { pageSearch } from '../../lib/search-params';
 import { validateServerInput } from '../../server/function-boundary';
 import { AdminPager } from '../../components/AdminPager';
 import { formatDate } from '../../lib/format';
@@ -33,7 +34,7 @@ const getData = createServerFn({ method: 'GET' })
   });
 
 export const Route = createFileRoute('/admin/customers')({
-  validateSearch: pageInputSchema,
+  validateSearch: pageSearch,
   loaderDeps: ({ search }) => ({ page: search.page }),
   loader: async ({ deps }) => getData({ data: deps }),
   component: AdminCustomers,

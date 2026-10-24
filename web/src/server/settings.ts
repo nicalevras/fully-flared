@@ -1,11 +1,7 @@
 import { getDb } from '../db/client';
 import { settings as settingsT } from '../db/schema';
-import {
-  parseLimits,
-  parseAdmissionConfig,
-  type StoreLimits,
-  type AdmissionConfig,
-} from '../schemas/limits';
+import { parseLimits, parseAdmissionConfig } from '../schemas/limits';
+import type { StoreLimits, AdmissionConfig } from '../lib/settings-definitions';
 import {
   currencyCodeSchema,
   settingsMapSchema,

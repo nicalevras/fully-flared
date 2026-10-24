@@ -18,7 +18,7 @@ import {
 } from '../server/cart';
 import { cartAddSchema, cartLineMutationSchema } from '../schemas/cart';
 import { getSettings } from '../server/settings';
-import type { StoreLimits } from '../schemas/limits';
+import type { StoreLimits } from './settings-definitions';
 
 export type CartView = {
   cartId: string | null;

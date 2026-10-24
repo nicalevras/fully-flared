@@ -4,7 +4,8 @@ import { getStorefrontLayout, listAllCollections } from '../../server/catalog-re
 import { requestCanonicalBase } from '../../server/canonical-base';
 import { absoluteUrl, pagedPath } from '../../lib/seo';
 import { validateServerInput } from '../../server/function-boundary';
-import { collectionPageInputSchema, collectionSearchSchema } from '../../schemas/checkout';
+import { collectionPageInputSchema } from '../../schemas/checkout';
+import { storefrontPageSearch } from '../../lib/search-params';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/pagination';
@@ -21,7 +22,7 @@ const getCollections = createServerFn({ method: 'GET' })
   });
 
 export const Route = createFileRoute('/_shop/collections/')({
-  validateSearch: collectionSearchSchema,
+  validateSearch: storefrontPageSearch,
   search: { middlewares: [stripSearchParams({ page: 1 })] },
   loaderDeps: ({ search: { page } }) => ({ page }),
   loader: async ({ deps }) => getCollections({ data: { page: deps.page } }),

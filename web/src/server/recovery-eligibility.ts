@@ -1,6 +1,6 @@
 import { getSettings } from './settings';
 import { operationalRecipients } from './outbox';
-import type { StoreLimits } from '../schemas/limits';
+import type { StoreLimits } from '../lib/settings-definitions';
 
 export const RECOVERY_FAMILIES = [
   'reservation-expiry',
