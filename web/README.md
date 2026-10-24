@@ -56,7 +56,10 @@ node scripts/reconcile.mjs
 node scripts/load-test.mjs
 ```
 
-The HTTP and load scripts require the local dev server. `verify-http` creates
+The HTTP and load scripts require the local dev server with `BETTER_AUTH_SECRET` in
+`.dev.vars` (without it every admin call fails closed with 403) and, for
+`verify-http`, a bootstrapped owner; pass `--curl` after the base URL if local
+Undici connections reset. `verify-http` creates
 and removes isolated local identity fixtures; it never calls Stripe or sends
 customer messages. `reconcile` checks local invariants unless `--stripe` is
 explicitly supplied with a key. Local runs do not count toward a deployed soak.
