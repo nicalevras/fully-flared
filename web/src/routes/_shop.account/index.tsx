@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils';
 import { addToCart, openCart } from '../../lib/cart';
 import { reorderItems } from '../../lib/reorder';
 import { useRouter } from '@tanstack/react-router';
+import type { AccountActionInput } from '../../schemas/account';
 import {
   canRequestReturn,
   customerReturnLabel,
@@ -108,6 +109,7 @@ const getAccount = createServerFn({ method: 'GET' })
       addresses: addresses.map((a) => ({
         ...a,
         line2: a.line2 ?? '',
+        region: a.region ?? '',
         phone: a.phone ?? '',
         is_default: a.is_default ? 1 : 0,
       })),
@@ -151,14 +153,11 @@ function AccountPage() {
   const [password, setPassword] = useState('');
   const returnsByOrder = groupReturnsByOrder(returns);
 
-  async function accountAction(payload: Record<string, unknown>) {
+  async function accountAction(payload: AccountActionInput) {
     const { accountActionFn } = await import('../../lib/shopFns');
-    const data = (await accountActionFn({ data: payload as never })) as {
-      ok?: boolean;
-      error?: string;
-    };
+    const data = await accountActionFn({ data: payload });
     if (data.ok) router.invalidate();
-    else setMsg(data.error ?? 'Something went wrong');
+    else setMsg(data.error);
     return data.ok;
   }
 
