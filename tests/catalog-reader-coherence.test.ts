@@ -45,6 +45,12 @@ beforeEach(async () => {
   await seedProduct(db);
   await buildCatalogReadModels(db, kv);
 });
+async function pendingRefCount() {
+  const row = await db
+    .prepare('SELECT COUNT(*) AS n FROM catalog_ref_state WHERE pending_payload IS NOT NULL')
+    .first<{ n: number }>();
+  return row!.n;
+}
 afterEach(async () => {
   vi.useRealTimers();
   await dispose();
@@ -134,8 +140,10 @@ it('A to B to A reuse and corrupt directory/product/layout values resolve exact 
   const layout = await getStorefrontLayout(db, { CATALOG_KV: kv });
   await db.prepare("UPDATE products SET title='B' WHERE id='p1'").run();
   await buildCatalogReadModels(db, kv);
+  expect(await pendingRefCount()).toBe(0);
   await db.prepare("UPDATE products SET title='Tee' WHERE id='p1'").run();
   await buildCatalogReadModels(db, kv);
+  expect(await pendingRefCount()).toBe(0);
   const again = await readListingRef(db, kv, ALL_LISTING);
   expect(again!.rootHash).toBe(a!.rootHash);
   for (const key of kv.map.keys()) if (key.includes(':listing:all:page:')) kv.map.delete(key);

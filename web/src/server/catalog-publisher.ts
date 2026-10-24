@@ -871,6 +871,7 @@ export type CatalogBuildStep = {
   opsUsed: number;
   generation?: number;
   result?: CatalogBuildResult;
+  retryAfterSeconds?: number;
 };
 
 // Checkpoint JSON holds bounded cursors and counters only. Listing,
@@ -1167,9 +1168,8 @@ export async function processCatalogBuild(
           // pending payloads as delivered so builds can finish.
           await db
             .prepare(
-              'UPDATE catalog_ref_state SET delivered_seq = committed_seq, pending_payload = NULL WHERE pending_payload IS NOT NULL AND ? >= 0'
+              'UPDATE catalog_ref_state SET delivered_seq = committed_seq, pending_payload = NULL WHERE pending_payload IS NOT NULL'
             )
-            .bind(state.seq)
             .run();
           tick();
           build.state = 'building';
@@ -1184,14 +1184,16 @@ export async function processCatalogBuild(
         }
         // Deliveries are durable catalog_ref_state pending payloads,
         // not checkpoint arrays: deliver a bounded slice, then finish
-        // only when this build's sequence has nothing pending.
-        await repairPendingDeliveries(db, kv, put, { limit: 4, budget });
+        // only when nothing this build committed is pending. A key
+        // written within the KV pacing window stays pending, so the
+        // build waits for it; a key in failure backoff does not block.
+        const delivered = await repairPendingDeliveries(db, kv, put, { limit: 4, budget });
         tick();
         const remaining = await db
           .prepare(
-            'SELECT COUNT(*) AS n FROM catalog_ref_state WHERE pending_payload IS NOT NULL AND committed_seq = ?'
+            'SELECT COUNT(*) AS n FROM catalog_ref_state WHERE pending_payload IS NOT NULL AND committed_seq <= ? AND (delivery_retry_at IS NULL OR delivery_retry_at <= ?)'
           )
-          .bind(state.seq)
+          .bind(state.seq, now())
           .first<{ n: number }>();
         tick();
         if ((remaining?.n ?? 0) === 0) {
@@ -1206,7 +1208,13 @@ export async function processCatalogBuild(
           continue;
         }
         await save();
-        return { done: false, buildId: build!.id, phase, opsUsed: ops };
+        return {
+          done: false,
+          buildId: build!.id,
+          phase,
+          opsUsed: ops,
+          ...(delivered === 0 ? { retryAfterSeconds: DELIVERY_RETRY_SECONDS } : {}),
+        };
       }
 
       if (phase === 'acknowledge') {
@@ -1926,7 +1934,7 @@ export async function processCatalogBuild(
             total: number;
           }>();
         if (next) {
-          await commitListingPublication(
+          state.seq = await commitListingPublication(
             db,
             {
               listingId: next.listing_id,
@@ -1957,6 +1965,7 @@ export async function processCatalogBuild(
               .first<{ publication_seq: number }>())!.publication_seq + 1;
           const payload = JSON.stringify({ revision: state.layoutRevision });
           state.layoutChanged = false;
+          state.seq = seq;
           phase = 'deliver';
           await db.batch([
             db
@@ -2018,6 +2027,13 @@ const WORK_RETRY_MAX_SECONDS = 3_600;
 
 /** Delay before retrying while another invocation holds the catalogue lease. */
 export const BUSY_RETRY_SECONDS = 5;
+const DELIVERY_RETRY_SECONDS = 2;
+
+const buildUnitResult = (step: CatalogBuildStep) => ({
+  done: step.done,
+  busy: false,
+  ...(step.retryAfterSeconds ? { retryAfterSeconds: step.retryAfterSeconds } : {}),
+});
 
 /** One bounded production unit under the shared invocation budget
  *  and the publisher lease (Round 2 execution model). Priority:
@@ -2097,7 +2113,7 @@ export async function runCatalogUnit(
           .first();
         if (due) return { done: false, busy: false };
       }
-      return { done: step.done, busy: false };
+      return buildUnitResult(step);
     }
     const put: PutFn = async (key, value) => {
       if (kv) await kv.put(key, value);
@@ -2125,7 +2141,7 @@ export async function runCatalogUnit(
         kind = refRaw ? 'full' : 'repair';
       }
       const step = await processCatalogBuild(cdb, kv, { budget, lease, kind });
-      return { done: step.done, busy: false };
+      return buildUnitResult(step);
     }
     if (kv) {
       const refRaw = await kv.get(listingRefKey(ALL_LISTING)).catch(() => null);
