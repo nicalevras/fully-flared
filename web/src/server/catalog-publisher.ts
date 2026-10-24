@@ -499,7 +499,7 @@ async function processPublishedIndex(
         : (
             await db
               .prepare(
-                "SELECT id,slug,title,excerpt,COALESCE(published_at,'') AS published_at FROM posts WHERE id IN (SELECT value FROM json_each(?))"
+                "SELECT p.id,p.slug,p.title,p.excerpt,COALESCE(p.published_at,'') AS published_at,m.r2_key AS cover_key,m.public_url AS cover_public_url FROM posts p LEFT JOIN media m ON m.id=p.cover_media_id AND m.ready=1 AND m.deletion_pending=0 WHERE p.id IN (SELECT value FROM json_each(?))"
               )
               .bind(JSON.stringify(ids))
               .all<Record<string, unknown>>()
