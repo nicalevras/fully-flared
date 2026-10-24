@@ -11,7 +11,7 @@ import {
   releaseOrderHoldsStmts,
   InsufficientStock,
 } from './inventory';
-import { getSettings } from './settings';
+import { getSettings, readSettings } from './settings';
 import { inArray, eq } from 'drizzle-orm';
 import { getDb } from '../db/client';
 import { variants as variantsT, products as productsT } from '../db/schema';
@@ -438,7 +438,7 @@ export async function createPendingOrder(
     if (/discount_usage|UNIQUE constraint failed: discount_usage/.test(message))
       throw new CheckoutError('Discount code is not valid for this order');
     if (/batch_guard|CHECK|reserved cannot/.test(message)) {
-      const current = await getSettings(db).catch(() => null);
+      const current = await readSettings(db).catch(() => null);
       if (current && current.configRevision !== quote.configRevision)
         throw new CheckoutError(
           'Store pricing changed; review your order and resubmit',

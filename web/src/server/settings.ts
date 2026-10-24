@@ -1,4 +1,5 @@
 import { getDb } from '../db/client';
+import { requestRead } from './exec-context';
 import { settings as settingsT } from '../db/schema';
 import { parseLimits, parseAdmissionConfig } from '../schemas/limits';
 import type { StoreLimits, AdmissionConfig } from '../lib/settings-definitions';
@@ -54,7 +55,13 @@ const DEFAULTS: Record<string, string> = {
   media_public_base_url: '',
 };
 
-export async function getSettings(db: D1Database): Promise<StoreSettings> {
+/** Settings for this request: one read however many callers ask. */
+export function getSettings(db: D1Database): Promise<StoreSettings> {
+  return requestRead(db, 'settings', () => readSettings(db));
+}
+
+/** A fresh read, for callers that follow a write in the same request. */
+export async function readSettings(db: D1Database): Promise<StoreSettings> {
   const rows = await getDb(db)
     .select({ key: settingsT.key, value: settingsT.value })
     .from(settingsT);
