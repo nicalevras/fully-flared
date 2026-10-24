@@ -7,6 +7,7 @@ import {
   listingRefKey,
   productDocKey,
   productSlugKey,
+  editorialKey,
   layoutKey,
   LAYOUT_REF_KEY,
   ALL_LISTING,
@@ -312,7 +313,7 @@ export async function runCatalogGcUnit(
         productSlugKey(r.slug),
         productDocKey(r.product_id, r.doc_revision),
       ]);
-    } else {
+    } else if (s.step === 4) {
       const rows = await db
         .prepare(
           `SELECT key,CASE WHEN kind LIKE '%-pointer' THEN json_extract(payload_json,'$.key') END AS target FROM catalog_documents WHERE key>? ORDER BY key LIMIT 100`
@@ -322,12 +323,26 @@ export async function runCatalogGcUnit(
       length = rows.results.length;
       s.cursor = rows.results.at(-1)?.key ?? s.cursor;
       keys = rows.results.filter((r) => r.target).flatMap((r) => [r.key, r.target!]);
+    } else {
+      const rows = await db
+        .prepare(
+          "SELECT from_path FROM redirects WHERE from_path>? AND (from_path LIKE '/products/%' OR from_path LIKE '/blog/%') ORDER BY from_path LIMIT 100"
+        )
+        .bind(s.cursor)
+        .all<{ from_path: string }>();
+      length = rows.results.length;
+      s.cursor = rows.results.at(-1)?.from_path ?? s.cursor;
+      keys = rows.results.map(({ from_path }) =>
+        from_path.startsWith('/products/')
+          ? productSlugKey(from_path.slice('/products/'.length))
+          : editorialKey('post', from_path.slice('/blog/'.length))
+      );
     }
     if (length < PAGE) {
       s.step++;
       s.cursor = '';
     }
-    if (s.step > 4) {
+    if (s.step > 5) {
       s.phase = 'mark';
       s.step = 0;
     }
