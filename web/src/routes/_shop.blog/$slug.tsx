@@ -5,7 +5,6 @@ import { PostNotFound } from '../../components/NotFound';
 import { richTextCls } from '../../lib/rich-text';
 import { loadPostPage } from '../../server/storefront-pages';
 import { requestCanonicalBase } from '../../server/canonical-base';
-import { sanitizeHtml } from '../../server/sanitize';
 import { slugParamSchema } from '../../schemas/checkout';
 import { absoluteUrl, jsonLd, seoMeta } from '../../lib/seo';
 import { formatDate } from '../../lib/format';
@@ -43,7 +42,7 @@ const getPost = createServerFn({ method: 'GET' })
       cover_url: row.coverPublicUrl ?? null,
       tags: row.tags,
       author_name: row.authorName,
-      content_html: sanitizeHtml(row.contentHtml),
+      content_html: row.contentHtml,
       storeName: settings.storeName,
       seoTitleTemplate: settings.seoTitleTemplate,
       canonicalBaseUrl: requestCanonicalBase(settings.canonicalBaseUrl),

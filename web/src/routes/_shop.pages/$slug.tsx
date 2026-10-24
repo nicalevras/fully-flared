@@ -8,7 +8,6 @@ import { validateServerInput } from '../../server/function-boundary';
 import { PageNotFound } from '../../components/NotFound';
 import { richTextCls } from '../../lib/rich-text';
 import { slugParamSchema } from '../../schemas/checkout';
-import { sanitizeHtml } from '../../server/sanitize';
 
 type Page = {
   slug: string;
@@ -29,7 +28,7 @@ const getPage = createServerFn({ method: 'GET' })
       seo_title: row.seoTitle,
       seo_description: row.seoDescription,
       layout: withRequestCanonicalBase(layout),
-      content_html: sanitizeHtml(row.contentHtml),
+      content_html: row.contentHtml,
     };
   });
 
