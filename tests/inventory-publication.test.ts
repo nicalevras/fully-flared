@@ -1,7 +1,7 @@
 import { PUBLISHED_SETTING_KEYS } from '../web/src/schemas/settings';
 import { deliverStripeEvent } from './helpers/webhook';
 import { LIMIT_DEFINITIONS, isLimitKey } from '../web/src/lib/settings-definitions';
-import { createPendingOrder, cancelOrderById } from '../web/src/server/checkout';
+import { cancelOrderById } from '../web/src/server/checkout';
 import { attachStripeSession } from './helpers/attach-session';
 import { requestRefund } from '../web/src/server/refunds';
 import { adjustStock } from '../web/src/server/inventory';
@@ -119,7 +119,7 @@ it('reserve, cancel, payment, refund/restock and adjustments preserve publicatio
       .first();
     const writes = put.mock.calls.length;
     const create = () =>
-      createPendingOrder(db, {
+      heldOrder(db, {
         email: 'fixture@example.test',
         shippingCountry: 'US',
         shippingRateId: 'test-rate',
@@ -271,3 +271,4 @@ it('partitioned readers never query stock and ignore fabricated references', asy
   expect(page?.generation).toBeLessThan(9999999);
 });
 import { buildCatalogReadModels, catalogWork } from './helpers/catalog-driver';
+import { heldOrder } from './helpers/pending-intent';

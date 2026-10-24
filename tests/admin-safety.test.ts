@@ -3,11 +3,7 @@ import { deliverStripeEvent } from './helpers/webhook';
 import { createTestDb, seedProduct } from './helpers/d1';
 import { settleRefund } from '../web/src/server/refunds';
 import { runAdminAction } from '../web/src/server/admin-actions';
-import {
-  createPendingOrder,
-  failInboxEvent,
-  reprocessStaleInbox,
-} from '../web/src/server/checkout';
+import { failInboxEvent, reprocessStaleInbox } from '../web/src/server/checkout';
 import { adjustStock, reserveStock, commitReservation } from '../web/src/server/inventory';
 import {
   canShipOrder,
@@ -19,6 +15,7 @@ import {
 import { insertReturnRequest, validateReturnItems } from '../web/src/server/returns';
 import { adminProducts, adminCustomers, adminOrders } from '../web/src/server/admin-lists';
 import { orderPagesSchema } from '../web/src/schemas/pagination';
+import { heldOrder } from './helpers/pending-intent';
 
 const provider = vi.hoisted(() => ({
   refund: vi.fn(async () => ({ id: 're_safety', status: 'pending' })),
@@ -115,7 +112,7 @@ it('refund replay preserves disputes, shipping stays blocked, and a won dispute 
 it('checkout winning the deletion race preserves its variant, order, holds and stock', async () => {
   await extraVariant();
   const wrapped = beforeBatch(async () => {
-    await createPendingOrder(db, {
+    await heldOrder(db, {
       email: 'fixture@example.invalid',
       shippingCountry: 'US',
       shippingRateId: 'test-rate',
@@ -207,7 +204,7 @@ it('simultaneous last-two-variant deletes leave one variant, and deletion winnin
   ).toBe(1);
   const deleted = results[0].ok ? 'TEE-1' : 'SECOND';
   await expect(
-    createPendingOrder(db, {
+    heldOrder(db, {
       email: 'fixture@example.invalid',
       shippingCountry: 'US',
       shippingRateId: 'test-rate',

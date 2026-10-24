@@ -24,7 +24,6 @@ export interface CheckoutRequest {
   shippingCountries: string[];
   automaticTax: boolean;
   expiresAtEpochSeconds: number;
-  manualCapture?: boolean;
   shippingAddress?: ShippingAddress;
   customerId?: string;
 }
@@ -320,34 +319,28 @@ export class StripeProvider implements PaymentProvider {
         {
           mode: 'payment',
           ...(req.customerId ? { customer: req.customerId } : { customer_email: req.email }),
-          ...(req.manualCapture
-            ? ({
-                allowed_payment_method_types: ['card'],
-                adaptive_pricing: { enabled: false },
-                payment_intent_data: {
-                  capture_method: 'manual' as const,
-                  metadata: { order_id: req.orderId, attempt_id: req.attemptId },
-                  ...(req.shippingAddress
-                    ? {
-                        shipping: {
-                          name: req.shippingAddress.name,
-                          ...(req.shippingAddress.phone
-                            ? { phone: req.shippingAddress.phone }
-                            : {}),
-                          address: {
-                            line1: req.shippingAddress.line1,
-                            line2: req.shippingAddress.line2,
-                            city: req.shippingAddress.city,
-                            state: req.shippingAddress.state,
-                            postal_code: req.shippingAddress.postalCode,
-                            country: req.shippingAddress.country,
-                          },
-                        },
-                      }
-                    : {}),
-                },
-              } satisfies Stripe.Checkout.SessionCreateParams)
-            : {}),
+          allowed_payment_method_types: ['card'],
+          adaptive_pricing: { enabled: false },
+          payment_intent_data: {
+            capture_method: 'manual',
+            metadata: { order_id: req.orderId, attempt_id: req.attemptId },
+            ...(req.shippingAddress
+              ? {
+                  shipping: {
+                    name: req.shippingAddress.name,
+                    ...(req.shippingAddress.phone ? { phone: req.shippingAddress.phone } : {}),
+                    address: {
+                      line1: req.shippingAddress.line1,
+                      line2: req.shippingAddress.line2,
+                      city: req.shippingAddress.city,
+                      state: req.shippingAddress.state,
+                      postal_code: req.shippingAddress.postalCode,
+                      country: req.shippingAddress.country,
+                    },
+                  },
+                }
+              : {}),
+          },
           currency: req.currency.toLowerCase(),
           line_items: req.lineItems.map((i) => ({
             price_data: {

@@ -1,8 +1,8 @@
 import { beforeEach, afterEach, expect, it } from 'vitest';
-import { createTestDb, seedProduct, expectLedgerMatchesCounters } from './helpers/d1';
+import { createTestDb, seedProduct } from './helpers/d1';
 import { createPendingOrder, quoteOrder } from '../web/src/server/checkout';
 import { getSettings } from '../web/src/server/settings';
-import { InsufficientStock } from '../web/src/server/inventory';
+import { heldOrder, pendingIntent } from './helpers/pending-intent';
 
 let db: D1Database, dispose: () => Promise<void>;
 
@@ -54,29 +54,49 @@ const input = (n: number) => ({
 
 it('initiation statement count is basket-size independent and within target', async () => {
   const one = counting(db);
-  await createPendingOrder(one.proxy, input(1));
+  await createPendingOrder(one.proxy, input(1), pendingIntent());
   const fifty = counting(db);
-  await createPendingOrder(fifty.proxy, input(50));
+  await createPendingOrder(fifty.proxy, input(50), pendingIntent());
   expect(fifty.count()).toBeLessThanOrEqual(25);
   expect(fifty.count() - one.count()).toBeLessThanOrEqual(2);
   expect(
     (await db.prepare('SELECT COUNT(*) AS n FROM reservations').first<{ n: number }>())?.n
-  ).toBe(51);
+  ).toBe(0);
   expect(
     (await db.prepare('SELECT COUNT(*) AS n FROM order_items').first<{ n: number }>())?.n
   ).toBe(51);
 });
 
-it('a mid-batch stock failure rolls back order, items, reservations and ledger', async () => {
-  await db.prepare("UPDATE stock SET on_hand=0, reserved=0 WHERE sku='SKU-50'").run();
-  await expect(createPendingOrder(db, input(50))).rejects.toBeInstanceOf(InsufficientStock);
-  for (const table of ['orders', 'order_items', 'reservations', 'checkout_intents'])
-    expect((await db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first<{ n: number }>())?.n).toBe(
-      0
-    );
-  expect(await expectLedgerMatchesCounters(db, 'TEE-1')).toEqual({
-    on_hand: 100000,
-    reserved: 0,
+it('a new order holds no stock or coupon and its intent waits for authorization', async () => {
+  await db
+    .prepare(
+      "INSERT INTO discounts(id,code,type,value,usage_per_customer,created_at) VALUES('coupon','SAVE','percentage',10,1,?)"
+    )
+    .bind(new Date().toISOString())
+    .run();
+  const intent = pendingIntent();
+  const created = await createPendingOrder(db, { ...input(2), discountCode: 'SAVE' }, intent);
+  expect(created.discountCents).toBeGreaterThan(0);
+  const count = async (table: string) =>
+    (await db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first<{ n: number }>())?.n;
+  expect(await count('reservations')).toBe(0);
+  expect(await count('discount_usage')).toBe(0);
+  expect(await db.prepare("SELECT usage_count FROM discounts WHERE id='coupon'").first()).toEqual({
+    usage_count: 0,
+  });
+  expect(await db.prepare('SELECT SUM(reserved) AS n FROM stock').first()).toEqual({ n: 0 });
+  expect(
+    await db
+      .prepare(
+        'SELECT state,allocation_id,payment_next_at,session_expires_at FROM checkout_intents WHERE id=?'
+      )
+      .bind(intent.id)
+      .first()
+  ).toEqual({
+    state: 'reserved',
+    allocation_id: null,
+    payment_next_at: intent.sessionExpiresAt,
+    session_expires_at: intent.sessionExpiresAt,
   });
 });
 
@@ -99,13 +119,13 @@ it('a quote whose revision changed before commit is rejected, never repriced sil
   const quote = await quoteOrder(db, input(1), settings);
   expect(quote.configRevision).toBe(settings.configRevision);
   await db.prepare("UPDATE variants SET price_cents = 555 WHERE sku='TEE-1'").run();
-  await expect(createPendingOrder(db, input(1), undefined, settings)).rejects.toMatchObject({
+  await expect(createPendingOrder(db, input(1), pendingIntent(), settings)).rejects.toMatchObject({
     code: 'STALE_QUOTE',
     status: 409,
   });
   expect((await db.prepare('SELECT COUNT(*) AS n FROM orders').first<{ n: number }>())?.n).toBe(0);
   // A fresh submission at the new revision succeeds at the new price.
-  const fresh = await createPendingOrder(db, input(1));
+  const fresh = await heldOrder(db, input(1));
   expect(fresh.totalCents).toBe(555);
 });
 
@@ -120,7 +140,7 @@ it('a discounted checkout does not trip its own revision guard via usage_count',
   const created = await createPendingOrder(
     db,
     { ...input(1), discountCode: 'SAVE10' },
-    undefined,
+    pendingIntent(),
     settings
   );
   expect(created.discountCents).toBe(10);
@@ -134,6 +154,6 @@ it('a discounted checkout does not trip its own revision guard via usage_count',
 it('stock-only movement between quote and submit does not invalidate the quote', async () => {
   const settings = await getSettings(db);
   await db.prepare("UPDATE stock SET reserved = reserved + 5 WHERE sku='TEE-1'").run();
-  const created = await createPendingOrder(db, input(1), undefined, settings);
+  const created = await createPendingOrder(db, input(1), pendingIntent(), settings);
   expect(created.totalCents).toBe(100);
 });

@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { deliverStripeEvent } from './helpers/webhook';
 import { createTestDb, seedProduct, expectLedgerMatchesCounters } from './helpers/d1';
-import { createPendingOrder, cancelOrderById } from '../web/src/server/checkout';
+import { cancelOrderById } from '../web/src/server/checkout';
 import type { PaymentProvider } from '../web/src/server/payments';
+import { heldOrder } from './helpers/pending-intent';
 
 let db: D1Database;
 let dispose: () => Promise<void>;
@@ -29,7 +30,7 @@ afterAll(async () => {
 });
 it('requires explicit shipping selection before reserving stock', async () => {
   await expect(
-    createPendingOrder(db, { email: 'shipping@test.com', lines: [{ sku: 'TEE-1', qty: 1 }] })
+    heldOrder(db, { email: 'shipping@test.com', lines: [{ sku: 'TEE-1', qty: 1 }] })
   ).rejects.toThrow(/shipping/i);
   expect((await expectLedgerMatchesCounters(db, 'TEE-1')).reserved).toBe(0);
 });
@@ -37,7 +38,7 @@ it('rejects archived parent products through direct checkout', async () => {
   await db.prepare("UPDATE products SET status = 'archived' WHERE id = 'p1'").run();
   try {
     await expect(
-      createPendingOrder(db, {
+      heldOrder(db, {
         email: 'archived@test.com',
         lines: [{ sku: 'TEE-1', qty: 1 }],
         shippingCountry: 'US',
@@ -49,7 +50,7 @@ it('rejects archived parent products through direct checkout', async () => {
   }
 });
 it('persists Stripe v23 shipping and creates one durable receipt across duplicate payment and expiry', async () => {
-  const o = await createPendingOrder(db, {
+  const o = await heldOrder(db, {
     email: 'paid@test.com',
     lines: [{ sku: 'TEE-1', qty: 1 }],
     shippingCountry: 'US',

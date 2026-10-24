@@ -336,7 +336,7 @@ atomically before capture. Verified capture finalizes inventory/ledger/receipt
 transactionally. Zero-total orders use one guarded capacity/finalization batch.
 Uncertain capture never releases allocations merely because a hold expired.
 Stable operation identities, retrieval, fencing and cancellation/refund recovery
-cover supersession and account deletion. Legacy records retain their recorded flow.
+cover supersession and account deletion.
 
 checkout_session_minutes replaces the misleading hold setting (32, range32–1440).
 Old immutable layouts are hash-verified unchanged and map the old limit key only

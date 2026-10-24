@@ -829,9 +829,6 @@ export const checkoutIntents = sqliteTable(
     userId: text('user_id').references(() => user.id),
     guestCapabilityHash: text('guest_capability_hash'),
     fingerprint: text('fingerprint').notNull(),
-    flow: text('flow', { enum: ['legacy', 'manual_capture'] })
-      .notNull()
-      .default('legacy'),
     stripeCustomerId: text('stripe_customer_id'),
     paymentIntentId: text('payment_intent_id'),
     shippingAddressJson: text('shipping_address_json'),
@@ -876,7 +873,6 @@ export const checkoutIntents = sqliteTable(
     claimExpiresAt: text('claim_expires_at'),
     fencing: integer('fencing').notNull().default(0),
     sessionExpiresAt: text('session_expires_at').notNull(),
-    holdExpiresAt: text('hold_expires_at'),
     nextReconcileAt: text('next_reconcile_at'),
     failureCode: text('failure_code'),
     firstProviderAttemptAt: text('first_provider_attempt_at'),
@@ -887,11 +883,11 @@ export const checkoutIntents = sqliteTable(
   },
   (t) => [
     index('checkout_intents_owner_idx').on(t.userId, t.guestCapabilityHash),
-    index('checkout_intents_payment_due_idx').on(t.flow, t.paymentNextAt),
+    index('checkout_intents_payment_due_idx').on(t.paymentNextAt),
     index('checkout_authorization_age_idx')
       .on(t.authorizedAt)
       .where(
-        sql`${t.flow}='manual_capture' AND ${t.paymentState} NOT IN ('finalized','canceled') AND ${t.authorizedAt} IS NOT NULL`
+        sql`${t.paymentState} NOT IN ('finalized','canceled') AND ${t.authorizedAt} IS NOT NULL`
       ),
     index('checkout_intents_payment_intent_idx').on(t.paymentIntentId),
     index('checkout_intents_cart_idx').on(t.cartId, t.createdAt),

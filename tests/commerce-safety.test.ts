@@ -1,12 +1,7 @@
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { deliverStripeEvent } from './helpers/webhook';
 import { createTestDb, seedProduct, expectLedgerMatchesCounters } from './helpers/d1';
-import {
-  cancelOrderById,
-  createPendingOrder,
-  processInboxEvent,
-  calculateShipping,
-} from '../web/src/server/checkout';
+import { cancelOrderById, processInboxEvent, calculateShipping } from '../web/src/server/checkout';
 import { attachStripeSession } from './helpers/attach-session';
 import { requestRefund, settleRefund } from '../web/src/server/refunds';
 import { runAdminAction } from '../web/src/server/admin-actions';
@@ -18,6 +13,7 @@ import {
   REQUIRED_STRIPE_EVENTS,
 } from '../web/src/server/stripe-events';
 import { handledStripeSchemas } from '../web/src/schemas/webhook';
+import { heldOrder } from './helpers/pending-intent';
 
 let db: D1Database, dispose: () => Promise<void>;
 const provider: payments.PaymentProvider = {
@@ -42,7 +38,7 @@ afterAll(async () => {
   await dispose();
 });
 async function order(name: string) {
-  const o = await createPendingOrder(db, {
+  const o = await heldOrder(db, {
     email: `${name}@test.com`,
     shippingCountry: 'US',
     shippingRateId: 'test-rate',
@@ -118,35 +114,6 @@ it('a cancellation that loses to payment cannot release committed stock', async 
         .first<{ status: string }>()
     )?.status
   ).toBe('committed');
-  await expectLedgerMatchesCounters(db, 'TEE-1');
-});
-it('a paid transition that follows cancellation recovers stock atomically', async () => {
-  const o = await order('payment-late');
-  let ready!: () => void, release!: () => void;
-  const waiting = new Promise<void>((r) => {
-    ready = r;
-  });
-  const allowed = new Promise<void>((r) => {
-    release = r;
-  });
-  const pay = deliverStripeEvent(
-    pausedBatch(ready, allowed),
-    provider,
-    event(o, 'payment-late'),
-    'test'
-  );
-  await waiting;
-  await cancelOrderById(db, o.orderId);
-  release();
-  await pay;
-  expect(
-    (
-      await db
-        .prepare('SELECT status FROM orders WHERE id=?')
-        .bind(o.orderId)
-        .first<{ status: string }>()
-    )?.status
-  ).toBe('paid');
   await expectLedgerMatchesCounters(db, 'TEE-1');
 });
 it('receipt insertion failure rolls back payment and inventory, then replay repairs it', async () => {
@@ -350,7 +317,7 @@ it('return refund permission cannot be bypassed; pending returns remain retryabl
 it('parallel checkouts enforce caps without leaking holds or ledger writes', async () => {
   const attempts = await Promise.allSettled(
     Array.from({ length: 12 }, () =>
-      createPendingOrder(db, {
+      heldOrder(db, {
         email: 'same-cap@test.com',
         shippingCountry: 'US',
         shippingRateId: 'test-rate',
@@ -436,95 +403,6 @@ it('one event manifest covers all payload validators, including refund lifecycle
   expect(missingStripeSubscriptions([...REQUIRED_STRIPE_EVENTS])).toEqual([]);
 });
 
-it('refund and dispute events arriving before Checkout resolve the order and cannot be overwritten by stale events', async () => {
-  const o = await order('refund-first');
-  const lookup = {
-    ...provider,
-    async findCheckoutSessionIdByPaymentIntent() {
-      return 'cs_refund-first';
-    },
-  };
-  const charge = JSON.stringify({
-    id: 'evt_charge_first',
-    type: 'charge.refunded',
-    data: {
-      object: {
-        id: 'ch_first',
-        payment_intent: 'pi_refund-first',
-        amount_refunded: o.totalCents,
-        refunds: {
-          data: [
-            {
-              id: 're_first',
-              payment_intent: 'pi_refund-first',
-              amount: o.totalCents,
-              status: 'succeeded',
-            },
-          ],
-        },
-      },
-    },
-  });
-  await deliverStripeEvent(db, lookup, charge, 'test');
-  await deliverStripeEvent(db, lookup, event(o, 'refund-first'), 'test');
-  expect(
-    (
-      await db
-        .prepare('SELECT payment_status FROM orders WHERE id=?')
-        .bind(o.orderId)
-        .first<{ payment_status: string }>()
-    )?.payment_status
-  ).toBe('refunded');
-  expect(
-    (
-      await db
-        .prepare("SELECT COUNT(*) n FROM reservations WHERE order_id=? AND status='committed'")
-        .bind(o.orderId)
-        .first<{ n: number }>()
-    )?.n
-  ).toBe(0);
-  const d = await order('dispute-first');
-  const disputeLookup = {
-    ...provider,
-    async findCheckoutSessionIdByPaymentIntent() {
-      return 'cs_dispute-first';
-    },
-  };
-  const delivery = (id: string, type: string, status?: string) =>
-    JSON.stringify({
-      id,
-      type,
-      data: {
-        object: {
-          id: 'dp_first',
-          payment_intent: 'pi_dispute-first',
-          ...(status ? { status } : {}),
-        },
-      },
-    });
-  await deliverStripeEvent(
-    db,
-    disputeLookup,
-    delivery('evt_closed_first', 'charge.dispute.closed', 'won'),
-    'test'
-  );
-  await deliverStripeEvent(
-    db,
-    disputeLookup,
-    delivery('evt_created_late', 'charge.dispute.created'),
-    'test'
-  );
-  await deliverStripeEvent(db, disputeLookup, event(d, 'dispute-first'), 'test');
-  expect(
-    (
-      await db
-        .prepare('SELECT payment_status FROM orders WHERE id=?')
-        .bind(d.orderId)
-        .first<{ payment_status: string }>()
-    )?.payment_status
-  ).toBe('paid');
-  await expectLedgerMatchesCounters(db, 'TEE-1');
-});
 it('return approval moves no money, does not restock, and support can approve', async () => {
   const o = await paid('return-no-refund');
   await db

@@ -1,9 +1,9 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
-import { deliverStripeEvent } from './helpers/webhook';
 import { createTestDb, seedProduct } from './helpers/d1';
 import { handleCheckoutRequest } from '../web/src/routes/api/checkout';
 import { handleGuestBootstrapRequest } from '../web/src/routes/api/checkout/guest-session';
-import { quoteOrder, createPendingOrder } from '../web/src/server/checkout';
+import { quoteOrder } from '../web/src/server/checkout';
+import { heldOrder } from './helpers/pending-intent';
 import {
   loadIntent,
   reconcileCheckoutIntents,
@@ -413,7 +413,7 @@ it('account deletion cancels open checkouts and releases their holds', async () 
       "INSERT INTO user(id,name,email,role,created_at,updated_at) VALUES('cust2','Cust','cust2@example.invalid','customer',0,0)"
     )
     .run();
-  const created = await createPendingOrder(
+  const created = await heldOrder(
     db,
     {
       email: 'cust2@example.invalid',
@@ -429,7 +429,6 @@ it('account deletion cancels open checkouts and releases their holds', async () 
       guestCapabilityHash: null,
       fingerprint: 'fp',
       sessionExpiresAt: '2999-01-01',
-      holdExpiresAt: '2999-01-01',
       payloadFor: async () => ({ email: 'cust2@example.invalid' }),
     }
   );
@@ -619,62 +618,12 @@ it('expired frozen parameters preserve unresolved intent without calling Stripe'
   expect((await loadIntent(db, INTENT))?.state).toBe('reconciliation_required');
 });
 
-it('an early webhook attaches through the intent guard and pays the order', async () => {
-  const created = await createPendingOrder(
-    db,
-    {
-      email: 'early@example.invalid',
-      lines: [{ sku: 'TEE-1', qty: 1 }],
-      shippingRateId: 'test-rate',
-      shippingCountry: 'US',
-    },
-    {
-      id: INTENT,
-      ownerType: 'guest',
-      userId: null,
-      guestCapabilityHash: 'hash',
-      fingerprint: 'fp',
-      sessionExpiresAt: '2999-01-01',
-      holdExpiresAt: '2999-01-01',
-      payloadFor: async () => ({}),
-    }
-  );
-  const event = JSON.stringify({
-    id: 'evt_early',
-    type: 'checkout.session.completed',
-    data: {
-      object: {
-        id: 'cs_early',
-        payment_status: 'paid',
-        payment_intent: 'pi_early',
-        amount_total: 2000,
-        currency: 'usd',
-        url: 'https://stripe.test/early',
-        collected_information: {
-          shipping_details: { name: 'Early', address: { line1: '1 St', country: 'US' } },
-        },
-        metadata: { order_id: created.orderId, attempt_id: INTENT },
-      },
-    },
-  });
-  await deliverStripeEvent(db, provider as never, event, 'sig');
-  const order = await db
-    .prepare('SELECT status, payment_status, stripe_checkout_session_id FROM orders WHERE id=?')
-    .bind(created.orderId)
-    .first();
-  expect(order).toMatchObject({
-    status: 'paid',
-    stripe_checkout_session_id: 'cs_early',
-  });
-  expect((await loadIntent(db, INTENT))?.state).toBe('ready');
-});
-
 async function makeAccountCheckout(userId: string, role: string, email: string) {
   await db
     .prepare('INSERT INTO user(id,name,email,role,created_at,updated_at) VALUES(?,?,?, ?,0,0)')
     .bind(userId, 'Cust', email, role)
     .run();
-  return createPendingOrder(
+  return heldOrder(
     db,
     {
       email,
@@ -690,7 +639,6 @@ async function makeAccountCheckout(userId: string, role: string, email: string) 
       guestCapabilityHash: null,
       fingerprint: 'fp',
       sessionExpiresAt: '2999-01-01',
-      holdExpiresAt: '2999-01-01',
       payloadFor: async () => ({ email }),
     }
   );
@@ -780,7 +728,7 @@ it('account deletion retires intent replay and scrubs the frozen payload', async
       "INSERT INTO user(id,name,email,role,created_at,updated_at) VALUES('cust','Cust','cust@example.invalid','customer',0,0)"
     )
     .run();
-  const created = await createPendingOrder(
+  const created = await heldOrder(
     db,
     {
       email: 'cust@example.invalid',
@@ -796,7 +744,6 @@ it('account deletion retires intent replay and scrubs the frozen payload', async
       guestCapabilityHash: null,
       fingerprint: 'fp',
       sessionExpiresAt: '2999-01-01',
-      holdExpiresAt: '2999-01-01',
       payloadFor: async () => ({ email: 'cust@example.invalid' }),
     }
   );

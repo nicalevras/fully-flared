@@ -43,7 +43,7 @@ export async function recordAuthorizedEvent(
   const metadata = data.metadata as { attempt_id?: string; order_id?: string } | undefined;
   const row = await db
     .prepare(
-      `SELECT id,payment_state FROM checkout_intents WHERE flow='manual_capture' AND ((id=? AND order_id=?) OR stripe_session_id=? OR payment_intent_id=?) LIMIT 1`
+      `SELECT id,payment_state FROM checkout_intents WHERE ((id=? AND order_id=?) OR stripe_session_id=? OR payment_intent_id=?) LIMIT 1`
     )
     .bind(
       metadata?.attempt_id ?? '',
@@ -181,7 +181,7 @@ export async function confirmReview(
 ): Promise<string> {
   const result = await db
     .prepare(
-      `UPDATE checkout_intents SET quote_confirmed_at=COALESCE(quote_confirmed_at,?),updated_at=? WHERE id=? AND flow='manual_capture' AND state='ready' AND cancel_requested=0 AND superseded_by IS NULL AND quote_hash=? AND session_expires_at>? AND EXISTS(SELECT 1 FROM orders WHERE id=checkout_intents.order_id AND status='pending_payment') AND (cart_id IS NULL OR EXISTS(SELECT 1 FROM carts WHERE id=cart_id AND revision=cart_revision AND active_checkout_id=checkout_intents.id AND status='open'))`
+      `UPDATE checkout_intents SET quote_confirmed_at=COALESCE(quote_confirmed_at,?),updated_at=? WHERE id=? AND state='ready' AND cancel_requested=0 AND superseded_by IS NULL AND quote_hash=? AND session_expires_at>? AND EXISTS(SELECT 1 FROM orders WHERE id=checkout_intents.order_id AND status='pending_payment') AND (cart_id IS NULL OR EXISTS(SELECT 1 FROM carts WHERE id=cart_id AND revision=cart_revision AND active_checkout_id=checkout_intents.id AND status='open'))`
     )
     .bind(now(), now(), intentId, quoteHash, now())
     .run();
@@ -376,12 +376,7 @@ export async function runAuthorizedCheckout(
   let claim: PaymentClaim | undefined;
   try {
     let intent = await loadIntent(db, intentId);
-    if (
-      !intent ||
-      intent.flow !== 'manual_capture' ||
-      ['finalized', 'canceled'].includes(intent.payment_state)
-    )
-      return;
+    if (!intent || ['finalized', 'canceled'].includes(intent.payment_state)) return;
     const token = crypto.randomUUID();
     const claimed = await db
       .prepare(

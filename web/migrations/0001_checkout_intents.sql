@@ -17,7 +17,6 @@ CREATE TABLE `checkout_intents` (
 	`claim_expires_at` text,
 	`fencing` integer DEFAULT 0 NOT NULL,
 	`session_expires_at` text NOT NULL,
-	`hold_expires_at` text,
 	`next_reconcile_at` text,
 	`failure_code` text,
 	`created_at` text NOT NULL,

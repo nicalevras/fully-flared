@@ -4,9 +4,9 @@ import { getSettings, setSetting } from '../web/src/server/settings';
 import { ensureCart, setCartLine, priceCartLines } from '../web/src/server/cart';
 import { createPendingOrder, cancelOrderById, quoteOrder } from '../web/src/server/checkout';
 import { requestRefund, reconcileRefundOperations } from '../web/src/server/refunds';
-import { adjustStock } from '../web/src/server/inventory';
 import { readFileSync } from 'node:fs';
 import { LIMIT_KEYS, LIMIT_DEFINITIONS } from '../web/src/lib/settings-definitions';
+import { heldOrder, pendingIntent } from './helpers/pending-intent';
 
 let db: D1Database, dispose: () => Promise<void>;
 beforeAll(async () => {
@@ -62,8 +62,8 @@ it('uses nondefault limits and retains the legacy hold buffer around the configu
     shippingRateId: 'test-rate',
     lines: [{ sku: 'TEE-1', qty: 1 }],
   };
-  const order = await createPendingOrder(db, input);
-  await expect(createPendingOrder(db, input)).rejects.toThrow(/Too many open checkouts/);
+  const order = await heldOrder(db, input);
+  await expect(heldOrder(db, input)).rejects.toThrow(/Too many open checkouts/);
   const hold = await db
     .prepare('SELECT expires_at,created_at FROM reservations WHERE order_id=?')
     .bind(order.orderId)
@@ -212,20 +212,12 @@ it('prices and orders the configured 100-line boundary without exceeding D1 para
     lines,
   };
   expect((await quoteOrder(db, input)).subtotalCents).toBe(10000);
-  const order = await createPendingOrder(db, input);
+  const order = await createPendingOrder(db, input, pendingIntent());
   expect(
     await db
       .prepare('SELECT COUNT(*) AS n FROM order_items WHERE order_id=?')
       .bind(order.orderId)
       .first()
   ).toEqual({ n: 100 });
-  await cancelOrderById(db, order.orderId);
-  await adjustStock(db, 'BOUNDARY-99', -1, 'correction');
-  const before = await db.prepare('SELECT COUNT(*) AS n FROM orders').first();
-  await expect(createPendingOrder(db, input)).rejects.toThrow(/Insufficient stock/);
-  expect(await db.prepare('SELECT COUNT(*) AS n FROM orders').first()).toEqual(before);
-  expect(await db.prepare("SELECT reserved FROM stock WHERE sku='BOUNDARY-0'").first()).toEqual({
-    reserved: 0,
-  });
   await setSetting(db, 'cart_max_lines', '50');
 });

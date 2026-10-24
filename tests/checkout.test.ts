@@ -3,12 +3,12 @@ import { deliverStripeEvent } from './helpers/webhook';
 import { createTestDb, seedProduct, expectLedgerMatchesCounters } from './helpers/d1';
 import {
   cancelOrderById,
-  createPendingOrder,
   processInboxEvent,
   reprocessStaleInbox,
 } from '../web/src/server/checkout';
 import { releaseExpiredReservations } from '../web/src/server/inventory';
 import type { PaymentProvider } from '../web/src/server/payments';
+import { heldOrder } from './helpers/pending-intent';
 
 let db: D1Database;
 let dispose: () => Promise<void>;
@@ -97,7 +97,7 @@ afterAll(async () => {
 describe('money: discounts, shipping, paid transition', () => {
   it('percent discount is capped, excludes shipping, and the paid event commits stock exactly once', async () => {
     // 2 x $20 = $40 subtotal; 10% = 400 but capped at 300; shipping 500.
-    const order = await createPendingOrder(db, {
+    const order = await heldOrder(db, {
       shippingCountry: 'US',
       email: 'buyer@example.com',
       lines: [{ sku: 'TEE-1', qty: 2 }],
@@ -130,7 +130,7 @@ describe('money: discounts, shipping, paid transition', () => {
 
   it('once-per-customer discount cannot be reused, and cancel releases it', async () => {
     await expect(
-      createPendingOrder(db, {
+      heldOrder(db, {
         shippingCountry: 'US',
         shippingRateId: 'test-rate',
         email: 'Buyer@Example.com',
@@ -139,7 +139,7 @@ describe('money: discounts, shipping, paid transition', () => {
       })
     ).rejects.toThrow();
     // A different customer can use it; canceling releases the usage.
-    const other = await createPendingOrder(db, {
+    const other = await heldOrder(db, {
       shippingCountry: 'US',
       shippingRateId: 'test-rate',
       email: 'other@example.com',
@@ -147,7 +147,7 @@ describe('money: discounts, shipping, paid transition', () => {
       discountCode: 'SAVE10',
     });
     await cancelOrderById(db, other.orderId);
-    const again = await createPendingOrder(db, {
+    const again = await heldOrder(db, {
       shippingCountry: 'US',
       shippingRateId: 'test-rate',
       email: 'other@example.com',
@@ -161,8 +161,7 @@ describe('money: discounts, shipping, paid transition', () => {
 });
 
 describe('delayed payments and dashboard refunds', () => {
-  it('an order awaiting a delayed payment is not auto-canceled, and a dashboard refund creates a local row', async () => {
-    const { cancelExpiredPendingOrders } = await import('../web/src/server/checkout');
+  it('a dashboard refund of a delayed payment creates a local row', async () => {
     const old = new Date(Date.now() - 2 * 24 * 3600_000).toISOString();
     await db
       .prepare(
@@ -171,12 +170,6 @@ describe('delayed payments and dashboard refunds', () => {
       )
       .bind(old, old)
       .run();
-    await cancelExpiredPendingOrders(db);
-    const still = await db
-      .prepare("SELECT status FROM orders WHERE id = 'delayed-1'")
-      .first<{ status: string }>();
-    expect(still?.status).toBe('pending_payment');
-
     await db
       .prepare("UPDATE orders SET status = 'paid', payment_status = 'paid' WHERE id = 'delayed-1'")
       .run();
@@ -219,7 +212,7 @@ describe('discount usage on failed checkouts', () => {
       .prepare("SELECT usage_count FROM discounts WHERE id = 'd1'")
       .first<{ usage_count: number }>();
     await expect(
-      createPendingOrder(db, {
+      heldOrder(db, {
         shippingCountry: 'US',
         shippingRateId: 'test-rate',
         email: 'oos@example.com',
@@ -250,7 +243,7 @@ describe('discount claim atomicity (B10)', () => {
       )
       .bind(now)
       .run();
-    const first = await createPendingOrder(db, {
+    const first = await heldOrder(db, {
       shippingCountry: 'US',
       shippingRateId: 'test-rate',
       email: 'once@example.com',
@@ -261,7 +254,7 @@ describe('discount claim atomicity (B10)', () => {
     // Second checkout: the claim inside its batch must fail, the batch must
     // roll back entirely, and usage must stay exactly 1 (no leaked claim).
     await expect(
-      createPendingOrder(db, {
+      heldOrder(db, {
         shippingCountry: 'US',
         shippingRateId: 'test-rate',
         email: 'twice@example.com',
@@ -289,33 +282,9 @@ describe('discount claim atomicity (B10)', () => {
 });
 
 describe('late and out-of-order payments', () => {
-  it('a payment arriving after cancellation re-reserves and pays when stock exists', async () => {
-    const order = await createPendingOrder(db, {
-      shippingCountry: 'US',
-      shippingRateId: 'test-rate',
-      email: 'late@example.com',
-      lines: [{ sku: 'TEE-1', qty: 1 }],
-    });
-    await attach(order.orderId, 'cs_late');
-    await cancelOrderById(db, order.orderId);
-    await deliverStripeEvent(
-      db,
-      fakeProvider,
-      completedEvent('evt_late', 'cs_late', order.orderId, order.totalCents, 'pi_late'),
-      'sig'
-    );
-    const row = await db
-      .prepare('SELECT status FROM orders WHERE id = ?')
-      .bind(order.orderId)
-      .first<{ status: string }>();
-    expect(row?.status).toBe('paid');
-    const counters = await expectLedgerMatchesCounters(db, 'TEE-1');
-    expect(counters.reserved).toBe(0);
-  });
-
   it('a payment arriving when stock is gone refunds automatically and alerts', async () => {
     refundCalls.length = 0;
-    const order = await createPendingOrder(db, {
+    const order = await heldOrder(db, {
       shippingCountry: 'US',
       shippingRateId: 'test-rate',
       email: 'gone@example.com',
@@ -349,7 +318,7 @@ describe('late and out-of-order payments', () => {
   });
 
   it('a Stripe error on the late-payment refund preserves the uncertain row, sends no refund email, and a replay reuses the same row', async () => {
-    const order = await createPendingOrder(db, {
+    const order = await heldOrder(db, {
       shippingCountry: 'US',
       shippingRateId: 'test-rate',
       email: 'flaky@example.com',
@@ -426,7 +395,7 @@ describe('late and out-of-order payments', () => {
   });
 
   it('a pending Stripe refund on a late payment does not mark the order refunded or email the customer', async () => {
-    const order = await createPendingOrder(db, {
+    const order = await heldOrder(db, {
       shippingCountry: 'US',
       shippingRateId: 'test-rate',
       email: 'pendref@example.com',
@@ -472,7 +441,7 @@ describe('late and out-of-order payments', () => {
   });
 
   it('expired holds release, and dispute closed (won) restores paid', async () => {
-    const order = await createPendingOrder(db, {
+    const order = await heldOrder(db, {
       shippingCountry: 'US',
       shippingRateId: 'test-rate',
       email: 'disp@example.com',
@@ -509,7 +478,7 @@ describe('late and out-of-order payments', () => {
     expect(row?.payment_status).toBe('paid');
 
     // Hold expiry path.
-    const held = await createPendingOrder(db, {
+    const held = await heldOrder(db, {
       shippingCountry: 'US',
       shippingRateId: 'test-rate',
       email: 'hold@example.com',
@@ -525,7 +494,7 @@ describe('late and out-of-order payments', () => {
   });
 
   it('payment_intent.payment_failed resolves the session through Stripe and retains its hold for retry', async () => {
-    const order = await createPendingOrder(db, {
+    const order = await heldOrder(db, {
       shippingCountry: 'US',
       shippingRateId: 'test-rate',
       email: 'fail@example.com',
@@ -547,7 +516,7 @@ describe('late and out-of-order payments', () => {
   });
 
   it('a failed inbox row is recovered by the sweep with exactly one transition', async () => {
-    const order = await createPendingOrder(db, {
+    const order = await heldOrder(db, {
       shippingCountry: 'US',
       shippingRateId: 'test-rate',
       email: 'retry@example.com',
@@ -582,7 +551,7 @@ describe('late and out-of-order payments', () => {
   });
 
   it('stale inbox rows are reprocessed by the sweep', async () => {
-    const order = await createPendingOrder(db, {
+    const order = await heldOrder(db, {
       shippingCountry: 'US',
       shippingRateId: 'test-rate',
       email: 'sweep@example.com',

@@ -234,7 +234,7 @@ export function releaseReservationStmts(
   return [
     db
       .prepare(
-        `UPDATE reservations SET status = 'released' WHERE id = ? AND status = 'active' AND NOT EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=reservations.order_id AND ci.flow='manual_capture' AND ci.allocation_id IS NOT NULL AND ci.payment_state NOT IN ('canceled','finalized')) ${transition ? 'AND EXISTS (SELECT 1 FROM orders WHERE id = ? AND transition_id = ?)' : ''}`
+        `UPDATE reservations SET status = 'released' WHERE id = ? AND status = 'active' AND NOT EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=reservations.order_id AND ci.allocation_id IS NOT NULL AND ci.payment_state NOT IN ('canceled','finalized')) ${transition ? 'AND EXISTS (SELECT 1 FROM orders WHERE id = ? AND transition_id = ?)' : ''}`
       )
       .bind(row.id, ...(transition ? [transition.orderId, transition.id] : [])),
     db

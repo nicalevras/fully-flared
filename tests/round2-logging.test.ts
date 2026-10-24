@@ -8,6 +8,7 @@ import { processOutboxRow } from '../web/src/server/email';
 import { createPendingOrder, reprocessStaleInbox } from '../web/src/server/checkout';
 import { attachStripeSession } from './helpers/attach-session';
 import { discountNetworkIdentity } from '../web/src/lib/shopFns';
+import { pendingIntent } from './helpers/pending-intent';
 let db: D1Database, dispose: () => Promise<void>;
 beforeAll(async () => {
   ({ db, dispose } = await createTestDb());
@@ -56,12 +57,16 @@ it('logs outbox and webhook retry failures and missing request context without P
   await expect(processOutboxRow(db, 'poison-mail')).rejects.toThrow(
     'Outbox row poison-mail failed'
   );
-  const order = await createPendingOrder(db, {
-    email: 'fixture@example.test',
-    shippingCountry: 'US',
-    shippingRateId: 'test-rate',
-    lines: [{ sku: 'TEE-1', qty: 1 }],
-  });
+  const order = await createPendingOrder(
+    db,
+    {
+      email: 'fixture@example.test',
+      shippingCountry: 'US',
+      shippingRateId: 'test-rate',
+      lines: [{ sku: 'TEE-1', qty: 1 }],
+    },
+    pendingIntent()
+  );
   await attachStripeSession(db, order.orderId, 'cs_log');
   const payload = JSON.stringify({
     id: 'evt_log',

@@ -15,6 +15,7 @@ vi.mock('../web/src/server/payments', () => ({
   }),
 }));
 import { refundOrder } from '../web/src/server/admin-actions';
+import { pendingIntent } from './helpers/pending-intent';
 
 let db: D1Database;
 let dispose: () => Promise<void>;
@@ -39,13 +40,17 @@ afterAll(async () => {
 
 describe('order ownership and success-page tokens', () => {
   it('stores user_id at checkout and signs success access per order', async () => {
-    const order = await createPendingOrder(db, {
-      shippingCountry: 'US',
-      shippingRateId: 'test-rate',
-      email: 'owner@example.com',
-      userId: 'customer-1',
-      lines: [{ sku: 'TEE-1', qty: 1 }],
-    });
+    const order = await createPendingOrder(
+      db,
+      {
+        shippingCountry: 'US',
+        shippingRateId: 'test-rate',
+        email: 'owner@example.com',
+        userId: 'customer-1',
+        lines: [{ sku: 'TEE-1', qty: 1 }],
+      },
+      pendingIntent()
+    );
     const row = await db
       .prepare('SELECT user_id FROM orders WHERE id = ?')
       .bind(order.orderId)

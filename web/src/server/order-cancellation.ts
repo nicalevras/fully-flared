@@ -12,13 +12,13 @@ export function cancelOrdersStatements(
     db
       .prepare(
         `UPDATE checkout_intents SET cancel_requested=1,payment_next_at=?,creation_stopped_at=COALESCE(creation_stopped_at,?),updated_at=?
-      WHERE flow='manual_capture' AND payment_state NOT IN ('finalized','canceled') AND order_id IN(SELECT id FROM orders WHERE (${scope.sql}))`
+      WHERE payment_state NOT IN ('finalized','canceled') AND order_id IN(SELECT id FROM orders WHERE (${scope.sql}))`
       )
       .bind(at, at, at, ...scope.values),
     db
       .prepare(
         `UPDATE orders SET status='canceled',transition_id=?,updated_at=?
-      WHERE (${scope.sql}) AND NOT EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=orders.id AND ci.flow='manual_capture' AND ci.allocation_id IS NOT NULL AND ci.payment_state NOT IN ('canceled','finalized')) AND payment_status IN ('unpaid','failed') AND ${
+      WHERE (${scope.sql}) AND NOT EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=orders.id AND ci.allocation_id IS NOT NULL AND ci.payment_state NOT IN ('canceled','finalized')) AND payment_status IN ('unpaid','failed') AND ${
         includeCanceledFree
           ? "status IN ('pending_payment','canceled') AND total_cents=0 AND NOT EXISTS(SELECT 1 FROM outbox WHERE id='expired-free-'||orders.id)"
           : "status='pending_payment'"

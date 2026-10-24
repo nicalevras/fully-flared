@@ -2,7 +2,7 @@ import type { WorkerEnv } from './env';
 import { getStripeProvider, providerWithBudget } from './payments';
 import { getSettings } from './settings';
 import { releaseExpiredReservations } from './inventory';
-import { cancelExpiredPendingOrders, reprocessStaleInbox } from './checkout';
+import { reprocessStaleInbox } from './checkout';
 import { reconcileCheckoutIntents } from './checkout-intents';
 import { recoverAuthorizedCheckouts } from './authorized-checkout';
 import { reconcileRefundOperations } from './refunds';
@@ -179,8 +179,6 @@ export async function runMaintenance(env: WorkerEnv, runId: string) {
         limit = 25;
       if (run.task === 'reservation-expiry')
         checked = await releaseExpiredReservations(db, limit, context);
-      else if (run.task === 'order-expiry')
-        checked = await cancelExpiredPendingOrders(db, limit, context);
       else {
         if (!provider) throw Error('Payment provider unavailable');
         limit = 1;

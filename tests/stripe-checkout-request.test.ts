@@ -24,7 +24,6 @@ it('uses Stripe 23 supported card allowlist for manual-capture Checkout Sessions
     shippingCountries: ['US'],
     automaticTax: false,
     expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + 1920,
-    manualCapture: true,
     customerId: 'cus_fixture',
     shippingAddress: {
       name: 'Fixture',

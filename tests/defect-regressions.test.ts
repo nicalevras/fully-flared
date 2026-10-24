@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { createTestDb, seedProduct } from './helpers/d1';
 import { createPendingOrder } from '../web/src/server/checkout';
+import { pendingIntent } from './helpers/pending-intent';
 
 // Regression traceability for docs/DEFECTS.md. Behavioral defects have
 // behavioral tests here or in their named suites; the configuration-level
@@ -62,12 +63,16 @@ describe('Defect regressions (docs/DEFECTS.md)', () => {
           "INSERT INTO settings (key, value, updated_at) VALUES ('currency', 'EUR', '2026-01-01T00:00:00.000Z') ON CONFLICT(key) DO UPDATE SET value = 'EUR'"
         )
         .run();
-      const order = await createPendingOrder(db, {
-        shippingCountry: 'US',
-        shippingRateId: 'test-rate',
-        email: 'eur@example.com',
-        lines: [{ sku, qty: 1 }],
-      });
+      const order = await createPendingOrder(
+        db,
+        {
+          shippingCountry: 'US',
+          shippingRateId: 'test-rate',
+          email: 'eur@example.com',
+          lines: [{ sku, qty: 1 }],
+        },
+        pendingIntent()
+      );
       expect(order.currency).toBe('EUR');
     } finally {
       await dispose();

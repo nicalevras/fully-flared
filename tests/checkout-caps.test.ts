@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestDb, seedProduct } from './helpers/d1';
 import { cancelOrderById, createPendingOrder } from '../web/src/server/checkout';
+import { pendingIntent } from './helpers/pending-intent';
 
 let db: D1Database;
 let dispose: () => Promise<void>;
@@ -27,54 +28,74 @@ afterAll(async () => {
 describe('active-hold caps (C13)', () => {
   it('caps live holds per signed-in account even across rotating emails', async () => {
     for (let i = 0; i < 5; i++) {
-      const o = await createPendingOrder(db, {
-        shippingCountry: 'US',
-        shippingRateId: 'test-rate',
-        email: `rot${i}@example.com`,
-        userId: 'user-cap',
-        lines: [{ sku: 'TEE-1', qty: 1 }],
-      });
+      const o = await createPendingOrder(
+        db,
+        {
+          shippingCountry: 'US',
+          shippingRateId: 'test-rate',
+          email: `rot${i}@example.com`,
+          userId: 'user-cap',
+          lines: [{ sku: 'TEE-1', qty: 1 }],
+        },
+        pendingIntent()
+      );
       created.push(o.orderId);
     }
     await expect(
-      createPendingOrder(db, {
-        shippingCountry: 'US',
-        shippingRateId: 'test-rate',
-        email: 'rot5@example.com',
-        userId: 'user-cap',
-        lines: [{ sku: 'TEE-1', qty: 1 }],
-      })
+      createPendingOrder(
+        db,
+        {
+          shippingCountry: 'US',
+          shippingRateId: 'test-rate',
+          email: 'rot5@example.com',
+          userId: 'user-cap',
+          lines: [{ sku: 'TEE-1', qty: 1 }],
+        },
+        pendingIntent()
+      )
     ).rejects.toThrow(/Too many open checkouts/);
   });
 
   it('caps live holds per client IP even across rotating emails and guests', async () => {
     for (let i = 0; i < 10; i++) {
-      const o = await createPendingOrder(db, {
-        shippingCountry: 'US',
-        shippingRateId: 'test-rate',
-        email: `ip${i}@example.com`,
-        ip: '203.0.113.7',
-        lines: [{ sku: 'TEE-1', qty: 1 }],
-      });
+      const o = await createPendingOrder(
+        db,
+        {
+          shippingCountry: 'US',
+          shippingRateId: 'test-rate',
+          email: `ip${i}@example.com`,
+          ip: '203.0.113.7',
+          lines: [{ sku: 'TEE-1', qty: 1 }],
+        },
+        pendingIntent()
+      );
       created.push(o.orderId);
     }
     await expect(
-      createPendingOrder(db, {
-        shippingCountry: 'US',
-        shippingRateId: 'test-rate',
-        email: 'ip10@example.com',
-        ip: '203.0.113.7',
-        lines: [{ sku: 'TEE-1', qty: 1 }],
-      })
+      createPendingOrder(
+        db,
+        {
+          shippingCountry: 'US',
+          shippingRateId: 'test-rate',
+          email: 'ip10@example.com',
+          ip: '203.0.113.7',
+          lines: [{ sku: 'TEE-1', qty: 1 }],
+        },
+        pendingIntent()
+      )
     ).rejects.toThrow(/Too many open checkouts/);
     // A different IP is unaffected.
-    const ok = await createPendingOrder(db, {
-      shippingCountry: 'US',
-      shippingRateId: 'test-rate',
-      email: 'other@example.com',
-      ip: '203.0.113.8',
-      lines: [{ sku: 'TEE-1', qty: 1 }],
-    });
+    const ok = await createPendingOrder(
+      db,
+      {
+        shippingCountry: 'US',
+        shippingRateId: 'test-rate',
+        email: 'other@example.com',
+        ip: '203.0.113.8',
+        lines: [{ sku: 'TEE-1', qty: 1 }],
+      },
+      pendingIntent()
+    );
     created.push(ok.orderId);
   });
 });
