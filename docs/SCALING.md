@@ -327,7 +327,7 @@ Public media publication handles one immutable object per maintenance delivery.
 Upload claims do not dirty catalog work. Public deletion includes recorded pending
 uploads and prior destinations and requires both object deletion and cache purge.
 Historical untracked orphan objects remain unverified. See the
-[checkpoint ledger](../web/CHECKOUT-HARDENING.md). These changes have not run the
+[checkpoint ledger](archive/CHECKOUT-HARDENING.md). These changes have not run the
 ordinary suite, isolated 100k gate or deployed measurements.
 
 ## Conditional recovery watchdog (2026-10-23; verification pending)
@@ -347,5 +347,5 @@ claims, retry caps and ten-minute stale-send recovery. Delivery is not exactly o
 Prepared migration 0017 adds retry/age/attempt/claim indexes. EXPLAIN QUERY PLAN,
 rows-read measurements, focused recovery tests, clean CI/build verification and
 local migration application remain pending. See the
-[checkpoint ledger](../web/RECOVERY-WATCHDOG.md). No savings or deployed capacity
+[checkpoint ledger](archive/RECOVERY-WATCHDOG.md). No savings or deployed capacity
 claim follows from these source changes alone.

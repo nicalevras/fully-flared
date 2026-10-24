@@ -7,7 +7,7 @@ and Stripe Checkout collects payments. The realtime Durable Object is
 restricted to staff.
 
 Release verification and current evidence are tracked in
-[the production-hardening ledger](web/PRODUCTION-HARDENING.md). Ordinary CI excludes
+[the production-hardening ledger](docs/archive/PRODUCTION-HARDENING.md). Ordinary CI excludes
 the isolated 100k catalog gate; run that gate at a release checkpoint.
 
 ## Run locally
@@ -39,7 +39,7 @@ gitignored `web/.env.local`, uncomment it and set the exact origin (comma-separa
 then restart Vite. Wildcards are rejected; do not use an arbitrary request host.
 
 See [web/README.md](web/README.md) for development and verification commands
-and [web/LAUNCH.md](web/LAUNCH.md) for release configuration and external
+and [docs/archive/LAUNCH.md](docs/archive/LAUNCH.md) for release configuration and external
 acceptance.
 
 Public pages read published KV documents. If an immutable value is missing or
@@ -47,7 +47,7 @@ invalid, the reader uses that exact publication's D1 mirror; it does not expose
 unpublished source edits. Availability, search and private actions still use D1.
 Catalog changes become public through the bounded catalog queue consumer. Home,
 collection discovery and the journal have pagination; navigation and homepage
-teasers stay fixed size. See `web/ARCHITECTURE-COMPLETION.md` for current local
+teasers stay fixed size. See `docs/archive/ARCHITECTURE-COMPLETION.md` for current local
 evidence and the remaining acceptance gates.
 
 ## Backups and recovery
@@ -123,7 +123,7 @@ The maintained application, Wrangler configuration and migration chain are in
 `web`; the root package provides tooling and delegates application commands.
 The historical root API was removed during the architecture refactor.
 
-See [web/REMEDIATION.md](web/REMEDIATION.md) for the issue, implementation and
+See [docs/archive/REMEDIATION.md](docs/archive/REMEDIATION.md) for the issue, implementation and
 verification ledger. Local evidence does not establish Stripe subscriptions,
 custom-domain cache hits, deployed performance or the reconciliation soak.
 
@@ -150,7 +150,7 @@ D1 allocation, capture and once-only sale finalization. Pending capture keeps
 its allocation during uncertainty. New migrations 0013–0015 are prepared and
 now applied locally after explicit authorization and a hash-verified backup. Full migration-path and payment lifecycle verification remain next-phase work.
 
-See [web/AUTHORIZATION-FIRST.md](web/AUTHORIZATION-FIRST.md) for the requirement
+See [docs/archive/AUTHORIZATION-FIRST.md](docs/archive/AUTHORIZATION-FIRST.md) for the requirement
 ledger, compatibility boundaries and pending verification. Latest source changes
 have no runtime acceptance claim. Server functions use Start's CSRF middleware;
 exact Tunnel origins remain explicit configuration.

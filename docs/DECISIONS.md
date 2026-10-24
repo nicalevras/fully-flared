@@ -63,7 +63,7 @@ generation proposed parent-table reconstruction, which was rejected; matching
 snapshots accompany explicit ALTER/trigger repairs instead. Drift checks report
 no further schema diff. Populated upgrades preserve commerce relationships.
 A real Wrangler whole-file backup import and subsequent migration are tested.
-See `web/REMEDIATION.md` for final commands and service restart evidence.
+See `docs/archive/REMEDIATION.md` for final commands and service restart evidence.
 
 ## Round-two limits and deployment update
 
@@ -76,7 +76,7 @@ remote databases were untouched. Hold duration is now configurable, retaining
 the 42-minute default and ten-minute session buffer. `OWNER_EMAIL` must remain
 configured for deployment; D11's earlier suggestion to clear it is superseded.
 Public signup never promotes an owner: the explicit bootstrap performs that
-operation. See the round-two record in `web/REMEDIATION.md` for current evidence.
+operation. See the round-two record in `docs/archive/REMEDIATION.md` for current evidence.
 
 ## Revisit triggers
 
@@ -109,7 +109,7 @@ D1 applied 0018 successfully (11 commands); no remote migration ran. Undo source
 changes using those per-file images. If reversing the applied database behavior,
 retain 0018 and add a reversal at the next unused migration number, restore the
 previous snapshot writer, and republish through `JOBS_RT`; do not reset history
-or wipe data. See `web/REMEDIATION.md` for verification and remaining deployment gates.
+or wipe data. See `docs/archive/REMEDIATION.md` for verification and remaining deployment gates.
 
 ## Audit round 1: staff HTTP boundaries and owner protection
 
@@ -241,7 +241,7 @@ calls, and checkout starts are admission-controlled by
 Webhooks are durable-only: the route records and enqueues, cron owns
 recovery, and staff replay (owner/admin, audited) re-enqueues under the
 original event identity. Detailed phase evidence lives in
-`web/REMEDIATION.md`; deployed cache and throughput behavior remain
+`docs/archive/REMEDIATION.md`; deployed cache and throughput behavior remain
 deployment acceptance items, not local claims.
 
 ## Superseded: automated D1 backups removed
@@ -278,7 +278,7 @@ creation horizon is a fixed safety boundary for Stripe idempotency retention,
 not a configurable store limit.
 
 The current requirement and acceptance ledger is
-`web/ARCHITECTURE-COMPLETION.md`. Earlier completion statements in REMEDIATION
+`docs/archive/ARCHITECTURE-COMPLETION.md`. Earlier completion statements in REMEDIATION
 are historical checkpoints, not final acceptance of the remaining rounds.
 
 ### 2026-10-22: coherent published readers and local migration checkpoint
@@ -364,7 +364,7 @@ independent financial families, bounds provider maintenance by a shared 30-secon
 deadline, and registers public media destinations before storage writes. Known
 public destinations and incomplete uploads remain available to deletion recovery.
 Migration 0016 is prepared only. Implementation details and pending verification
-are in [CHECKOUT-HARDENING.md](../web/CHECKOUT-HARDENING.md). No readiness claim is
+are in [CHECKOUT-HARDENING.md](archive/CHECKOUT-HARDENING.md). No readiness claim is
 made for this untested checkpoint.
 
 ## 2026-10-23: conditional recovery, existing infrastructure
@@ -379,4 +379,4 @@ The only dependency addition is the exact development dependency
 not change. Optional application bindings use WorkerEnv rather than relying on
 local-secret inference in generated types. Migration 0017 is index-only and remains
 unapplied. Verification is deferred: see
-[RECOVERY-WATCHDOG.md](../web/RECOVERY-WATCHDOG.md).
+[RECOVERY-WATCHDOG.md](archive/RECOVERY-WATCHDOG.md).

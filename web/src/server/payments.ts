@@ -165,7 +165,7 @@ export class StripeProvider implements PaymentProvider {
   ) {
     // Pinned to the stripe-node v23 generated API version. The Stripe
     // Dashboard webhook endpoint must be configured for the same version:
-    // 2026-09-30.endive (see LAUNCH.md).
+    // 2026-09-30.endive (see docs/archive/LAUNCH.md).
     // Even maxNetworkRetries=0 can retry closed connections. The transport
     // shares one absolute deadline across all SDK attempts and response reads.
     this.stripe = new Stripe(secretKey, {

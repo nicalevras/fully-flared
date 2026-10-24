@@ -1,4 +1,4 @@
-// Stripe <-> orders <-> stock reconciliation (LAUNCH.md soak).
+// Stripe <-> orders <-> stock reconciliation (docs/archive/LAUNCH.md soak).
 // Usage: node scripts/reconcile.mjs [--remote]
 // Local invariants are checked against D1 via wrangler. The Stripe leg runs
 // only when a real STRIPE_SECRET_KEY (sk_test_/sk_live_, not the local dummy)
