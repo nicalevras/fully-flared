@@ -43,7 +43,7 @@ column.
 | CAT-13 | /collections is purged only by the layout tag                                   | CLOSED   | `7dc7bc7`            | `web/src/server/public-cache.ts:121`         | `tests/public-cache.test.ts:103`                  | -                                                                                                                                           |
 | CAT-14 | Stale-claim check uses updated_at, not a claim time                             | ACCEPTED | -                    | `web/src/server/catalog-publisher.ts:2749`   | -                                                 | lease fencing bounds the damage; a claimed_at column is a schema change (docs/DECISIONS.md)                                                 |
 | CAT-15 | A resolvable pointer with no valid document throws a 500                        | ACCEPTED | -                    | `web/src/server/catalog-read.ts:293`         | -                                                 | fail loud on corruption, by design; public_storefront_failed is logged (docs/DECISIONS.md)                                                  |
-| CAT-16 | A throwing PublicStorefront call is rendered a second time                      | ACCEPTED | -                    | `web/src/server.ts:225`                      | -                                                 | application errors return a 500 Response, so only an infrastructure throw reaches the fallback; runtime premise checked in preview check 12 |
+| CAT-16 | A throwing PublicStorefront call is rendered a second time                      | ACCEPTED | -                    | `web/src/server.ts:225`                      | -                                                 | application errors return a 500 Response, so only an infrastructure throw reaches the fallback; runtime premise checked in preview check 11 |
 | CAT-17 | BigInt FNV hashing is slow (see P-05)                                           | CLOSED   | `14520d5`            | `web/src/server/catalog-models.ts:243`       | `tests/catalog-revision.test.ts:36`               | -                                                                                                                                           |
 | CAT-18 | Unbudgeted dead paths in the publisher                                          | CLOSED   | `d1a6277`            | `web/src/server/catalog-publisher.ts:2045`   | `tests/catalog-queue-units.test.ts:80`            | budget is a required parameter                                                                                                              |
 | CAT-19 | Stacked lease guard; batchInChunks retries on TypeError                         | CLOSED   | `7dc7bc7`            | `web/src/server/catalog-exec.ts:200`         | `tests/catalog-round2.test.ts:279`                | guard half closed; the TypeError retry is kept and commented (catalog-publisher.ts:82-86): the slice is atomic                              |
@@ -118,7 +118,7 @@ column.
 | P-15 | Publish fan-out: 23 deliveries for 6 products       | CLOSED   | `dd9589d`            | `web/src/server/catalog-exec.ts:19`          | `tests/catalog-queue-units.test.ts:80`       | -                                                                                  |
 | P-16 | Cold edge cache after each deploy                   | ACCEPTED | -                    | `web/wrangler.jsonc:11`                      | -                                            | by design (docs/DECISIONS.md); cold-cache behaviour is preview check 3             |
 | P-17 | 100k test is not representative                     | CLOSED   | `bcb7a27`            | `tests/catalog-single-edit.test.ts`          | `tests/catalog-single-edit.test.ts:93`       | -                                                                                  |
-| P-18 | Single isolate CPU bound (indicative)               | PLATFORM | -                    | -                                            | -                                            | local workerd figure; production CPU per render is preview check 12                |
+| P-18 | Single isolate CPU bound (indicative)               | PLATFORM | -                    | -                                            | -                                            | local workerd figure; production CPU per render is preview check 11                |
 | P-19 | 100k gate: a single edit wrote 11 KV keys           | CLOSED   | `d781f45`, `79b5a3d` | `vitest.config.ts:18`                        | `tests/catalog-scale-100k.test.ts:51`        | the 11th put was the A to B to A delivery gap (79b5a3d); the flush loop is deleted |
 
 ## Not closed
@@ -126,7 +126,7 @@ column.
 - **CAT-10** (ACCEPTED): accepted design cost; billed-invocation measurement is preview check 3 (docs/SCALING.md FF-16)
 - **CAT-14** (ACCEPTED): lease fencing bounds the damage; a claimed_at column is a schema change (docs/DECISIONS.md)
 - **CAT-15** (ACCEPTED): fail loud on corruption, by design; public_storefront_failed is logged (docs/DECISIONS.md)
-- **CAT-16** (ACCEPTED): application errors return a 500 Response, so only an infrastructure throw reaches the fallback; runtime premise checked in preview check 12
+- **CAT-16** (ACCEPTED): application errors return a 500 Response, so only an infrastructure throw reaches the fallback; runtime premise checked in preview check 11
 - **CAT-20** (N-A): information only
 - **SEC-M6** (PLATFORM): script exists; ordering is a deploy-phase step (docs/AUDIT-CLOSEOUT.md checklist, item 0)
 - **SEC-L12** (N-A): no backwards compatibility for local data; remote D1 is recreated (docs/DECISIONS.md)
@@ -136,7 +136,7 @@ column.
 - **P-03** (ACCEPTED): Paid plan is a documented requirement (D1 and the audit-hardening decisions)
 - **P-12** (N-A): information only
 - **P-16** (ACCEPTED): by design (docs/DECISIONS.md); cold-cache behaviour is preview check 3
-- **P-18** (PLATFORM): local workerd figure; production CPU per render is preview check 12
+- **P-18** (PLATFORM): local workerd figure; production CPU per render is preview check 11
 
 ## Preview readiness checklist
 
