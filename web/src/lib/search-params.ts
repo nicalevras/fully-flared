@@ -48,3 +48,16 @@ export const resetSearch = (search: { token?: unknown; error?: unknown } & Searc
   token: optionalText(search.token),
   error: optionalText(search.error),
 });
+
+const SITE = new URL('https://site.invalid');
+
+/** A path on this site, normalised the way a browser would resolve it; anything that could leave the site is dropped. */
+export function internalPath(value: unknown): string | undefined {
+  if (typeof value !== 'string' || !value.startsWith('/') || value.length > 500) return undefined;
+  const url = new URL(value, SITE);
+  return url.origin === SITE.origin ? url.pathname + url.search + url.hash : undefined;
+}
+
+export const signInSearch = (search: { redirect?: unknown } & SearchSchemaInput) => ({
+  redirect: internalPath(search.redirect),
+});
