@@ -42,10 +42,7 @@ ${items}
   </channel>
 </rss>`;
         return new Response(body, {
-          headers: {
-            'Content-Type': 'application/rss+xml; charset=utf-8',
-            'Cache-Control': 'public, max-age=900',
-          },
+          headers: { 'Content-Type': 'application/rss+xml; charset=utf-8' },
         });
       },
     },

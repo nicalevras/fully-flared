@@ -10,7 +10,6 @@ import { accountActionSchema, reportQuerySchema } from '../web/src/schemas/accou
 import { jobMessageSchema, emailMessageSchema } from '../web/src/schemas/queue';
 import { stripeEventSchema, checkoutMetadataSchema } from '../web/src/schemas/webhook';
 import { parseJsonBody, validationError } from '../web/src/schemas/common';
-import { successSearchSchema, searchQueryParamSchema } from '../web/src/schemas/checkout';
 
 describe('checkout body', () => {
   it('accepts a valid checkout', () => {
@@ -163,13 +162,7 @@ describe('HTTP boundary parsing', () => {
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.data.lines[0]?.sku).toBe('TEE-1');
   });
-  it('search-param schemas apply defaults without hand-written casts', () => {
-    expect(searchQueryParamSchema.parse({})).toEqual({ q: '' });
-    expect(successSearchSchema.parse({})).toEqual({ order: '', t: '' });
-    expect(successSearchSchema.parse({ order: 'ord_1', t: 'abc' })).toEqual({
-      order: 'ord_1',
-      t: 'abc',
-    });
+  it('an empty checkout body reports field errors', () => {
     const bad = checkoutBodySchema.safeParse({});
     expect(bad.success).toBe(false);
     if (!bad.success) expect(validationError(bad.error).fieldErrors.length).toBeGreaterThan(0);

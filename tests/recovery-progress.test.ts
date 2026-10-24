@@ -78,10 +78,10 @@ it('does not count an authorization selected but losing its claim as progress', 
   await db
     .prepare(
       `INSERT INTO checkout_intents(id,order_id,owner_type,guest_capability_hash,
-      fingerprint,flow,provider_payload_json,coupon_idempotency_key,session_idempotency_key,
+      fingerprint,provider_payload_json,coupon_idempotency_key,session_idempotency_key,
       session_expires_at,payment_next_at,created_at,updated_at)
       VALUES('progress-intent','progress-order','guest','test-hash','test-fingerprint',
-      'manual_capture','{}','coupon-progress','session-progress',?,?,?,?)`
+      '{}','coupon-progress','session-progress',?,?,?,?)`
     )
     .bind(new Date(Date.now() + 3600000).toISOString(), now, now, now)
     .run();

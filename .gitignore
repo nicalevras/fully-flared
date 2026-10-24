@@ -36,3 +36,6 @@ web/backups/
 # Generated (npm run setup / wrangler types)
 .tanstack/
 web/worker-configuration.d.ts
+
+# Local agent settings
+.claude/

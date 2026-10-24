@@ -1,14 +1,12 @@
 import { beforeEach, afterEach, expect, it } from 'vitest';
 import { createTestDb } from './helpers/d1';
-import {
-  ensureCatalogReadModels,
-  processCatalogBuild,
-  processCatalogWork,
-} from '../web/src/server/catalog-publisher';
+import { processCatalogBuild, runCatalogUnit } from '../web/src/server/catalog-publisher';
+import { CatalogBudget } from '../web/src/server/catalog-exec';
 import { readListingPage, resolveDirectoryRevision } from '../web/src/server/catalog-read';
 import { getShopProductsPage, getStorefrontLayout } from '../web/src/server/catalog-read';
 import { getPublishedCollection, searchCatalog } from '../web/src/server/catalog-discovery';
 import { ALL_LISTING } from '../web/src/server/catalog-models';
+import { buildCatalogReadModels, catalogWork } from './helpers/catalog-driver';
 
 class FakeKv {
   map = new Map<string, string>();
@@ -62,9 +60,9 @@ beforeEach(async () => {
   await product('p1', 'alpha', 'Alpha', '2026-01-03T00:00:00.000Z');
   await product('p2', 'beta', 'Beta', '2026-01-02T00:00:00.000Z');
   await product('p3', 'gamma', 'Gamma', '2026-01-01T00:00:00.000Z');
-  await ensureCatalogReadModels(db, kv);
+  await buildCatalogReadModels(db, kv);
   // Drain the insert-capture rows so each test starts fully processed.
-  await processCatalogWork(db, kv);
+  await catalogWork(db, kv);
 });
 afterEach(async () => {
   await dispose();
@@ -90,7 +88,7 @@ it('a title edit patches only its containing pages inside the same generation', 
   const keysBefore = kv.map.size;
   kv.puts = 0;
   await db.prepare("UPDATE products SET title='Alpha patched' WHERE id='p1'").run();
-  const result = await processCatalogWork(db, kv);
+  const result = await catalogWork(db, kv);
   expect(result.processed).toBeGreaterThan(0);
   const page = await readListingPage(db, kv, ALL_LISTING, 1);
   expect(page?.generation).toBe(1);
@@ -104,7 +102,7 @@ it('a title edit patches only its containing pages inside the same generation', 
 
 it('a new product advances the listing generation and appears on /shop', async () => {
   await product('p4', 'delta', 'Delta', '2026-01-04T00:00:00.000Z');
-  await processCatalogWork(db, kv);
+  await catalogWork(db, kv);
   const page = await readListingPage(db, kv, ALL_LISTING, 1);
   expect(page?.generation).toBe(2);
   expect(page?.total).toBe(4);
@@ -119,11 +117,11 @@ it('a price edit re-evaluates rule collection membership', async () => {
       `INSERT INTO collections(id,slug,title,kind,rule_json,created_at) VALUES('cheap','cheap','Cheap','rule','{"type":"price_lte","value":1000}','2026-01-01')`
     )
     .run();
-  await processCatalogWork(db, kv);
+  await catalogWork(db, kv);
   let col = await getPublishedCollection(db, env() as never, 'cheap', 1);
   expect(col?.total).toBe(3);
   await db.prepare("UPDATE variants SET price_cents=5000 WHERE product_id='p1'").run();
-  await processCatalogWork(db, kv);
+  await catalogWork(db, kv);
   col = await getPublishedCollection(db, env() as never, 'cheap', 1);
   expect(col?.total).toBe(2);
   expect(col?.products.map((p) => p.id)).not.toContain('p1');
@@ -141,8 +139,8 @@ it('an edit landing after the claim stays due and is published by the next pass'
   const claimedTarget = (await workRow('p1'))!.target_revision;
   // First pass can only mark up to its claimed snapshot if the row moved;
   // regardless, a follow-up pass must converge the reader to the source.
-  await processCatalogWork(db, kv);
-  await processCatalogWork(db, kv);
+  await catalogWork(db, kv);
+  await catalogWork(db, kv);
   const row = await workRow('p1');
   expect(row?.processed_revision).toBe(row?.target_revision);
   expect(row?.target_revision).toBeGreaterThanOrEqual(claimedTarget);
@@ -209,7 +207,7 @@ it('collection pages clamp out-of-range pages to the last page', async () => {
     .prepare('INSERT INTO product_collections(product_id,collection_id) VALUES(?,?)')
     .bind('p1', 'c1')
     .run();
-  await processCatalogWork(db, kv);
+  await catalogWork(db, kv);
   const clamped = await getPublishedCollection(db, env() as never, 'manual', 99);
   expect(clamped?.page).toBe(1);
   expect(clamped?.total).toBe(1);
@@ -228,13 +226,13 @@ it('a failed KV page write advances nothing; the retry republishes', async () =>
     }
     return realPut(key, value);
   };
-  await expect(processCatalogWork(db, kv)).rejects.toThrow('KV unavailable');
+  await expect(catalogWork(db, kv)).rejects.toThrow('KV unavailable');
   kv.put = realPut;
   // The failed pass backs off for a minute; make the retry due.
   await db.prepare('UPDATE catalog_work SET next_attempt_at = NULL').run();
   // Committed state is untouched: readers still serve the old page.
   expect((await readListingPage(db, kv, ALL_LISTING, 1))?.cards[0]?.title).toBe('Alpha');
-  await processCatalogWork(db, kv);
+  await catalogWork(db, kv);
   expect((await readListingPage(db, kv, ALL_LISTING, 1))?.cards[0]?.title).toBe('Alpha retry');
 });
 
@@ -246,9 +244,12 @@ it('KV loss is repaired by resumable builds while D1 serves exact pages', async 
     'p2',
     'p3',
   ]);
-  for (let i = 0; i < 50; i++) {
-    await ensureCatalogReadModels(db, kv);
-    if ([...kv.map.keys()].some((k) => k.endsWith(':listing:all:current'))) break;
+  for (let units = 0; units < 50; units++) {
+    const unit = await runCatalogUnit(db, kv, {
+      budget: new CatalogBudget(),
+      maintenance: 'replica',
+    });
+    if (unit.done) break;
   }
   expect([...kv.map.keys()].some((k) => k.endsWith(':listing:all:current'))).toBe(true);
   expect((await readListingPage(db, kv, ALL_LISTING, 1))?.cards.map((c) => c.id)).toEqual([
@@ -262,9 +263,9 @@ it('publication history keeps A -> B -> A roots resolving exactly', async () => 
   const firstPage = await readListingPage(db, kv, ALL_LISTING, 1);
   const firstTitle = firstPage?.cards[0]?.title;
   await db.prepare("UPDATE products SET title='Beta title' WHERE id='p1'").run();
-  await processCatalogWork(db, kv);
+  await catalogWork(db, kv);
   await db.prepare("UPDATE products SET title=? WHERE id='p1'").bind(firstTitle).run();
-  await processCatalogWork(db, kv);
+  await catalogWork(db, kv);
   const history = await db
     .prepare(
       'SELECT publication_seq, root_hash FROM catalog_listing_ref_history WHERE listing_id = ? ORDER BY publication_seq'
@@ -287,7 +288,7 @@ it('bounded build units never exceed their operation budget', async () => {
   let step;
   let guard = 0;
   do {
-    step = await processCatalogBuild(db, kv, { maxOps: 25 });
+    step = await processCatalogBuild(db, kv, { budget: new CatalogBudget(), maxOps: 25 });
     // A started chunk finishes, so a unit may exceed a tiny budget
     // by one chunk (<=10 counted ops at this scale). The 900-op
     // production budget is asserted strictly in the 100k gate.
@@ -300,7 +301,7 @@ it('bounded build units never exceed their operation budget', async () => {
 
 it('archiving a product removes it from listings and its document', async () => {
   await db.prepare("UPDATE products SET status='archived' WHERE id='p2'").run();
-  await processCatalogWork(db, kv);
+  await catalogWork(db, kv);
   const page = await readListingPage(db, kv, ALL_LISTING, 1);
   expect(page?.cards.map((c) => c.id)).toEqual(['p1', 'p3']);
   const card = await db

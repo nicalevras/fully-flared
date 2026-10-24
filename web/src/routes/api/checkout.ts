@@ -8,13 +8,7 @@ import {
 } from '../../server/checkout';
 import { getStripeProvider, type PaymentProvider } from '../../server/payments';
 import { getSettings } from '../../server/settings';
-import {
-  cartCountCookieHeader,
-  cartIdentity,
-  clearCart as convertCart,
-  clearCartCookieHeader,
-  parseCartCookie,
-} from '../../server/cart';
+import { cartIdentity, parseCartCookie } from '../../server/cart';
 import { getSessionUser } from '../../server/session';
 import { InsufficientStock } from '../../server/inventory';
 import { parseJsonBody } from '../../schemas/common';
@@ -242,8 +236,6 @@ async function prepareCheckoutRequest(
         : null,
     fingerprint,
     sessionExpiresAt: '',
-    holdExpiresAt: null,
-    manualCapture: true,
     shippingAddress: body.shippingAddress,
     cartId: cartCreds.id,
     cartRevision: cart.revision,
@@ -270,7 +262,6 @@ async function prepareCheckoutRequest(
         successUrl: `${base}/checkout/success?order=${orderId}${token ? `&t=${token}` : ''}`,
         cancelUrl: `${base}/cart`,
         collectShipping: false,
-        manualCapture: true,
         shippingAddress: body.shippingAddress,
         shippingCountries: [body.shippingCountry],
         automaticTax: settings.stripeTaxEnabled && settings.stripeTaxConfirmed,
@@ -473,8 +464,6 @@ async function respondForIntent(
   ) {
     if (order.status !== 'pending_payment')
       return generic('This checkout attempt has ended. Start a new checkout.', 'TERMINAL', 409);
-    if (intent.flow !== 'manual_capture')
-      return readyResponse(db, request, order, intent.checkout_url);
     if (intent.quote_json)
       return Response.json({
         state: 'review_ready',
@@ -518,26 +507,24 @@ async function respondForIntent(
       ...(opts.deadlineMs !== undefined ? { deadlineMs: opts.deadlineMs } : {}),
     });
     switch (result.status) {
-      case 'ready':
-        if (intent.flow === 'manual_capture') {
-          const fresh = (await loadIntent(db, intent.id))!;
-          const quote = await prepareReview(
-            db,
-            provider,
-            fresh,
-            opts.deadlineMs ?? Date.now() + 30_000
-          );
-          const frozen = (await loadIntent(db, intent.id))!;
-          return Response.json({
-            state: 'review_ready',
-            intentId: intent.id,
-            orderId: order.id,
-            quote,
-            quoteHash: frozen.quote_hash,
-            expiresAt: frozen.session_expires_at,
-          });
-        }
-        return readyResponse(db, request, order, result.checkoutUrl);
+      case 'ready': {
+        const fresh = (await loadIntent(db, intent.id))!;
+        const quote = await prepareReview(
+          db,
+          provider,
+          fresh,
+          opts.deadlineMs ?? Date.now() + 30_000
+        );
+        const frozen = (await loadIntent(db, intent.id))!;
+        return Response.json({
+          state: 'review_ready',
+          intentId: intent.id,
+          orderId: order.id,
+          quote,
+          quoteHash: frozen.quote_hash,
+          expiresAt: frozen.session_expires_at,
+        });
+      }
       case 'already_paid':
         return completedResponse();
       case 'pending':
@@ -551,38 +538,4 @@ async function respondForIntent(
     await release?.();
   }
   return Response.json({ state: 'pending', orderId: order.id }, { status: 202 });
-}
-
-async function readyResponse(
-  db: D1Database,
-  request: Request,
-  order: { id: string; total_cents: number; currency: string },
-  checkoutUrl: string
-): Promise<Response> {
-  // Only now — the Stripe session exists — is the cart converted.
-  // Cart conversion is cleanup: a failure here must never strand the
-  // shopper. Log it and still return the URL.
-  try {
-    await convertCart(db, parseCartCookie(request.headers.get('cookie')));
-  } catch (error) {
-    console.error(
-      JSON.stringify({
-        event: 'cart_convert_failed',
-        orderId: order.id,
-        error: error instanceof Error ? error.message : String(error),
-      })
-    );
-  }
-  const response = Response.json({
-    state: 'ready',
-    orderId: order.id,
-    checkoutUrl,
-    totalCents: order.total_cents,
-    currency: order.currency,
-  });
-  // The cart is converted server-side; clear its cookies here so the
-  // shopper leaves with no stale cart identity or badge count.
-  response.headers.append('Set-Cookie', clearCartCookieHeader);
-  response.headers.append('Set-Cookie', cartCountCookieHeader(0));
-  return response;
 }

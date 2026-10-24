@@ -4,6 +4,7 @@ import { createTestDb, seedProduct } from './helpers/d1';
 import { cancelOrderById, createPendingOrder, processInboxEvent } from '../web/src/server/checkout';
 import { adjustStock } from '../web/src/server/inventory';
 import type { PaymentProvider } from '../web/src/server/payments';
+import { pendingIntent } from './helpers/pending-intent';
 
 // P0 item 2: a payment that arrives after holds expired (stock gone) is
 // refunded deterministically, and the refund settles only when Stripe
@@ -80,12 +81,16 @@ afterAll(async () => {
 
 describe('late payment refund settlement', () => {
   it('pending refund settles on refund.updated, exactly one customer email, replay-safe', async () => {
-    const order = await createPendingOrder(db, {
-      shippingCountry: 'US',
-      shippingRateId: 'test-rate',
-      email: 'late@example.com',
-      lines: [{ sku: 'TEE-1', qty: 1 }],
-    });
+    const order = await createPendingOrder(
+      db,
+      {
+        shippingCountry: 'US',
+        shippingRateId: 'test-rate',
+        email: 'late@example.com',
+        lines: [{ sku: 'TEE-1', qty: 1 }],
+      },
+      pendingIntent()
+    );
     await db
       .prepare('UPDATE orders SET stripe_checkout_session_id = ? WHERE id = ?')
       .bind('cs_late', order.orderId)
@@ -152,12 +157,16 @@ describe('late payment refund settlement', () => {
 
   it('canceled order paid by card settles through charge.refunded', async () => {
     await adjustStock(db, 'TEE-1', 1, 'restock');
-    const order = await createPendingOrder(db, {
-      shippingCountry: 'US',
-      shippingRateId: 'test-rate',
-      email: 'late2@example.com',
-      lines: [{ sku: 'TEE-1', qty: 1 }],
-    });
+    const order = await createPendingOrder(
+      db,
+      {
+        shippingCountry: 'US',
+        shippingRateId: 'test-rate',
+        email: 'late2@example.com',
+        lines: [{ sku: 'TEE-1', qty: 1 }],
+      },
+      pendingIntent()
+    );
     await db
       .prepare('UPDATE orders SET stripe_checkout_session_id = ? WHERE id = ?')
       .bind('cs_late2', order.orderId)
@@ -200,12 +209,16 @@ describe('late payment refund settlement', () => {
 
   it('inbox retry cap alerts the owner with the event id', async () => {
     await adjustStock(db, 'TEE-1', 1, 'restock');
-    const order = await createPendingOrder(db, {
-      shippingCountry: 'US',
-      shippingRateId: 'test-rate',
-      email: 'cap@example.com',
-      lines: [{ sku: 'TEE-1', qty: 1 }],
-    }).catch(() => null);
+    const order = await createPendingOrder(
+      db,
+      {
+        shippingCountry: 'US',
+        shippingRateId: 'test-rate',
+        email: 'cap@example.com',
+        lines: [{ sku: 'TEE-1', qty: 1 }],
+      },
+      pendingIntent()
+    ).catch(() => null);
     expect(order).not.toBeNull();
     await db
       .prepare('UPDATE orders SET stripe_checkout_session_id = ? WHERE id = ?')

@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestDb, seedProduct } from './helpers/d1';
-import { processCatalogWork } from '../web/src/server/catalog-publisher';
 import { readListingPage } from '../web/src/server/catalog-read';
 import { ALL_LISTING } from '../web/src/server/catalog-models';
 import { processOutboxRow, queueAbandonedReminder } from '../web/src/server/email';
@@ -54,7 +53,7 @@ describe('KV catalogue snapshots', () => {
     expect(before?.cards).toHaveLength(1);
 
     await db.prepare("UPDATE products SET title = 'Renamed Tee' WHERE id = 'p1'").run();
-    await processCatalogWork(db, kv);
+    await catalogWork(db, kv);
     const updated = await readListingPage(db, kv, ALL_LISTING, 1);
     expect(updated?.cards[0]?.title).toBe('Renamed Tee');
     // Immutable KV values are content-addressed: the old page revision
@@ -83,7 +82,7 @@ describe('partitioned reference guard (B7)', () => {
       JSON.stringify({ products: [{ slug: 'fake' }] })
     );
     await db.prepare("UPDATE products SET title='Renamed Again' WHERE id='p1'").run();
-    await processCatalogWork(db, kv);
+    await catalogWork(db, kv);
     const page = await readListingPage(db, kv, ALL_LISTING, 1);
     expect(page?.generation).toBeLessThan(9999999);
     expect(page?.cards[0]?.title).toBe('Renamed Again');
@@ -210,4 +209,4 @@ describe('Stripe reconciliation', () => {
     expect(report.mismatches).toContain('order_paid_session_unpaid:rec-1:cs_local');
   });
 });
-import { buildCatalogReadModels } from './helpers/catalog-driver';
+import { buildCatalogReadModels, catalogWork } from './helpers/catalog-driver';

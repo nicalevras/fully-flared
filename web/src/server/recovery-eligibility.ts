@@ -1,10 +1,9 @@
 import { getSettings } from './settings';
 import { operationalRecipients } from './outbox';
-import type { StoreLimits } from '../schemas/limits';
+import type { StoreLimits } from '../lib/settings-definitions';
 
 export const RECOVERY_FAMILIES = [
   'reservation-expiry',
-  'order-expiry',
   'webhook-recovery',
   'checkout-preparation',
   'authorization-recovery',
@@ -46,19 +45,9 @@ export async function recoveryContext(
 export function reservationDue(c: RecoveryContext): Predicate {
   return {
     sql: `r.status='active' AND r.expires_at<? AND NOT EXISTS(SELECT 1 FROM checkout_intents ci
-      WHERE ci.order_id=r.order_id AND ci.flow='manual_capture' AND ci.allocation_id IS NOT NULL
+      WHERE ci.order_id=r.order_id AND ci.allocation_id IS NOT NULL
       AND ci.payment_state NOT IN ('canceled','finalized'))`,
     values: [c.cutoff],
-  };
-}
-
-export function pendingOrderDue(c: RecoveryContext): Predicate {
-  return {
-    sql: `o.status='pending_payment' AND o.created_at<?
-      AND NOT EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=o.id AND ci.flow='manual_capture')
-      AND NOT EXISTS(SELECT 1 FROM reservations r WHERE r.order_id=o.id AND r.status='active')
-      AND NOT(o.payment_status='unpaid' AND o.stripe_payment_intent_id IS NOT NULL)`,
-    values: [before(c.cutoff, c.limits.checkout_session_minutes + 18)],
   };
 }
 
@@ -82,7 +71,7 @@ export function preparationDue(c: RecoveryContext): Predicate {
 
 export function authorizationDue(c: RecoveryContext): Predicate {
   return {
-    sql: `ci.flow='manual_capture' AND ci.created_at<=? AND ci.payment_state NOT IN ('finalized','canceled')
+    sql: `ci.created_at<=? AND ci.payment_state NOT IN ('finalized','canceled')
       AND (ci.payment_next_at<=? OR (ci.payment_next_at IS NULL AND ci.payment_claim_expires_at<=?))
       AND (ci.payment_claim_expires_at IS NULL OR ci.payment_claim_expires_at<=?)`,
     values: [c.cutoff, c.cutoff, c.clock, c.clock],
@@ -100,7 +89,7 @@ export function authorizationAlertId(
 
 export function authorizationAlertDue(c: RecoveryContext): Predicate {
   return {
-    sql: `ci.flow='manual_capture' AND ci.created_at<=? AND ci.payment_state NOT IN ('finalized','canceled')
+    sql: `ci.created_at<=? AND ci.payment_state NOT IN ('finalized','canceled')
       AND ci.authorized_at IS NOT NULL AND ci.authorized_at<?
       AND EXISTS(SELECT 1 FROM json_each(?) recipient WHERE NOT EXISTS(SELECT 1 FROM outbox alert
         WHERE alert.id=(CASE WHEN ci.authorized_at<? THEN 'authorization-escalated-' ELSE 'authorization-overdue-' END)||ci.id||'-'||recipient.value))`,
@@ -151,10 +140,6 @@ export async function recoveryFamilyDue(
     case 'reservation-expiry':
       source = 'reservations r';
       predicate = reservationDue(c);
-      break;
-    case 'order-expiry':
-      source = 'orders o';
-      predicate = pendingOrderDue(c);
       break;
     case 'webhook-recovery':
       source = 'webhook_inbox w';

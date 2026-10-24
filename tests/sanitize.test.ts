@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createTestDb } from './helpers/d1';
+import { runAdminAction } from '../web/src/server/admin-actions';
 import { escapeHtml, sanitizeHtml } from '../web/src/server/sanitize';
 
 const attacks: [string, string][] = [
@@ -40,6 +42,46 @@ describe('allowlist HTML sanitizer', () => {
   it('escapes user values for email templates', () => {
     expect(escapeHtml('<b>"x"</b> & \'y\'')).toBe(
       '&lt;b&gt;&quot;x&quot;&lt;/b&gt; &amp; &#39;y&#39;'
+    );
+  });
+});
+
+describe('editorial content is sanitized when saved', () => {
+  let db: D1Database, dispose: () => Promise<void>;
+  const owner = { id: 'owner', role: 'owner' };
+  beforeEach(async () => {
+    ({ db, dispose } = await createTestDb());
+    await db
+      .prepare(
+        "INSERT INTO user(id,name,email,role,created_at,updated_at) VALUES('owner','Owner','owner@example.invalid','owner',0,0)"
+      )
+      .run();
+  });
+  afterEach(async () => {
+    await dispose();
+  });
+
+  it.each([
+    ['page.save', 'pages', {}],
+    ['post.save', 'posts', { status: 'published' }],
+  ])('%s stores no attack payload for storefront reads to render', async (action, table, extra) => {
+    const contentHtml = attacks.map(([payload]) => payload).join('') + '<p>kept</p>';
+    const saved = await runAdminAction(
+      db,
+      {} as never,
+      owner,
+      action,
+      { id: 'x', slug: 'x', title: 'x', contentHtml, ...extra },
+      undefined,
+      'https://shop.invalid'
+    );
+    expect(saved.ok).toBe(true);
+    const row = await db
+      .prepare(`SELECT content_html FROM ${table} WHERE id='x'`)
+      .first<{ content_html: string }>();
+    expect(row?.content_html).toContain('<p>kept</p>');
+    expect(row?.content_html).not.toMatch(
+      /<script|<iframe|<svg|<style|<meta|\son\w+\s*=|(?:href|src|srcset)\s*=\s*"?[^"]*javascript:/i
     );
   });
 });

@@ -5,7 +5,8 @@ import { createFileRoute, Link, stripSearchParams } from '@tanstack/react-router
 import { createServerFn } from '@tanstack/react-start';
 import { loadCollectionPage } from '../../server/storefront-pages';
 import { validateServerInput } from '../../server/function-boundary';
-import { collectionPageInputSchema, collectionSearchSchema } from '../../schemas/checkout';
+import { collectionPageInputSchema } from '../../schemas/checkout';
+import { storefrontPageSearch } from '../../lib/search-params';
 import { ProductCard } from '../../components/ProductCard';
 import { CollectionNotFound } from '../../components/NotFound';
 import { Button } from '@/components/ui/button';
@@ -21,15 +22,11 @@ const getCollection = createServerFn({ method: 'GET' })
   });
 
 export const Route = createFileRoute('/_shop/collections/$slug')({
-  validateSearch: collectionSearchSchema,
+  validateSearch: storefrontPageSearch,
   search: { middlewares: [stripSearchParams({ page: 1 })] },
   loaderDeps: ({ search: { page } }) => ({ page }),
   loader: async ({ params, deps }) =>
     getCollection({ data: { slug: params.slug, page: deps.page } }),
-  headers: () => ({
-    'Cache-Control': 'public, max-age=60, stale-while-revalidate=300',
-    'CDN-Cache-Control': 'max-age=300, stale-while-revalidate=600',
-  }),
   notFoundComponent: CollectionNotFound,
   head: ({ loaderData }) => {
     if (!loaderData) return { meta: [], links: [] };

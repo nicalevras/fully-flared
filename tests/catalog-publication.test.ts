@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { createTestDb, seedProduct } from './helpers/d1';
-import { processCatalogWork } from '../web/src/server/catalog-publisher';
 import {
   getShopProductsPage,
   readListingPage,
@@ -45,7 +44,7 @@ beforeAll(async () => {
   dispose = t.dispose;
   await seedProduct(db);
   await buildCatalogReadModels(db, kv);
-  await processCatalogWork(db, kv);
+  await catalogWork(db, kv);
 });
 afterAll(async () => {
   await dispose();
@@ -59,12 +58,12 @@ async function workState() {
 
 it('coalesces completed work and preserves edits made while publishing', async () => {
   await db.prepare("UPDATE products SET title='Edited after build' WHERE id='p1'").run();
-  const result = await processCatalogWork(db, kv);
+  const result = await catalogWork(db, kv);
   expect(result.processed).toBeGreaterThan(0);
   const page = await readListingPage(db, kv, ALL_LISTING, 1);
   expect(page?.cards.some((c) => c.title === 'Edited after build')).toBe(true);
   const before = writes.length;
-  const again = await processCatalogWork(db, kv);
+  const again = await catalogWork(db, kv);
   expect(again.processed).toBe(0);
   expect(writes).toHaveLength(before);
   expect((await workState())?.due).toBe(0);
@@ -84,7 +83,7 @@ it('recovers from missing and malformed KV payloads using D1 payloads', async ()
 it('a failed publication cannot hide a later edit; the next pass publishes it', async () => {
   await db.prepare("UPDATE products SET title='Recovered edit' WHERE id='p1'").run();
   failPuts = true;
-  await expect(processCatalogWork(db, kv)).rejects.toThrow('KV unavailable');
+  await expect(catalogWork(db, kv)).rejects.toThrow('KV unavailable');
   failPuts = false;
   expect((await workState())?.due).toBeGreaterThan(0);
   const retry = await db
@@ -96,7 +95,7 @@ it('a failed publication cannot hide a later edit; the next pass publishes it', 
       "UPDATE catalog_work SET next_attempt_at='2000-01-01' WHERE processed_revision < target_revision"
     )
     .run();
-  await processCatalogWork(db, kv);
+  await catalogWork(db, kv);
   const page = await readListingPage(db, kv, ALL_LISTING, 1);
   expect(page?.cards.some((c) => c.title === 'Recovered edit')).toBe(true);
   expect((await workState())?.due).toBe(0);
@@ -167,7 +166,7 @@ it('paginates collections at 48 per page with a total', async () => {
       .prepare('INSERT OR IGNORE INTO product_collections(product_id,collection_id) VALUES(?,?)')
       .bind(r.id, 'big')
       .run();
-  await processCatalogWork(db, kv);
+  await catalogWork(db, kv);
   const page2 = await getPublishedCollection(db, env as never, 'big', 2);
   expect(page2?.total).toBe(50);
   expect(page2?.pageCount).toBe(2);
@@ -196,7 +195,7 @@ it('a title rule with LIKE wildcards matches literally', async () => {
       `INSERT INTO collections(id,slug,title,kind,rule_json,created_at) VALUES('wr','wr','WR','rule','{"type":"title_contains","value":"50%"}','2026-01-01')`
     ),
   ]);
-  await processCatalogWork(db, kv);
+  await catalogWork(db, kv);
   const col = await getPublishedCollection(db, env as never, 'wr', 1);
   expect(col?.products.map((p) => p.id)).toEqual(['w1']);
 });
@@ -211,7 +210,7 @@ it('no single KV value holds the whole catalog; references stay small', async ()
   const ref = JSON.parse(map.get(listingRefKey(ALL_LISTING))!) as { total: number };
   expect(ref.total).toBe(603);
 });
-import { buildCatalogReadModels } from './helpers/catalog-driver';
+import { buildCatalogReadModels, catalogWork } from './helpers/catalog-driver';
 
 it('a deleted collection is retired: its pages disappear and its cache is purged once', async () => {
   await db
@@ -222,7 +221,7 @@ it('a deleted collection is retired: its pages disappear and its cache is purged
   await db
     .prepare("INSERT INTO product_collections(product_id,collection_id) VALUES('p1','gone')")
     .run();
-  await processCatalogWork(db, kv);
+  await catalogWork(db, kv);
   expect(await getPublishedCollection(db, env as never, 'gone', 1)).not.toBeNull();
   const stalePointer = map.get(collectionMetaKey('gone')) ?? '';
   expect(stalePointer).not.toBe('');
@@ -230,7 +229,7 @@ it('a deleted collection is retired: its pages disappear and its cache is purged
   await db.prepare("DELETE FROM product_collections WHERE collection_id='gone'").run();
   await db.prepare("DELETE FROM collections WHERE id='gone'").run();
   await db.prepare('DELETE FROM catalog_invalidations').run();
-  await processCatalogWork(db, kv);
+  await catalogWork(db, kv);
   expect(await getPublishedCollection(db, env as never, 'gone', 1)).toBeNull();
   expect(map.has(listingRefKey('gone'))).toBe(false);
   expect(await readListingRef(db, kv, 'gone')).toBeNull();
@@ -243,7 +242,7 @@ it('a deleted collection is retired: its pages disappear and its cache is purged
   expect(purged).toContain('listing-gone');
 
   const before = writes.length;
-  expect((await processCatalogWork(db, kv)).processed).toBe(0);
+  expect((await catalogWork(db, kv)).processed).toBe(0);
   expect(writes).toHaveLength(before);
   expect(await getPublishedCollection(db, env as never, 'gone', 1)).toBeNull();
 });

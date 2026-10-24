@@ -6,7 +6,7 @@ import {
   type AdmissionStorage,
   type AcquireResult,
 } from '../server/checkout-admission';
-import type { AdmissionConfig } from '../schemas/limits';
+import type { AdmissionConfig } from '../lib/settings-definitions';
 
 // Per-store checkout admission controller (Phase 5). One instance
 // ("store") owns the token bucket and active permits in SQLite

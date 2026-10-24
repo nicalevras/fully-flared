@@ -3,7 +3,6 @@ import { deliverStripeEvent } from './helpers/webhook';
 import { readFileSync } from 'node:fs';
 import { createTestDb, seedProduct } from './helpers/d1';
 import { addCartLine, ensureCart } from '../web/src/server/cart';
-import { createPendingOrder } from '../web/src/server/checkout';
 import { attachStripeSession } from './helpers/attach-session';
 import { enqueueOutboxRecoveryPage, processOutboxRow } from '../web/src/server/email';
 import { recoveryContext } from '../web/src/server/recovery-eligibility';
@@ -16,6 +15,7 @@ import { reconcileStripe } from '../web/src/server/reconcile';
 import Stripe from '../web/node_modules/stripe/esm/stripe.esm.node.js';
 import { StripeProvider, type PaymentProvider } from '../web/src/server/payments';
 import * as payments from '../web/src/server/payments';
+import { heldOrder } from './helpers/pending-intent';
 vi.mock('@tanstack/react-start/server-entry', () => ({ default: { fetch: vi.fn() } }));
 
 let db: D1Database, dispose: () => Promise<void>;
@@ -103,7 +103,7 @@ it('enqueues a committed receipt immediately, and a queue failure leaves cron re
       throw new Error('queue unavailable');
     },
   } as never;
-  const o = await createPendingOrder(db, {
+  const o = await heldOrder(db, {
     email: 'buyer@example.invalid',
     shippingCountry: 'US',
     shippingRateId: 'test-rate',

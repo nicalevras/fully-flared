@@ -21,7 +21,7 @@ ships in `web/src/`.
 ## Commerce remediation evidence — 2026-10-18
 
 Earlier milestone rows describe historical defects, not deployed acceptance.
-The implementation/verification ledger is `web/REMEDIATION.md`.
+The implementation/verification ledger is `docs/archive/REMEDIATION.md`.
 
 - Money, stock and notifications: `tests/commerce-safety.test.ts`,
   `tests/checkout.test.ts`, `tests/refunds.test.ts`, `tests/late-refund.test.ts`.

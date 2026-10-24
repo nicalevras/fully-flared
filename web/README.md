@@ -51,22 +51,25 @@ npm run cf-typegen
 npm run check
 npm run check:migrations
 node scripts/verify-tracer.mjs
-node scripts/verify-http.mjs
+npm run verify:http
 node scripts/reconcile.mjs
 node scripts/load-test.mjs
 ```
 
-The HTTP and load scripts require the local dev server. `verify-http` creates
+The HTTP and load scripts require the local dev server with `BETTER_AUTH_SECRET` in
+`.dev.vars` (without it every admin call fails closed with 403) and, for
+`verify-http`, a bootstrapped owner; pass `--curl` after the base URL if local
+Undici connections reset. `verify-http` creates
 and removes isolated local identity fixtures; it never calls Stripe or sends
 customer messages. `reconcile` checks local invariants unless `--stripe` is
 explicitly supplied with a key. Local runs do not count toward a deployed soak.
 
 ## Operate
 
-See [LAUNCH.md](LAUNCH.md) for deployment prerequisites, subscriptions and
+See [LAUNCH.md](../docs/archive/LAUNCH.md) for deployment prerequisites, subscriptions and
 acceptance gates; the root README's "Backups and recovery" section for
 D1 Time Travel restore and per-table export; and
-[REMEDIATION.md](REMEDIATION.md) for implementation and verification evidence.
+[REMEDIATION.md](../docs/archive/REMEDIATION.md) for implementation and verification evidence.
 The HTML Cache API requires a custom domain or route; workers.dev cannot prove
 this cache design works. No remote operation is part of local setup.
 
@@ -87,7 +90,7 @@ manifests select URLs; pending deletion records stay available for manual retry
 until both storage deletion and CDN purge succeed. Do not delete the pending
 record or remove its purge configuration to bypass a failed deletion.
 
-0013–0015 are now applied locally with explicit approval and a verified backup. The verified Wrangler backup and migration results are in REMEDIATION.md;
+0013–0015 are now applied locally with explicit approval and a verified backup. The verified Wrangler backup and migration results are in `docs/archive/REMEDIATION.md`;
 the next phase verifies fresh/populated paths and the new lifecycle. The old
 layout-setting compatibility reader does not make the new schema optional.
 
@@ -102,7 +105,7 @@ manifest. Stop duplicate servers before investigating local D1 storage errors.
 Hosted Stripe Checkout remains the approved payment interface. The current
 working-tree hardening changes require prepared migration 0016 and have not yet
 been tested or applied locally. Before using them, complete the separate
-verification/migration checkpoint in [CHECKOUT-HARDENING.md](CHECKOUT-HARDENING.md).
+verification/migration checkpoint in [CHECKOUT-HARDENING.md](../docs/archive/CHECKOUT-HARDENING.md).
 Existing media publication is an explicit **Admin → Media → Publish existing
 media** action after public storage and purge configuration; changing the media
 base URL does not start a migration automatically.

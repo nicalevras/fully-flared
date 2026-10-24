@@ -21,7 +21,6 @@ export type CheckoutIntentRow = {
   user_id: string | null;
   guest_capability_hash: string | null;
   fingerprint: string;
-  flow: 'legacy' | 'manual_capture';
   stripe_customer_id: string | null;
   payment_intent_id: string | null;
   shipping_address_json: string | null;
@@ -373,22 +372,20 @@ export async function runIntentOperation(
       ]);
       return { ...options, ...callOptions() };
     };
-    if (intent.flow === 'manual_capture') {
-      if (!intent.stripe_customer_id && !session) {
-        if (!provider.createCheckoutCustomer) throw new Error('Customer preparation unavailable');
-        const customerId = await provider.createCheckoutCustomer(
-          payload,
-          await beforeCreation('customer')
-        );
-        await db.batch([
-          claimGuard(db, intentId, claim),
-          db
-            .prepare('UPDATE checkout_intents SET stripe_customer_id=?,updated_at=? WHERE id=?')
-            .bind(customerId, now(), intentId),
-        ]);
-        payload.customerId = customerId;
-      } else if (intent.stripe_customer_id) payload.customerId = intent.stripe_customer_id;
-    }
+    if (!intent.stripe_customer_id && !session) {
+      if (!provider.createCheckoutCustomer) throw new Error('Customer preparation unavailable');
+      const customerId = await provider.createCheckoutCustomer(
+        payload,
+        await beforeCreation('customer')
+      );
+      await db.batch([
+        claimGuard(db, intentId, claim),
+        db
+          .prepare('UPDATE checkout_intents SET stripe_customer_id=?,updated_at=? WHERE id=?')
+          .bind(customerId, now(), intentId),
+      ]);
+      payload.customerId = customerId;
+    } else if (intent.stripe_customer_id) payload.customerId = intent.stripe_customer_id;
     let couponId = intent.stripe_coupon_id ?? undefined;
     if (!session && !couponId && payload.discountCents && provider.createCoupon) {
       couponId = await provider.createCoupon(payload, await beforeCreation('coupon'));
@@ -517,7 +514,7 @@ export async function rememberProviderSession(
     return;
   if (
     !['paid', 'no_payment_required'].includes(session.payment_status) &&
-    !(intent.flow === 'manual_capture' && session.status === 'complete')
+    session.status !== 'complete'
   )
     return;
   const eventId = `reconcile-session-${session.id}-${session.payment_status}`;

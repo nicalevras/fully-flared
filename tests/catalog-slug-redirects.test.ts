@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { createTestDb, seedProduct } from './helpers/d1';
-import { buildCatalogReadModels } from './helpers/catalog-driver';
+import { buildCatalogReadModels, catalogWork } from './helpers/catalog-driver';
+import { requestCatalogSourceRebuild, runCatalogUnit } from '../web/src/server/catalog-publisher';
+import { CATALOG_RETENTION_MS, runCatalogGcUnit } from '../web/src/server/catalog-gc';
 import {
-  processCatalogWork,
-  requestCatalogSourceRebuild,
-} from '../web/src/server/catalog-publisher';
-import { productSlugKey } from '../web/src/server/catalog-models';
+  CatalogBudget,
+  claimCatalogLease,
+  releaseCatalogLease,
+} from '../web/src/server/catalog-exec';
+import { editorialKey, productSlugKey } from '../web/src/server/catalog-models';
 import { loadPostPage, loadProductPage } from '../web/src/server/storefront-pages';
 
 class Kv {
@@ -18,6 +21,10 @@ class Kv {
   }
   async delete(key: string) {
     this.map.delete(key);
+  }
+  async list({ prefix }: { prefix: string; limit: number; cursor?: string }) {
+    const keys = [...this.map.keys()].filter((key) => key.startsWith(prefix));
+    return { keys: keys.map((name) => ({ name })), list_complete: true };
   }
 }
 
@@ -39,7 +46,7 @@ afterEach(async () => dispose());
 
 async function publish() {
   for (let pass = 0; pass < 20; pass++) {
-    const result = await processCatalogWork(db, kv);
+    const result = await catalogWork(db, kv);
     if (!result.more && result.processed === 0) return;
   }
   throw new Error('catalogue work did not settle');
@@ -159,4 +166,33 @@ it('redirects a slug renamed under a full rebuild', async () => {
   expect(
     await served((counted, limit) => loadProductPage(counted, { CATALOG_KV: kv }, 'tee', limit))
   ).toEqual(moved('/products/tee-2'));
+});
+
+it('keeps redirect pointers through catalogue GC so old URLs still 301 from KV', async () => {
+  await rename('products', 'p1', 'tee', 'tee-2');
+  await rename('posts', 'post', 'launch', 'launch-2');
+  for (let units = 1; ; units++) {
+    const unit = await runCatalogUnit(db, kv, { budget: new CatalogBudget() });
+    if (unit.done || unit.retryAfterSeconds) break;
+    expect(units).toBeLessThan(50);
+  }
+  for (const at of [Date.now(), Date.now() + 2 * CATALOG_RETENTION_MS + 1]) {
+    const lease = await claimCatalogLease(db);
+    if (!lease) throw new Error('catalogue lease is held');
+    try {
+      let units = 0;
+      while ((await runCatalogGcUnit(db, kv, lease, at)) !== null)
+        expect(++units).toBeLessThan(200);
+    } finally {
+      await releaseCatalogLease(db, lease);
+    }
+  }
+  expect(kv.map.has(productSlugKey('tee'))).toBe(true);
+  expect(kv.map.has(editorialKey('post', 'launch'))).toBe(true);
+  expect(
+    await served((counted, limit) => loadProductPage(counted, { CATALOG_KV: kv }, 'tee', limit))
+  ).toEqual(moved('/products/tee-2'));
+  expect(await served((counted) => loadPostPage(counted, { CATALOG_KV: kv }, 'launch'))).toEqual(
+    moved('/blog/launch-2')
+  );
 });

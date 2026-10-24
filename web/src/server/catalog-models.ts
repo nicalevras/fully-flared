@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_RAILS } from '../lib/catalog-limits';
 
 // Partitioned catalog read models (Phase 3). Zod-validated contracts
 // shared by the publisher (write side) and, from 3B, storefront readers.
@@ -8,7 +9,6 @@ import { z } from 'zod';
 export const ALL_LISTING = 'all';
 export const HOME_PAGE_SIZE = 24;
 export const COLLECTION_PAGE_SIZE = 48;
-export const MAX_RAILS = 4;
 export const RAIL_SIZE = 8;
 export const FEATURED_INDEX = '@featured';
 

@@ -1,20 +1,15 @@
 import { useState } from 'react';
 import { Link, createFileRoute } from '@tanstack/react-router';
-import * as z from 'zod';
 import { authClient } from '../../lib/auth-client';
+import { resetSearch } from '../../lib/search-params';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
-const resetSearchSchema = z.object({
-  token: z.string().optional(),
-  error: z.string().optional(),
-});
-
 export const Route = createFileRoute('/_shop/auth/reset')({
-  validateSearch: resetSearchSchema,
+  validateSearch: resetSearch,
   head: () => ({
     meta: [{ title: 'Choose a new password' }, { name: 'robots', content: 'noindex' }],
   }),

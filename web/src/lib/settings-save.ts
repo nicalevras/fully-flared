@@ -1,9 +1,10 @@
 import {
-  LIMIT_KEYS,
-  storeLimitsSchema,
+  ADMISSION_DEFINITIONS,
   ADMISSION_KEYS,
-  admissionConfigSchema,
-} from '../schemas/limits';
+  LIMIT_DEFINITIONS,
+  LIMIT_KEYS,
+  withinDefinitions,
+} from './settings-definitions';
 
 export type SettingsActionResult = { ok: boolean; error?: string };
 export type SettingsAction = (
@@ -24,12 +25,12 @@ export async function saveSettings(
     tax: { enabled: boolean; confirmed: boolean };
   }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (!storeLimitsSchema.safeParse(input.limits).success)
+  if (!withinDefinitions(input.limits, LIMIT_DEFINITIONS))
     return {
       ok: false,
       error: 'Each store limit must be a whole number within its displayed range.',
     };
-  if (!admissionConfigSchema.safeParse(input.admission).success)
+  if (!withinDefinitions(input.admission, ADMISSION_DEFINITIONS))
     return {
       ok: false,
       error: 'Each admission budget must be a whole number within its displayed range.',

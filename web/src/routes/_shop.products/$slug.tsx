@@ -19,7 +19,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { addToCart, openCart } from '../../lib/cart';
-import type { StoreLimits } from '../../schemas/limits';
+import type { StoreLimits } from '../../lib/settings-definitions';
 import { mediaUrl, mediaSrcSet, type MediaSource } from '../../lib/media-url';
 
 type Variant = {
@@ -71,10 +71,6 @@ const getProduct = createServerFn({ method: 'GET' })
 export const Route = createFileRoute('/_shop/products/$slug')({
   loader: async ({ params }) => getProduct({ data: params.slug }),
   staleTime: 20_000,
-  headers: () => ({
-    'Cache-Control': 'public, max-age=60, stale-while-revalidate=300',
-    'CDN-Cache-Control': 'max-age=300, stale-while-revalidate=600',
-  }),
   notFoundComponent: ProductNotFound,
   head: ({ loaderData }) => {
     if (!loaderData) return { meta: [{ title: 'Store' }] };

@@ -3,8 +3,7 @@ import sanitize from 'sanitize-html';
 // Allowlist HTML sanitizer for staff-authored blog/page content. Backed by
 // sanitize-html (a real HTML parser, not regexes): anything not explicitly
 // allowed — tags, attributes, URL schemes, classes, styles — is removed.
-// Applied when content is saved and again when it is read for rendering, so
-// rows written before this sanitizer existed are also safe.
+// Applied when content is saved; storefront reads render the stored result.
 const ALLOWED_TAGS = [
   ...sanitize.defaults.allowedTags,
   'img',

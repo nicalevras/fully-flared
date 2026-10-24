@@ -36,7 +36,6 @@ import {
   POSTS_INDEX,
   DIRECTORY_FANOUT,
   FEATURED_INDEX,
-  MAX_RAILS,
   ARTIFACT_BYTE_LIMIT,
   type CatalogCard,
   type DirectoryNode,
@@ -44,6 +43,7 @@ import {
   type ListingReference,
   type ProductDocument,
 } from './catalog-models';
+import { MAX_RAILS } from '../lib/catalog-limits';
 
 // Partitioned catalog publisher (Phase 3A). Builds the D1 read-model
 // projections and the versioned KV namespace alongside the live
@@ -85,18 +85,6 @@ type KvLike = ReclaimKv & {
 // (TypeError before any response) cannot double-apply it: either the
 // slice never ran and the retry applies it, or it ran and the retry
 // fails loudly on a constraint instead of corrupting state.
-async function batchInChunks(db: D1Database, stmts: D1PreparedStatement[], size = 40) {
-  for (let i = 0; i < stmts.length; i += size) {
-    const slice = stmts.slice(i, i + size);
-    try {
-      await db.batch(slice);
-    } catch (err) {
-      if (!(err instanceof TypeError)) throw err;
-      await db.batch(slice);
-    }
-  }
-}
-
 function placeholders(n: number) {
   return Array.from({ length: n }, () => '?').join(',');
 }
@@ -250,27 +238,6 @@ async function patchDirectory(
 /** Resolve the exact page revision a pinned directory root names.
  *  Never a "newest <= pin" guess: A -> B -> A reuse resolves because
  *  the directory entry itself carries the revision hash. */
-/** Collect every page -> revision a directory root names (D1 chunks
- *  are authoritative; used to diff a patch against the current root). */
-async function collectDirectoryRevisions(
-  db: D1Database,
-  rootHash: string
-): Promise<Map<number, string>> {
-  const out = new Map<number, string>();
-  const walk = async (hash: string, depth: number): Promise<void> => {
-    if (depth > 12) return;
-    const node = await loadDirectoryNode(db, undefined, hash);
-    if (!node) return;
-    if (node.kind === 'pages') {
-      for (const e of node.entries) out.set(e.page, e.revision);
-      return;
-    }
-    for (const e of node.entries) await walk(e.hash, depth + 1);
-  };
-  await walk(rootHash, 0);
-  return out;
-}
-
 export type ListingPublication = {
   listingId: string;
   generation: number;
@@ -744,7 +711,7 @@ async function commitListingPublication(
 
 /** Activation steps 4-5: publish the mutable KV reference, then mark
  *  delivery confirmed in D1. A failed or late KV write leaves
- *  delivered_seq behind committed_seq; ensureCatalogReadModels
+ *  delivered_seq behind committed_seq; repairPendingDeliveries
  *  repairs delivery from committed history. The write time is
  *  persisted per key (KV per-key write-rate limit). */
 async function deliverListingRef(
@@ -797,10 +764,10 @@ export async function repairPendingDeliveries(
   db: D1Database,
   kv: KvLike | undefined,
   put: PutFn,
-  opts?: { limit?: number; budget?: CatalogBudget }
+  opts: { limit?: number; budget: CatalogBudget }
 ): Promise<number> {
   if (!kv) return 0;
-  const limit = opts?.limit ?? 5;
+  const limit = opts.limit ?? 5;
   const lagging = await db
     .prepare(
       `SELECT ref_key, committed_seq, delivered_seq, root_hash, pending_payload, last_write_at FROM catalog_ref_state
@@ -818,7 +785,7 @@ export async function repairPendingDeliveries(
     }>();
   let repaired = 0;
   for (const row of lagging.results) {
-    if (opts?.budget?.spent()) break;
+    if (opts.budget.spent()) break;
     const key = refKvKey(row.ref_key);
     if (!key) continue;
     // Per-key write timing (KV allows ~1 write/second/key): a key
@@ -893,7 +860,6 @@ export type CatalogBuildResult = {
   products: number;
   cardsChanged: number;
   docsChanged: number;
-  listingsChanged: string[];
   pages: number;
   kvPuts: number;
 };
@@ -1048,22 +1014,22 @@ async function captureBuildWork(
  *  history rather than adopted. */
 export async function processCatalogBuild(
   db: D1Database,
-  kv?: KvLike,
-  opts?: {
+  kv: KvLike | undefined,
+  opts: {
+    budget: CatalogBudget;
     maxOps?: number;
     kind?: 'full' | 'repair';
-    budget?: CatalogBudget;
     lease?: CatalogLease;
     scopeListingId?: string;
     parentId?: string;
   }
 ): Promise<CatalogBuildStep> {
-  const maxOps = opts?.maxOps ?? DEFAULT_BUILD_BUDGET;
-  const budget = opts?.budget;
+  const maxOps = opts.maxOps ?? DEFAULT_BUILD_BUDGET;
+  const { budget } = opts;
   let ops = 0;
   const tick = (n = 1, countBudget = true) => {
     ops += n;
-    if (countBudget) budget?.tickOp(n);
+    if (countBudget) budget.tickOp(n);
   };
 
   let build = await db
@@ -1082,7 +1048,7 @@ export async function processCatalogBuild(
   if (!build) {
     const id = crypto.randomUUID();
     const at = now();
-    const scoped = opts?.scopeListingId ?? null;
+    const scoped = opts.scopeListingId ?? null;
     // Capture the source-work revision this build represents; work
     // landing after this point stays due for a later pass.
     const revRow = await db
@@ -1095,9 +1061,9 @@ export async function processCatalogBuild(
       )
       .bind(
         id,
-        scoped ? 'listing' : (opts?.kind ?? 'full'),
+        scoped ? 'listing' : (opts.kind ?? 'full'),
         scoped ? 'memberships' : 'cards',
-        opts?.parentId ?? null,
+        opts.parentId ?? null,
         scoped,
         revRow?.rev ?? 0,
         at,
@@ -1114,7 +1080,7 @@ export async function processCatalogBuild(
     }
     build = {
       id,
-      kind: scoped ? 'listing' : (opts?.kind ?? 'full'),
+      kind: scoped ? 'listing' : (opts.kind ?? 'full'),
       state: 'building',
       phase: scoped ? 'memberships' : 'cards',
       state_json: scoped ? JSON.stringify({ ...freshBuildState(), layoutDone: true }) : '{}',
@@ -1164,7 +1130,6 @@ export async function processCatalogBuild(
       )
       .bind(JSON.stringify(state), now(), build!.id)
       .run();
-    const changedRows = budget ? [] : await loadBuildListings(db, build!.id);
     return {
       done: true,
       buildId: build!.id,
@@ -1174,7 +1139,6 @@ export async function processCatalogBuild(
         products: state.products,
         cardsChanged: state.cardsChanged,
         docsChanged: state.docsChanged,
-        listingsChanged: changedRows.filter((r) => (r.changed ?? 0) > 0).map((r) => r.id),
         pages: state.pagesTotal,
         kvPuts: state.kvPuts,
       },
@@ -1185,7 +1149,7 @@ export async function processCatalogBuild(
     while (true) {
       // Shared invocation budget (Round 2): when the caller's budget
       // is nearly spent, checkpoint and let a continuation resume.
-      if (budget && ops > 0 && (budget.spent() || !budget.fits(BUILD_STEP_STATEMENTS))) {
+      if (ops > 0 && (budget.spent() || !budget.fits(BUILD_STEP_STATEMENTS))) {
         await save();
         return { done: false, buildId: build!.id, phase, opsUsed: ops };
       }
@@ -1221,10 +1185,7 @@ export async function processCatalogBuild(
         // Deliveries are durable catalog_ref_state pending payloads,
         // not checkpoint arrays: deliver a bounded slice, then finish
         // only when this build's sequence has nothing pending.
-        await repairPendingDeliveries(db, kv, put, {
-          limit: 4,
-          ...(budget ? { budget } : {}),
-        });
+        await repairPendingDeliveries(db, kv, put, { limit: 4, budget });
         tick();
         const remaining = await db
           .prepare(
@@ -1341,11 +1302,7 @@ export async function processCatalogBuild(
           const cost = 3 + row.variant_rows + row.media_rows;
           if (cost > 3500) throw new Error('Product exceeds bounded publication source size');
           const bytes = 6 * (row.product_bytes + 1024 + 2048 * (row.variant_rows + row.media_rows));
-          if (
-            budget &&
-            ids.length &&
-            (sourceRows + cost > 3500 || materialBytes + bytes > 2 * 1024 * 1024)
-          )
+          if (ids.length && (sourceRows + cost > 3500 || materialBytes + bytes > 2 * 1024 * 1024))
             break;
           ids.push(row.id);
           sourceRows += cost;
@@ -1646,18 +1603,16 @@ export async function processCatalogBuild(
         // card fetch per group, one D1 batch for the whole group —
         // still one durable page revision per page.
         let groupSize = Math.min(8, state.pageCount - state.nextPage + 1);
-        if (budget) {
-          // Reserve the complete group before writing KV: membership +
-          // active revisions + card chunks, three mutations per page,
-          // the batch fence and the fenced checkpoint, keeping the
-          // finish reserve available for checkpoint/release handling.
-          const groupStatements = (pages: number) =>
-            5 + Math.ceil((pages * listing.pageSize) / CHUNK) + 3 * pages;
-          while (groupSize > 0 && !budget.fits(groupStatements(groupSize))) groupSize--;
-          if (groupSize === 0) {
-            await save();
-            return { done: false, buildId: build.id, phase, opsUsed: ops };
-          }
+        // Reserve the complete group before writing KV: membership +
+        // active revisions + card chunks, three mutations per page,
+        // the batch fence and the fenced checkpoint, keeping the
+        // finish reserve available for checkpoint/release handling.
+        const groupStatements = (pages: number) =>
+          5 + Math.ceil((pages * listing.pageSize) / CHUNK) + 3 * pages;
+        while (groupSize > 0 && !budget.fits(groupStatements(groupSize))) groupSize--;
+        if (groupSize === 0) {
+          await save();
+          return { done: false, buildId: build.id, phase, opsUsed: ops };
         }
         const groupPages: number[] = [];
         for (let g = 0; g < groupSize; g++) groupPages.push(state.nextPage + g);
@@ -2041,10 +1996,10 @@ export async function processCatalogBuild(
     return { done: false, buildId: build!.id, phase, opsUsed: ops };
   } catch (error) {
     if (error instanceof BudgetExhausted) {
-      await (budget ? budget.finalize(save) : save()).catch(() => undefined);
+      await budget.finalize(save).catch(() => undefined);
       return { done: false, buildId: build.id, phase, opsUsed: ops };
     }
-    await (budget ? budget.finalize(save) : save()).catch(() => undefined);
+    await budget.finalize(save).catch(() => undefined);
     console.error(
       JSON.stringify({
         event: 'catalog_build_failed',
@@ -2073,21 +2028,21 @@ export const BUSY_RETRY_SECONDS = 5;
  *  The queue handler may run several units under one budget. */
 export async function runCatalogUnit(
   db: D1Database,
-  kv?: KvLike,
-  opts?: { budget?: CatalogBudget; nowMs?: number; maintenance?: 'replica' | 'gc' }
+  kv: KvLike | undefined,
+  opts: { budget: CatalogBudget; nowMs?: number; maintenance?: 'replica' | 'gc' }
 ): Promise<{
   done: boolean;
   busy: boolean;
   budgetExhausted?: boolean;
   retryAfterSeconds?: number;
 }> {
-  const budget = opts?.budget ?? new CatalogBudget();
+  const { budget } = opts;
   const metered = countedDb(db, budget);
   let cdb = metered;
   kv = kv ? countedKv(kv, budget) : undefined;
   let lease: CatalogLease | null = null;
   try {
-    lease = await claimCatalogLease(cdb, opts?.nowMs);
+    lease = await claimCatalogLease(cdb, opts.nowMs);
   } catch (error) {
     if (error instanceof BudgetExhausted)
       return { done: false, busy: false, budgetExhausted: true };
@@ -2097,7 +2052,7 @@ export async function runCatalogUnit(
   cdb = fencedCatalogDb(metered, lease);
   try {
     // Maintenance runs only its own step; catalogue work stays on the catalog.rebuild chain.
-    if (opts?.maintenance) {
+    if (opts.maintenance) {
       if (opts.maintenance === 'gc')
         return { done: (await runCatalogGcUnit(metered, kv, lease)) === null, busy: false };
       return { done: kv ? await repairCatalogUnit(cdb, kv, lease) : true, busy: false };
@@ -2263,7 +2218,7 @@ async function buildLayoutModel(db: D1Database, settings: Awaited<ReturnType<typ
 async function buildProductDocuments(
   db: D1Database,
   orderedIds: string[],
-  budget?: CatalogBudget
+  budget: CatalogBudget
 ): Promise<Map<string, ProductDocument>> {
   const docs = new Map<string, ProductDocument>();
   // Bounded fast path: an explicit ID set is fetched with IN chunks
@@ -2293,10 +2248,10 @@ async function buildProductDocuments(
         .all<P>();
       for (const p of products.results) productById.set(p.id, p);
       if (!products.results.length) continue;
-      if (budget && budget.rows >= 5000) throw new BudgetExhausted('rows');
+      if (budget.rows >= 5000) throw new BudgetExhausted('rows');
       const variants = await db
         .prepare(
-          `SELECT id, product_id, sku, title, price_cents, compare_at_cents, status, continue_selling, weight_grams,COUNT(*) OVER() AS catalog_total FROM variants WHERE product_id IN (${ph}) ORDER BY product_id ASC, price_cents ASC LIMIT ${Math.max(1, Math.min(3500, 5000 - (budget?.rows ?? 0)))}`
+          `SELECT id, product_id, sku, title, price_cents, compare_at_cents, status, continue_selling, weight_grams,COUNT(*) OVER() AS catalog_total FROM variants WHERE product_id IN (${ph}) ORDER BY product_id ASC, price_cents ASC LIMIT ${Math.max(1, Math.min(3500, 5000 - (budget.rows ?? 0)))}`
         )
         .bind(...chunk)
         .all<{
@@ -2327,10 +2282,10 @@ async function buildProductDocuments(
           continueSelling: v.continue_selling === 1,
           weightGrams: v.weight_grams,
         });
-      if (budget && budget.rows >= 5000) throw new BudgetExhausted('rows');
+      if (budget.rows >= 5000) throw new BudgetExhausted('rows');
       const media = await db
         .prepare(
-          `SELECT pm.product_id AS product_id, m.r2_key, m.alt_text,m.public_url,(SELECT json_group_array(json_object('width',v.width,'url',COALESCE(v.public_url,'/media/'||m.r2_key||'?w='||v.width))) FROM media_variants v WHERE v.media_id=m.id AND v.ready=1 ORDER BY v.width) AS variants_json,COUNT(*) OVER() AS catalog_total FROM product_media pm JOIN media m ON m.id = pm.media_id WHERE m.ready=1 AND m.deletion_pending=0 AND pm.product_id IN (${ph}) ORDER BY pm.product_id ASC, pm.position ASC LIMIT ${Math.max(1, Math.min(3500, 5000 - (budget?.rows ?? 0)))}`
+          `SELECT pm.product_id AS product_id, m.r2_key, m.alt_text,m.public_url,(SELECT json_group_array(json_object('width',v.width,'url',COALESCE(v.public_url,'/media/'||m.r2_key||'?w='||v.width))) FROM media_variants v WHERE v.media_id=m.id AND v.ready=1 ORDER BY v.width) AS variants_json,COUNT(*) OVER() AS catalog_total FROM product_media pm JOIN media m ON m.id = pm.media_id WHERE m.ready=1 AND m.deletion_pending=0 AND pm.product_id IN (${ph}) ORDER BY pm.product_id ASC, pm.position ASC LIMIT ${Math.max(1, Math.min(3500, 5000 - (budget.rows ?? 0)))}`
         )
         .bind(...chunk)
         .all<{
@@ -2375,171 +2330,6 @@ async function buildProductDocuments(
   return docs;
 }
 
-/** Stage a new listing generation: membership, immutable page
- *  revision rows and page-product index, all inactive until the
- *  activation commit. Change detection compares against the active
- *  generation's directory-indicated revisions. Retrying a staged
- *  generation replaces its staging rows (nothing committed yet). */
-async function stageListingGeneration(
-  db: D1Database,
-  listingId: string,
-  ids: string[],
-  cardsById: Map<string, CatalogCard>,
-  pageSize: number
-): Promise<{
-  changed: boolean;
-  generation: number;
-  pageCount: number;
-  pageRevisions: { page: number; revision: string }[];
-  payloads: ListingPage[];
-}> {
-  const pageCount = Math.max(1, Math.ceil(ids.length / pageSize));
-  const pageCards: CatalogCard[][] = [];
-  for (let p = 0; p < pageCount; p++)
-    pageCards.push(
-      ids
-        .slice(p * pageSize, (p + 1) * pageSize)
-        .map((id) => cardsById.get(id))
-        .filter((c): c is CatalogCard => Boolean(c))
-    );
-  const pageRevisions = pageCards.map((cards, i) => ({
-    page: i + 1,
-    revision: listingPageRevision({
-      listingId,
-      generation: 0,
-      page: i + 1,
-      pageSize,
-      total: ids.length,
-      pageCount,
-      cards,
-    }),
-  }));
-
-  const active = await db
-    .prepare('SELECT generation FROM catalog_listings WHERE listing_id = ? AND active = 1')
-    .bind(listingId)
-    .first<{ generation: number }>();
-  if (active) {
-    const refState = await db
-      .prepare('SELECT root_hash FROM catalog_ref_state WHERE ref_key = ?')
-      .bind(`listing:${listingId}`)
-      .first<{ root_hash: string | null }>();
-    if (refState?.root_hash) {
-      const activeRevisions = await collectDirectoryRevisions(db, refState.root_hash);
-      if (
-        activeRevisions.size === pageRevisions.length &&
-        pageRevisions.every((r) => activeRevisions.get(r.page) === r.revision)
-      )
-        return {
-          changed: false,
-          generation: active.generation,
-          pageCount,
-          pageRevisions,
-          payloads: [],
-        };
-    }
-  }
-
-  const generation = (active?.generation ?? 0) + 1;
-  const payloads: ListingPage[] = pageCards.map((cards, i) => ({
-    listingId,
-    generation,
-    page: i + 1,
-    pageSize,
-    total: ids.length,
-    pageCount,
-    cards,
-  }));
-  const at = now();
-  const stmts: D1PreparedStatement[] = [
-    db
-      .prepare(
-        `INSERT INTO catalog_listings (listing_id, generation, page_size, page_count, total, active, state, updated_at) VALUES (?, ?, ?, ?, ?, 0, 'building', ?)
-         ON CONFLICT(listing_id, generation) DO UPDATE SET page_size = excluded.page_size, page_count = excluded.page_count, total = excluded.total, state = 'building', updated_at = excluded.updated_at`
-      )
-      .bind(listingId, generation, pageSize, pageCount, ids.length, at),
-    db.prepare('DELETE FROM catalog_membership WHERE listing_id = ?').bind(listingId),
-    db
-      .prepare('DELETE FROM catalog_listing_page_revisions WHERE listing_id = ? AND generation = ?')
-      .bind(listingId, generation),
-    db
-      .prepare('DELETE FROM catalog_page_products WHERE listing_id = ? AND generation = ?')
-      .bind(listingId, generation),
-  ];
-  for (let i = 0; i < ids.length; i += 200)
-    stmts.push(
-      db
-        .prepare(
-          `INSERT INTO catalog_membership (listing_id, product_id, position)
-           SELECT ?, json_extract(value, '$.id'), CAST(json_extract(value, '$.pos') AS INTEGER) FROM json_each(?)`
-        )
-        .bind(listingId, JSON.stringify(ids.slice(i, i + 200).map((id, j) => ({ id, pos: i + j }))))
-    );
-  payloads.forEach((payload, i) => {
-    stmts.push(
-      db
-        .prepare(
-          'INSERT INTO catalog_listing_page_revisions (listing_id, generation, page, revision, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-        )
-        .bind(
-          listingId,
-          generation,
-          payload.page,
-          pageRevisions[i]!.revision,
-          serializeListingPage(payload),
-          at
-        )
-    );
-  });
-  const pageProductEntries = payloads.flatMap((payload) =>
-    payload.cards.map((card) => ({ pid: card.id, page: payload.page }))
-  );
-  for (let i = 0; i < pageProductEntries.length; i += 200)
-    stmts.push(
-      db
-        .prepare(
-          `INSERT INTO catalog_page_products (product_id, listing_id, generation, page)
-           SELECT json_extract(value, '$.pid'), ?, ?, CAST(json_extract(value, '$.page') AS INTEGER) FROM json_each(?)`
-        )
-        .bind(listingId, generation, JSON.stringify(pageProductEntries.slice(i, i + 200)))
-    );
-  await batchInChunks(db, stmts);
-  return { changed: true, generation, pageCount, pageRevisions, payloads };
-}
-
-/** Publish a fully staged generation: immutable pages and directory
- *  to KV first, then the atomic D1 activation commit, then the
- *  mutable reference delivery. */
-async function publishStagedGeneration(
-  db: D1Database,
-  kv: KvLike | undefined,
-  put: PutFn,
-  listingId: string,
-  staged: Awaited<ReturnType<typeof stageListingGeneration>>,
-  pageSize: number,
-  total: number,
-  lease?: CatalogLease
-): Promise<void> {
-  if (kv) {
-    for (const p of staged.payloads)
-      await put(
-        listingPageKey(listingId, p.page, staged.pageRevisions[p.page - 1]!.revision),
-        serializeListingPage(p)
-      );
-  }
-  const rootHash = await buildDirectory(db, kv, put, listingId, staged.pageRevisions);
-  const pub: ListingPublication = {
-    listingId,
-    generation: staged.generation,
-    pageSize,
-    total,
-    pageCount: staged.pageCount,
-    rootHash,
-  };
-  const seq = await commitListingPublication(db, pub);
-  await deliverListingRef(db, kv, put, pub, seq, lease);
-}
-
 // --- Incremental publication (Phase 3B) -------------------------------
 // Change capture is durable: catalog_work rows are written by triggers
 // in the same transaction as the source edit (migration 0004). This
@@ -2572,13 +2362,13 @@ async function publishCollectionMeta(
   db: D1Database,
   kv: KvLike | undefined,
   put: PutFn,
-  ids?: string[]
+  ids: string[]
 ): Promise<void> {
   const rows = await db
     .prepare(
-      `SELECT id, slug, title, description, seo_title, seo_description, kind, rule_json FROM collections ${ids ? 'WHERE id IN (SELECT value FROM json_each(?))' : ''} ORDER BY slug`
+      'SELECT id, slug, title, description, seo_title, seo_description, kind, rule_json FROM collections WHERE id IN (SELECT value FROM json_each(?)) ORDER BY slug'
     )
-    .bind(...(ids ? [JSON.stringify(ids)] : []))
+    .bind(JSON.stringify(ids))
     .all<CollectionMetaRow>();
   for (const row of rows.results) {
     const value = JSON.stringify({
@@ -2646,120 +2436,6 @@ async function retireCollection(
         : []),
     ]),
   ]);
-}
-
-/** Refresh one listing: same membership -> patch only changed pages
- *  inside the active generation; changed membership/order -> stage a
- *  new generation. Both paths publish through the directory +
- *  activation protocol, writing KV pages before advancing any D1
- *  revision state. Large membership changes delegate to the
- *  checkpointed full build (one bounded unit per call). */
-async function refreshListing(
-  db: D1Database,
-  kv: KvLike | undefined,
-  put: PutFn,
-  listingId: string,
-  ids: string[],
-  cardsById: Map<string, CatalogCard>,
-  lease?: CatalogLease
-): Promise<{ changed: boolean; generation: number }> {
-  const pageSize = listingId === ALL_LISTING ? HOME_PAGE_SIZE : COLLECTION_PAGE_SIZE;
-  const current = await db
-    .prepare('SELECT product_id FROM catalog_membership WHERE listing_id = ? ORDER BY position')
-    .bind(listingId)
-    .all<{ product_id: string }>();
-  const sameMembership =
-    current.results.length === ids.length &&
-    current.results.every((r, i) => r.product_id === ids[i]);
-  if (!sameMembership) {
-    if (ids.length > 2000) {
-      // Large membership changes delegate to a scoped, checkpointed
-      // listing build (one bounded unit per queue invocation).
-      await scheduleScopedListingBuild(db, listingId);
-      const active = await db
-        .prepare('SELECT generation FROM catalog_listings WHERE listing_id = ? AND active = 1')
-        .bind(listingId)
-        .first<{ generation: number }>();
-      return { changed: true, generation: active?.generation ?? 0 };
-    }
-    const staged = await stageListingGeneration(db, listingId, ids, cardsById, pageSize);
-    if (staged.changed)
-      await publishStagedGeneration(db, kv, put, listingId, staged, pageSize, ids.length, lease);
-    return { changed: staged.changed, generation: staged.generation };
-  }
-
-  // Patch mode: diff against the current directory-indicated
-  // revisions inside the active generation.
-  const active = await db
-    .prepare('SELECT generation FROM catalog_listings WHERE listing_id = ? AND active = 1')
-    .bind(listingId)
-    .first<{ generation: number }>();
-  if (!active) {
-    const staged = await stageListingGeneration(db, listingId, ids, cardsById, pageSize);
-    if (staged.changed)
-      await publishStagedGeneration(db, kv, put, listingId, staged, pageSize, ids.length, lease);
-    return { changed: staged.changed, generation: staged.generation };
-  }
-  const refState = await db
-    .prepare('SELECT root_hash FROM catalog_ref_state WHERE ref_key = ?')
-    .bind(`listing:${listingId}`)
-    .first<{ root_hash: string | null }>();
-  const currentRevisions = refState?.root_hash
-    ? await collectDirectoryRevisions(db, refState.root_hash)
-    : new Map<number, string>();
-  const pageCount = Math.max(1, Math.ceil(ids.length / pageSize));
-  const pageRevisions: { page: number; revision: string }[] = [];
-  let changed =
-    listingId !== ALL_LISTING &&
-    Boolean(
-      await db
-        .prepare(`SELECT 1 FROM (SELECT ? AS listing_id) b WHERE ${metadataChangedSql}`)
-        .bind(listingId)
-        .first()
-    );
-  for (let p = 1; p <= pageCount; p++) {
-    const pageCards = ids
-      .slice((p - 1) * pageSize, p * pageSize)
-      .map((id) => cardsById.get(id))
-      .filter((c): c is CatalogCard => Boolean(c));
-    const payload: ListingPage = {
-      listingId,
-      generation: active.generation,
-      page: p,
-      pageSize,
-      total: ids.length,
-      pageCount,
-      cards: pageCards,
-    };
-    const revision = listingPageRevision(payload);
-    pageRevisions.push({ page: p, revision });
-    if (currentRevisions.get(p) === revision) continue;
-    changed = true;
-    // Write-then-advance: the KV page lands before the D1 revision
-    // row, so a failed put leaves committed state untouched and the
-    // retry republishes instead of skipping a "matching" revision.
-    if (kv) await put(listingPageKey(listingId, p, revision), serializeListingPage(payload));
-    await db
-      .prepare(
-        `INSERT INTO catalog_listing_page_revisions (listing_id, generation, page, revision, payload_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(listing_id, generation, page, revision) DO NOTHING`
-      )
-      .bind(listingId, active.generation, p, revision, serializeListingPage(payload), now())
-      .run();
-  }
-  if (!changed) return { changed: false, generation: active.generation };
-  const rootHash = await buildDirectory(db, kv, put, listingId, pageRevisions);
-  const pub: ListingPublication = {
-    listingId,
-    generation: active.generation,
-    pageSize,
-    total: ids.length,
-    pageCount,
-    rootHash,
-  };
-  const seq = await commitListingPublication(db, pub);
-  await deliverListingRef(db, kv, put, pub, seq, lease);
-  return { changed: true, generation: active.generation };
 }
 
 /** Create (once) a scoped listing build for a large membership
@@ -2883,61 +2559,6 @@ async function isMemberNow(
   return false;
 }
 
-/** Membership of one listing computed with listing-scoped queries
- *  only (never a catalog-wide in-memory context). Rule matching runs
- *  with literal, case-sensitive SQL substring matching, so fallback
- *  and snapshot rules agree on %, _ and backslash. */
-async function computeListingIds(
-  db: D1Database,
-  listingId: string,
-  col: WorkCollection | undefined,
-  limit = 2001
-): Promise<string[]> {
-  if (listingId === ALL_LISTING) {
-    const rows = await db
-      .prepare(
-        `SELECT id FROM products WHERE status = 'active' ORDER BY created_at DESC, id DESC LIMIT ${limit}`
-      )
-      .all<{ id: string }>();
-    return rows.results.map((r) => r.id);
-  }
-  if (!col) return [];
-  if (col.kind === 'manual') {
-    const rows = await db
-      .prepare(
-        `SELECT p.id FROM product_collections pc JOIN products p ON p.id = pc.product_id
-         WHERE pc.collection_id = ? AND p.status = 'active' ORDER BY p.created_at DESC, p.id DESC LIMIT ${limit}`
-      )
-      .bind(col.id)
-      .all<{ id: string }>();
-    return rows.results.map((r) => r.id);
-  }
-  if (col.kind === 'rule') {
-    const rule = parseRule(col.rule_json);
-    if (!rule) return [];
-    if (rule.type === 'title_contains') {
-      const rows = await db
-        .prepare(
-          `SELECT id FROM products WHERE status = 'active' AND instr(title,?)>0 ORDER BY created_at DESC, id DESC LIMIT ${limit}`
-        )
-        .bind(rule.value)
-        .all<{ id: string }>();
-      return rows.results.map((r) => r.id);
-    }
-    const op = rule.type === 'price_lte' ? '<=' : '>=';
-    const rows = await db
-      .prepare(
-        `SELECT p.id FROM products p WHERE p.status = 'active'
-         AND (SELECT MIN(v.price_cents) FROM variants v WHERE v.product_id = p.id) ${op} ?
-         ORDER BY p.created_at DESC, p.id DESC LIMIT ${limit}`
-      )
-      .bind(rule.value)
-      .all<{ id: string }>();
-    return rows.results.map((r) => r.id);
-  }
-  return [];
-}
-
 /** Incremental refresh for one listing. Changed products are first
  *  evaluated against this listing only: no membership delta means
  *  only the pages containing changed cards are patched (found via
@@ -2956,7 +2577,7 @@ async function refreshAffectedListing(
     collectionEdited: boolean;
     collections: WorkCollection[];
     lease?: CatalogLease;
-    budget?: CatalogBudget;
+    budget: CatalogBudget;
     preparePublication?: (publication: ListingPublication) => Promise<void>;
   }
 ): Promise<boolean> {
@@ -2985,19 +2606,8 @@ async function refreshAffectedListing(
     }
   }
   if (!active || delta) {
-    if (ctx.budget) {
-      await scheduleScopedListingBuild(db, listingId);
-      return true;
-    }
-    const ids = await computeListingIds(db, listingId, col);
-    if (ids.length > 2000) {
-      await scheduleScopedListingBuild(db, listingId);
-      return true;
-    }
-    const cards = await listingCardsByIds(db, ids);
-    for (const [id, card] of ctx.cardsById) if (cards.has(id)) cards.set(id, card);
-    const res = await refreshListing(db, kv, put, listingId, ids, cards, ctx.lease);
-    return res.changed;
+    await scheduleScopedListingBuild(db, listingId);
+    return true;
   }
   if (!ctx.productIds.size) return false;
   const changedPages = new Set<number>();
@@ -3085,12 +2695,11 @@ async function refreshAffectedListing(
 
 export async function processCatalogWork(
   db: D1Database,
-  kv?: KvLike,
-  opts?: number | { limit?: number; budget?: CatalogBudget; lease?: CatalogLease }
+  kv: KvLike | undefined,
+  opts: { budget: CatalogBudget; limit?: number; lease?: CatalogLease }
 ): Promise<CatalogWorkResult> {
-  const limit = typeof opts === 'number' ? opts : (opts?.limit ?? 50);
-  const budget = typeof opts === 'object' ? opts.budget : undefined;
-  const lease = typeof opts === 'object' ? opts.lease : undefined;
+  const { budget, lease } = opts;
+  const limit = opts.limit ?? 50;
   let kvPuts = 0;
   const put = async (key: string, value: string) => {
     if (!kv) return;
@@ -3131,10 +2740,10 @@ export async function processCatalogWork(
     return { processed: 0, productsPublished: 0, listingsRefreshed: [], kvPuts: 0 };
   // The finish batch: fence guard, invalidations, both index schedules,
   // one ack per claimed row and the done marker; then the lease release.
-  budget?.reserve(claimed.length + 6);
+  budget.reserve(claimed.length + 6);
 
   try {
-    const checkpointId = budget && claimed.length === 1 ? `work-${claimed[0]!.id}` : null;
+    const checkpointId = claimed.length === 1 ? `work-${claimed[0]!.id}` : null;
     const checkpoint = checkpointId
       ? await db
           .prepare('SELECT source_revision,state_json FROM catalog_builds WHERE id=?')
@@ -3158,7 +2767,7 @@ export async function processCatalogWork(
       cardChanged: boolean,
       publication?: ListingPublication
     ) => {
-      if (!checkpointId || !budget) return;
+      if (!checkpointId) return;
       await budget.finalize(() =>
         db.batch([
           ...(publication
@@ -3281,14 +2890,12 @@ export async function processCatalogWork(
           )
           .bind(row.entity_id, cursor, CHUNK)
           .all<{ product_id: string }>();
-        if (budget) {
-          await db
-            .prepare(
-              "INSERT INTO catalog_work(id,entity_type,entity_id,target_revision,processed_revision,created_at,updated_at) SELECT 'product:'||value,'product',value,1,0,?,? FROM json_each(?) WHERE true ON CONFLICT(entity_type,entity_id) DO UPDATE SET target_revision=target_revision+1,updated_at=excluded.updated_at"
-            )
-            .bind(now(), now(), JSON.stringify(linked.results.map((l) => l.product_id)))
-            .run();
-        } else for (const l of linked.results) productIds.add(l.product_id);
+        await db
+          .prepare(
+            "INSERT INTO catalog_work(id,entity_type,entity_id,target_revision,processed_revision,created_at,updated_at) SELECT 'product:'||value,'product',value,1,0,?,? FROM json_each(?) WHERE true ON CONFLICT(entity_type,entity_id) DO UPDATE SET target_revision=target_revision+1,updated_at=excluded.updated_at"
+          )
+          .bind(now(), now(), JSON.stringify(linked.results.map((l) => l.product_id)))
+          .run();
         if (linked.results.length === CHUNK) {
           const lastId = linked.results[linked.results.length - 1]!.product_id;
           const stateJson = JSON.stringify({ cursor: lastId });
@@ -3421,68 +3028,33 @@ export async function processCatalogWork(
     const listingsRefreshed: string[] = [];
     if (!pastListings) {
       const affected = new Set<string>(collectionIds);
-      let collections: { results: WorkCollection[] };
-      if (budget) {
-        if (productIds.size) {
-          const pid = [...productIds][0]!;
-          const next = await db
-            .prepare(
-              "SELECT id FROM (SELECT 'all' AS id UNION SELECT c.id FROM collections c WHERE c.kind='rule' OR EXISTS(SELECT 1 FROM product_collections pc WHERE pc.product_id=? AND pc.collection_id=c.id) OR EXISTS(SELECT 1 FROM catalog_page_products pp WHERE pp.product_id=? AND pp.listing_id=c.id)) WHERE id>? ORDER BY id LIMIT 1"
-            )
-            .bind(pid, pid, progress?.lastListing ?? '')
-            .first<{ id: string }>();
-          if (next) affected.add(next.id);
-        }
-        collections = await db
+      if (productIds.size) {
+        const pid = [...productIds][0]!;
+        const next = await db
           .prepare(
-            'SELECT id,slug,title,kind,rule_json FROM collections WHERE id IN (SELECT value FROM json_each(?)) ORDER BY id'
+            "SELECT id FROM (SELECT 'all' AS id UNION SELECT c.id FROM collections c WHERE c.kind='rule' OR EXISTS(SELECT 1 FROM product_collections pc WHERE pc.product_id=? AND pc.collection_id=c.id) OR EXISTS(SELECT 1 FROM catalog_page_products pp WHERE pp.product_id=? AND pp.listing_id=c.id)) WHERE id>? ORDER BY id LIMIT 1"
           )
-          .bind(JSON.stringify([...affected]))
-          .all<WorkCollection>();
-      } else {
-        // Determine and refresh affected listings.
-
-        if (productIds.size) {
-          affected.add(ALL_LISTING);
-          const idList = [...productIds];
-          for (let i = 0; i < idList.length; i += CHUNK) {
-            const chunk = idList.slice(i, i + CHUNK);
-            const containing = await db
-              .prepare(
-                `SELECT DISTINCT listing_id FROM catalog_page_products WHERE product_id IN (${placeholders(chunk.length)})`
-              )
-              .bind(...chunk)
-              .all<{ listing_id: string }>();
-            for (const r of containing.results) affected.add(r.listing_id);
-            const manual = await db
-              .prepare(
-                `SELECT DISTINCT collection_id FROM product_collections WHERE product_id IN (${placeholders(chunk.length)})`
-              )
-              .bind(...chunk)
-              .all<{ collection_id: string }>();
-            for (const r of manual.results) affected.add(r.collection_id);
-          }
-          const ruleCols = await db
-            .prepare("SELECT id FROM collections WHERE kind = 'rule'")
-            .all<{ id: string }>();
-          for (const r of ruleCols.results) affected.add(r.id);
-        }
-
-        collections = await db
-          .prepare('SELECT id,slug,title,kind,rule_json FROM collections ORDER BY slug')
-          .all<WorkCollection>();
+          .bind(pid, pid, progress?.lastListing ?? '')
+          .first<{ id: string }>();
+        if (next) affected.add(next.id);
       }
+      const collections = await db
+        .prepare(
+          'SELECT id,slug,title,kind,rule_json FROM collections WHERE id IN (SELECT value FROM json_each(?)) ORDER BY id'
+        )
+        .bind(JSON.stringify([...affected]))
+        .all<WorkCollection>();
       if (progress?.cardChanged) for (const id of productIds) cardChangedIds.add(id);
-      if (!budget || (collectionIds.size && !progress))
-        await publishCollectionMeta(db, kv, put, budget ? [...collectionIds] : undefined);
+      if (collectionIds.size && !progress)
+        await publishCollectionMeta(db, kv, put, [...collectionIds]);
       for (const listingId of [...affected].sort()) {
         if (progress && listingId <= progress.lastListing) continue;
-        if (budget?.spent()) throw new BudgetExhausted('combined');
+        if (budget.spent()) throw new BudgetExhausted('combined');
         if (
           listingId !== ALL_LISTING &&
           !collections.results.some((collection) => collection.id === listingId)
         ) {
-          if (checkpointId && budget && !budget.fits(RETIRE_STATEMENTS)) {
+          if (checkpointId && !budget.fits(RETIRE_STATEMENTS)) {
             await saveWork('listings', progress?.lastListing ?? '', cardChangedIds.size > 0);
             return { processed: 0, productsPublished, listingsRefreshed, kvPuts, more: true };
           }
@@ -3495,9 +3067,9 @@ export async function processCatalogWork(
             cardChangedIds,
             collectionEdited: collectionIds.has(listingId),
             collections: collections.results,
-            ...(budget ? { budget } : {}),
+            budget,
             ...(lease ? { lease } : {}),
-            ...(checkpointId && budget
+            ...(checkpointId
               ? {
                   preparePublication: async (publication: ListingPublication) => {
                     await saveWork('publication', listingId, cardChangedIds.size > 0, publication);
@@ -3534,12 +3106,7 @@ export async function processCatalogWork(
       return { processed: 0, productsPublished, listingsRefreshed, kvPuts, more: true };
     };
     const editorialIds = progress?.stage === 'layout' ? 0 : postIds.length + pageIds.length;
-    if (
-      editorialIds &&
-      checkpointId &&
-      budget &&
-      !budget.fits(EDITORIAL_DOC_STATEMENTS * editorialIds)
-    )
+    if (editorialIds && checkpointId && !budget.fits(EDITORIAL_DOC_STATEMENTS * editorialIds))
       return pause('editorial');
     const slugById = new Map<string, string>();
     for (const row of claimed)
@@ -3651,11 +3218,10 @@ export async function processCatalogWork(
       }
     }
 
-    const layoutDue =
-      !budget ||
-      claimed.some((r) => ['settings', 'post', 'page', 'collection'].includes(r.entity_type));
-    if (layoutDue && checkpointId && budget && !budget.fits(LAYOUT_STATEMENTS))
-      return pause('layout');
+    const layoutDue = claimed.some((r) =>
+      ['settings', 'post', 'page', 'collection'].includes(r.entity_type)
+    );
+    if (layoutDue && checkpointId && !budget.fits(LAYOUT_STATEMENTS)) return pause('layout');
     if (layoutDue) {
       // Layout + navigation are content-addressed: republish only on change.
       const settings = await getSettings(db);
@@ -3732,7 +3298,7 @@ export async function processCatalogWork(
           ? [db.prepare("UPDATE catalog_builds SET state='done' WHERE id=?").bind(checkpointId)]
           : []),
       ]);
-    await (budget ? budget.finalize(finish) : finish());
+    await budget.finalize(finish);
     const acked = claimed.filter((row) => !deferredWorkRows.has(row.id)).length;
 
     return {
@@ -3743,7 +3309,7 @@ export async function processCatalogWork(
       more: deferredWorkRows.size > 0,
     };
   } catch (error) {
-    if (error instanceof BudgetExhausted && budget) {
+    if (error instanceof BudgetExhausted) {
       await budget.finalize(() =>
         db
           .prepare(
@@ -3775,31 +3341,4 @@ export async function processCatalogWork(
     console.error(JSON.stringify({ event: 'catalog_work_failed', error: message }));
     throw error;
   }
-}
-
-/** Bootstrap/repair: full build when no active generation exists
- *  yet; an open (interrupted) build resumes one bounded unit per
- *  call; missing KV for an otherwise clean D1 generation starts a
- *  resumable repair build instead of silently serving stale state;
- *  lagging mutable-reference deliveries are repaired from committed
- *  history. Otherwise just the incremental work pass. */
-export async function ensureCatalogReadModels(
-  db: D1Database,
-  kv?: KvLike
-): Promise<{ bootstrapped: boolean }> {
-  // Exactly one bounded unit (Round 2): bootstrap, repair, delivery
-  // or incremental work — never a loop inside one invocation.
-  // Callers (queue/cron) arrange continuation; request paths never
-  // call this.
-  const before = await db
-    .prepare('SELECT generation FROM catalog_listings WHERE listing_id = ? AND active = 1')
-    .bind(ALL_LISTING)
-    .first<{ generation: number }>();
-  await runCatalogUnit(db, kv);
-  if (before) return { bootstrapped: false };
-  const after = await db
-    .prepare('SELECT generation FROM catalog_listings WHERE listing_id = ? AND active = 1')
-    .bind(ALL_LISTING)
-    .first<{ generation: number }>();
-  return { bootstrapped: Boolean(after) };
 }

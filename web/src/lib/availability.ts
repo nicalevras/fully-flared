@@ -1,12 +1,11 @@
 import { useServerFn } from '@tanstack/react-start';
 import { getAvailabilityFn } from './availabilityFns';
 import { useEffect, useState } from 'react';
-import {
-  availabilityResponseSchema,
-  type AvailabilityMode,
-  type AvailabilityInput,
-  type AvailabilityResponse,
-  type ProductAvailability,
+import type {
+  AvailabilityMode,
+  AvailabilityInput,
+  AvailabilityResponse,
+  ProductAvailability,
 } from '../schemas/availability';
 
 export type AvailabilityById = Record<string, ProductAvailability>;
@@ -26,7 +25,7 @@ async function readBatch(ids: string[], mode: AvailabilityMode, read: Availabili
   const existing = requests.get(key);
   if (existing) return existing;
   const request = (async () => {
-    const { products } = availabilityResponseSchema.parse(await read({ data }));
+    const { products } = await read({ data });
     if (
       products.length !== ids.length ||
       !ids.every((id) => products.some((p) => p.id === id && (mode !== 'product' || !!p.variants)))

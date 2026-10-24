@@ -4,7 +4,8 @@ import { createServerFn } from '@tanstack/react-start';
 import { getShopProductsPage, getStorefrontLayout } from '../server/catalog-read';
 import { requestCanonicalBase } from '../server/canonical-base';
 import { validateServerInput } from '../server/function-boundary';
-import { collectionSearchSchema, homePageInputSchema } from '../schemas/checkout';
+import { homePageInputSchema } from '../schemas/checkout';
+import { storefrontPageSearch } from '../lib/search-params';
 import { ProductCard } from '../components/ProductCard';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card as UiCard } from '@/components/ui/card';
@@ -31,7 +32,7 @@ const getShop = createServerFn({ method: 'GET' })
   });
 
 export const Route = createFileRoute('/_shop/shop')({
-  validateSearch: collectionSearchSchema,
+  validateSearch: storefrontPageSearch,
   search: { middlewares: [stripSearchParams({ page: 1 })] },
   loaderDeps: ({ search: { page } }) => ({ page }),
   loader: async ({ deps }) => getShop({ data: { page: deps.page } }),

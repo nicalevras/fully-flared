@@ -3,8 +3,6 @@ import { createTestDb, seedProduct } from './helpers/d1';
 import { getAvailability } from '../web/src/server/availability';
 import { availabilityInputSchema, type AvailabilityInput } from '../web/src/schemas/availability';
 import { setCartLine } from '../web/src/server/cart';
-import { createPendingOrder } from '../web/src/server/checkout';
-import { InsufficientStock } from '../web/src/server/inventory';
 let db: D1Database, dispose: () => Promise<void>;
 beforeAll(async () => {
   const t = await createTestDb();
@@ -44,7 +42,7 @@ it('validates the server-function input and reports sold out and zero-stock back
   await db.prepare("UPDATE variants SET continue_selling=0 WHERE sku='TEE-1'").run();
   await db.prepare("UPDATE stock SET on_hand=5 WHERE sku='TEE-1'").run();
 });
-it('cart accepts additions/increases above current stock without reserving; checkout still rejects them atomically', async () => {
+it('cart accepts additions/increases above current stock without reserving', async () => {
   const cart = await setCartLine(db, null, 'TEE-1', 4);
   await db.prepare("UPDATE stock SET on_hand=1 WHERE sku='TEE-1'").run();
   await expect(setCartLine(db, cart.creds, 'TEE-1', 5)).resolves.toMatchObject({
@@ -54,14 +52,6 @@ it('cart accepts additions/increases above current stock without reserving; chec
   await expect(setCartLine(db, cart.creds, 'TEE-1', 2)).resolves.toMatchObject({
     lines: [{ qty: 2 }],
   });
-  await expect(
-    createPendingOrder(db, {
-      email: 'fixture@example.test',
-      shippingCountry: 'US',
-      shippingRateId: 'test-rate',
-      lines: [{ sku: 'TEE-1', qty: 2 }],
-    })
-  ).rejects.toBeInstanceOf(InsufficientStock);
   expect((await db.prepare("SELECT reserved FROM stock WHERE sku='TEE-1'").first())?.reserved).toBe(
     0
   );

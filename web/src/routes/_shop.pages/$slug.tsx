@@ -8,7 +8,6 @@ import { validateServerInput } from '../../server/function-boundary';
 import { PageNotFound } from '../../components/NotFound';
 import { richTextCls } from '../../lib/rich-text';
 import { slugParamSchema } from '../../schemas/checkout';
-import { sanitizeHtml } from '../../server/sanitize';
 
 type Page = {
   slug: string;
@@ -29,16 +28,12 @@ const getPage = createServerFn({ method: 'GET' })
       seo_title: row.seoTitle,
       seo_description: row.seoDescription,
       layout: withRequestCanonicalBase(layout),
-      content_html: sanitizeHtml(row.contentHtml),
+      content_html: row.contentHtml,
     };
   });
 
 export const Route = createFileRoute('/_shop/pages/$slug')({
   loader: async ({ params }) => getPage({ data: params.slug }),
-  headers: () => ({
-    'Cache-Control': 'public, max-age=300, stale-while-revalidate=600',
-    'CDN-Cache-Control': 'max-age=3600, stale-while-revalidate=86400',
-  }),
   notFoundComponent: PageNotFound,
   head: ({ loaderData }) => ({
     meta: loaderData

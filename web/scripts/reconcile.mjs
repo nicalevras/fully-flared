@@ -1,4 +1,4 @@
-// Stripe <-> orders <-> stock reconciliation (LAUNCH.md soak).
+// Stripe <-> orders <-> stock reconciliation (docs/archive/LAUNCH.md soak).
 // Usage: node scripts/reconcile.mjs [--remote]
 // Local invariants are checked against D1 via wrangler. The Stripe leg runs
 // only when a real STRIPE_SECRET_KEY (sk_test_/sk_live_, not the local dummy)
@@ -8,7 +8,6 @@ import { appendFileSync, existsSync, writeFileSync, mkdtempSync, rmSync, rmdirSy
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseLimits } from '../src/schemas/limits.ts';
 
 const remote = process.argv.includes('--remote');
 const webDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -80,25 +79,7 @@ const negative = query(
 );
 check('stock never negative / never over-reserved', negative.length === 0);
 
-// 4. Match the configured hold/grace window and preserve existing active holds.
-const storedLimits = query("SELECT key,value FROM settings WHERE key='checkout_session_minutes'");
-const { checkout_session_minutes: sessionMinutes } = parseLimits(
-  Object.fromEntries(storedLimits.map((row) => [row.key, row.value]))
-);
-const staleMinutes = sessionMinutes + 18;
-const stuck = query(`
-  SELECT number FROM orders WHERE status = 'pending_payment' AND datetime(created_at) < datetime('now', '-${staleMinutes} minutes') AND stripe_payment_intent_id IS NULL
-  AND NOT EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=orders.id AND ci.flow='manual_capture')
-  AND NOT EXISTS(SELECT 1 FROM reservations r WHERE r.order_id=orders.id AND r.status='active')`);
-check(
-  'no stuck pending_payment orders',
-  stuck.length === 0,
-  stuck.length
-    ? stuck.map((r) => r.number).join(',')
-    : `none older than ${staleMinutes}m without active holds`
-);
-
-// 5. Stripe leg.
+// 4. Stripe leg.
 const key = process.env.STRIPE_SECRET_KEY ?? '';
 const realKey =
   process.argv.includes('--stripe') &&

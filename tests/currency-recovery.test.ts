@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { deliverStripeEvent } from './helpers/webhook';
 import { createTestDb, seedProduct, expectLedgerMatchesCounters } from './helpers/d1';
-import { createPendingOrder, cancelOrderById } from '../web/src/server/checkout';
+import { cancelOrderById } from '../web/src/server/checkout';
 import { attachStripeSession } from './helpers/attach-session';
 import { setSetting } from '../web/src/server/settings';
 import { settleRefund, requestRefund } from '../web/src/server/refunds';
 import { paidRevenueByCurrency, monetaryReportQueries } from '../web/src/server/reports';
+import { heldOrder } from './helpers/pending-intent';
 let db: D1Database, dispose: () => Promise<void>;
 const provider = {
   createCheckout: vi.fn(),
@@ -25,7 +26,7 @@ afterEach(async () => {
 });
 async function checkout(free = false) {
   if (free) await db.prepare('UPDATE variants SET price_cents=0').run();
-  const o = await createPendingOrder(db, {
+  const o = await heldOrder(db, {
     email: 'fixture@example.invalid',
     shippingCountry: 'US',
     shippingRateId: 'test-rate',

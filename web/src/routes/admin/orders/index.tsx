@@ -9,6 +9,7 @@ import { formatMoney } from '../../../components/ProductCard';
 import { StatusBadge } from '../../../components/StatusBadge';
 import { adminOrders } from '../../../server/admin-lists';
 import { orderPagesSchema } from '../../../schemas/pagination';
+import { orderPagesSearch } from '../../../lib/search-params';
 import { validateServerInput } from '../../../server/function-boundary';
 import { AdminPager } from '../../../components/AdminPager';
 import { roles, type StaffRole } from '../../../lib/permissions';
@@ -31,7 +32,7 @@ const getData = createServerFn({ method: 'GET' })
   });
 
 export const Route = createFileRoute('/admin/orders/')({
-  validateSearch: orderPagesSchema,
+  validateSearch: orderPagesSearch,
   loaderDeps: ({ search }) => ({ page: search.page, returnsPage: search.returnsPage }),
   loader: async ({ deps }) => getData({ data: deps }),
   component: AdminOrders,

@@ -1,7 +1,7 @@
 import { PUBLISHED_SETTING_KEYS } from '../web/src/schemas/settings';
 import { deliverStripeEvent } from './helpers/webhook';
-import { LIMIT_DEFINITIONS, isLimitKey } from '../web/src/schemas/limits';
-import { createPendingOrder, cancelOrderById } from '../web/src/server/checkout';
+import { LIMIT_DEFINITIONS, isLimitKey } from '../web/src/lib/settings-definitions';
+import { cancelOrderById } from '../web/src/server/checkout';
 import { attachStripeSession } from './helpers/attach-session';
 import { requestRefund } from '../web/src/server/refunds';
 import { adjustStock } from '../web/src/server/inventory';
@@ -9,11 +9,7 @@ import { expectLedgerMatchesCounters } from './helpers/d1';
 import type { PaymentProvider } from '../web/src/server/payments';
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { createTestDb, seedProduct } from './helpers/d1';
-import {
-  enqueueCatalogRebuild,
-  ensureCatalogReadModels,
-  processCatalogWork,
-} from '../web/src/server/catalog-publisher';
+import { enqueueCatalogRebuild } from '../web/src/server/catalog-publisher';
 import { readListingPage } from '../web/src/server/catalog-read';
 import { getStorefrontLayout } from '../web/src/server/catalog-read';
 import { ALL_LISTING } from '../web/src/server/catalog-models';
@@ -73,10 +69,10 @@ it('enqueue does not invent edits; a clean pass publishes nothing and layout rec
   // The wake-up invents no edits: durable capture is the triggers' job.
   expect(await revision()).toBe(before);
   expect(send).toHaveBeenCalledOnce();
-  await ensureCatalogReadModels(db, kv);
-  await processCatalogWork(db, kv);
+  await buildCatalogReadModels(db, kv);
+  await catalogWork(db, kv);
   const sizeAfterDrain = values.size;
-  const clean = await processCatalogWork(db, kv);
+  const clean = await catalogWork(db, kv);
   expect(clean.processed).toBe(0);
   expect(values.size).toBe(sizeAfterDrain);
   // Missing KV values recover from D1 payloads/source, never blank.
@@ -93,7 +89,7 @@ it('cron promotes due scheduled posts and preserves future scheduling', async ()
       "INSERT INTO posts(id,slug,title,status,published_at,created_at,updated_at) VALUES('due','due','Due','scheduled','2020-01-01','now','now'),('future','future','Future','scheduled','2099-01-01','now','now')"
     )
     .run();
-  await processCatalogWork(db);
+  await catalogWork(db);
   expect((await db.prepare("SELECT status FROM posts WHERE id='due'").first())?.status).toBe(
     'published'
   );
@@ -117,13 +113,13 @@ it('reserve, cancel, payment, refund/restock and adjustments preserve publicatio
       CATALOG_KV: { get: async (k: string) => data.get(k) ?? null, put } as never,
     };
     await buildCatalogReadModels(db, env.CATALOG_KV);
-    await processCatalogWork(db, env.CATALOG_KV);
+    await catalogWork(db, env.CATALOG_KV);
     const before = await db
       .prepare('SELECT COALESCE(SUM(target_revision),0) AS n FROM catalog_work')
       .first();
     const writes = put.mock.calls.length;
     const create = () =>
-      createPendingOrder(db, {
+      heldOrder(db, {
         email: 'fixture@example.test',
         shippingCountry: 'US',
         shippingRateId: 'test-rate',
@@ -174,7 +170,7 @@ it('reserve, cancel, payment, refund/restock and adjustments preserve publicatio
     expect(
       await db.prepare('SELECT COALESCE(SUM(target_revision),0) AS n FROM catalog_work').first()
     ).toEqual(before);
-    const second = await processCatalogWork(db, env.CATALOG_KV);
+    const second = await catalogWork(db, env.CATALOG_KV);
     expect(second.productsPublished).toBe(0);
     expect(put).toHaveBeenCalledTimes(writes);
     expect(await expectLedgerMatchesCounters(db, 'TEE-1')).toEqual({ on_hand: 10, reserved: 0 });
@@ -274,4 +270,5 @@ it('partitioned readers never query stock and ignore fabricated references', asy
   expect(page?.cards.length).toBeGreaterThan(0);
   expect(page?.generation).toBeLessThan(9999999);
 });
-import { buildCatalogReadModels } from './helpers/catalog-driver';
+import { buildCatalogReadModels, catalogWork } from './helpers/catalog-driver';
+import { heldOrder } from './helpers/pending-intent';

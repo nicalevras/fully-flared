@@ -3,12 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb } from './helpers/d1';
-import {
-  ensureCatalogReadModels,
-  BUSY_RETRY_SECONDS,
-  processCatalogWork,
-  runCatalogUnit,
-} from '../web/src/server/catalog-publisher';
+import { BUSY_RETRY_SECONDS, runCatalogUnit } from '../web/src/server/catalog-publisher';
 import { readListingPage } from '../web/src/server/catalog-read';
 import {
   CATALOG_BUDGET_LIMITS,
@@ -17,6 +12,7 @@ import {
   leaseGuardStatement,
 } from '../web/src/server/catalog-exec';
 import { ALL_LISTING } from '../web/src/server/catalog-models';
+import { catalogPass, catalogWork } from './helpers/catalog-driver';
 
 // Round 2 regressions: the ACTUAL queue execution path (runCatalogUnit
 // with a fresh budget per invocation, enforcing the 1,000 KV-op
@@ -248,7 +244,7 @@ describe('Round 2 bounded catalog execution', () => {
         puts++;
         return realPut(k, v);
       };
-      const res = await processCatalogWork(db, kv);
+      const res = await catalogWork(db, kv);
       kv.put = realPut;
       expect(res.processed).toBe(1);
       expect(puts).toBeLessThanOrEqual(12);
@@ -329,10 +325,10 @@ describe('Round 2 bounded catalog execution', () => {
       ]);
       await db.prepare('UPDATE catalog_work SET processed_revision = target_revision').run();
       await db.prepare("UPDATE media SET r2_key='k/m1-v2' WHERE id='m1'").run();
-      const first = await processCatalogWork(db, kv);
+      const first = await catalogPass(db, kv);
       // First pass fans out one bounded slice and leaves the media row due.
       expect(first.more).toBe(true);
-      const second = await processCatalogWork(db, kv);
+      const second = await catalogPass(db, kv);
       expect(second.more).toBeFalsy();
       const docs = await db
         .prepare('SELECT COUNT(*) AS n FROM catalog_documents WHERE kind = ?')
@@ -358,25 +354,4 @@ describe('Round 2 bounded catalog execution', () => {
     expect(after?.cards).toEqual([]);
     await dispose();
   });
-
-  it(
-    'ensureCatalogReadModels performs one bounded unit, not a loop',
-    { timeout: 180_000 },
-    async () => {
-      await seedProducts(60);
-      await db.prepare('UPDATE catalog_work SET processed_revision = target_revision').run();
-      const first = await ensureCatalogReadModels(db, kv);
-      // 60 products cannot finish cards+memberships+pages+activate in
-      // one unit; bootstrapped flips only once the generation is active.
-      let guard = 0;
-      let last = first;
-      while (!last.bootstrapped && guard++ < 100) {
-        last = await ensureCatalogReadModels(db, kv);
-      }
-      expect(last.bootstrapped).toBe(true);
-      const page = await readListingPage(db, kv, ALL_LISTING, 1);
-      expect(page?.total).toBe(60);
-      await dispose();
-    }
-  );
 });

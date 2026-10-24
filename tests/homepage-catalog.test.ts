@@ -67,7 +67,7 @@ describe('homepage catalogue D1 fallback path', () => {
 
   it('/shop wires search pagination and the paged loader; home has neither', () => {
     const route = readFileSync('web/src/routes/_shop.shop.tsx', 'utf8');
-    expect(route).toContain('validateSearch: collectionSearchSchema');
+    expect(route).toContain('validateSearch: storefrontPageSearch');
     expect(route).toContain('stripSearchParams({ page: 1 })');
     expect(route).toContain('loaderDeps: ({ search: { page } }) => ({ page })');
     expect(route).toContain('getShopProductsPage');

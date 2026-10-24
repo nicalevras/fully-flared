@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createTestDb } from './helpers/d1';
 import { adminActionSchema } from '../web/src/schemas/admin';
-import { processCatalogWork } from '../web/src/server/catalog-publisher';
 import { failingCatalogWork } from '../web/src/server/catalog-operations';
+import { catalogWork } from './helpers/catalog-driver';
 
 class Kv {
   map = new Map<string, string>();
@@ -55,7 +55,7 @@ it('records why oversized work fails and backs off exponentially', async () => {
     .bind('中'.repeat(600_000))
     .run();
   const attempt = async () => {
-    await expect(processCatalogWork(db, kv)).rejects.toThrow(/byte budget/);
+    await expect(catalogWork(db, kv)).rejects.toThrow(/byte budget/);
     return db
       .prepare(
         "SELECT last_error,retry_count,next_attempt_at FROM catalog_work WHERE id='post:big'"

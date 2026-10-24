@@ -1857,14 +1857,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "flow": {
-          "name": "flow",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'legacy'"
-        },
         "stripe_customer_id": {
           "name": "stripe_customer_id",
           "type": "text",
@@ -2102,13 +2094,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "hold_expires_at": {
-          "name": "hold_expires_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "next_reconcile_at": {
           "name": "next_reconcile_at",
           "type": "text",
@@ -2177,14 +2162,14 @@
         },
         "checkout_intents_payment_due_idx": {
           "name": "checkout_intents_payment_due_idx",
-          "columns": ["flow", "payment_next_at"],
+          "columns": ["payment_next_at"],
           "isUnique": false
         },
         "checkout_authorization_age_idx": {
           "name": "checkout_authorization_age_idx",
           "columns": ["authorized_at"],
           "isUnique": false,
-          "where": "\"checkout_intents\".\"flow\"='manual_capture' AND \"checkout_intents\".\"payment_state\" NOT IN ('finalized','canceled') AND \"checkout_intents\".\"authorized_at\" IS NOT NULL"
+          "where": "\"checkout_intents\".\"payment_state\" NOT IN ('finalized','canceled') AND \"checkout_intents\".\"authorized_at\" IS NOT NULL"
         },
         "checkout_intents_payment_intent_idx": {
           "name": "checkout_intents_payment_intent_idx",
@@ -3391,11 +3376,6 @@
           "columns": ["status", "claimed_at", "id"],
           "isUnique": false,
           "where": "\"outbox\".\"attempts\"<3"
-        },
-        "outbox_retention_idx": {
-          "name": "outbox_retention_idx",
-          "columns": ["status", "COALESCE(\"sent_at\",\"created_at\")", "id"],
-          "isUnique": false
         }
       },
       "foreignKeys": {},
@@ -5310,11 +5290,6 @@
           "name": "webhook_inbox_due_idx",
           "columns": ["status", "retry_after", "received_at"],
           "isUnique": false
-        },
-        "webhook_inbox_retention_idx": {
-          "name": "webhook_inbox_retention_idx",
-          "columns": ["status", "COALESCE(\"processed_at\",\"received_at\")", "id"],
-          "isUnique": false
         }
       },
       "foreignKeys": {},
@@ -5329,23 +5304,5 @@
     "schemas": {},
     "tables": {},
     "columns": {}
-  },
-  "internal": {
-    "indexes": {
-      "outbox_retention_idx": {
-        "columns": {
-          "COALESCE(\"sent_at\",\"created_at\")": {
-            "isExpression": true
-          }
-        }
-      },
-      "webhook_inbox_retention_idx": {
-        "columns": {
-          "COALESCE(\"processed_at\",\"received_at\")": {
-            "isExpression": true
-          }
-        }
-      }
-    }
   }
 }

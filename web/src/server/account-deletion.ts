@@ -34,7 +34,7 @@ export async function deleteAccountAtomically(
       // the user row is deleted below.
       db
         .prepare(
-          "UPDATE checkout_intents SET user_id=NULL, guest_capability_hash=NULL, claim_token=NULL, claim_expires_at=NULL, shipping_address_json=NULL, creation_stopped_at=COALESCE(creation_stopped_at,datetime('now')), provider_payload_json='{}', state = CASE WHEN flow='legacy' AND state IN ('reserved', 'session_creating', 'reconciliation_required', 'ready') THEN 'canceled' ELSE state END WHERE user_id=? OR order_id IN(SELECT id FROM orders WHERE user_id=?)"
+          "UPDATE checkout_intents SET user_id=NULL, guest_capability_hash=NULL, claim_token=NULL, claim_expires_at=NULL, shipping_address_json=NULL, creation_stopped_at=COALESCE(creation_stopped_at,datetime('now')), provider_payload_json='{}' WHERE user_id=? OR order_id IN(SELECT id FROM orders WHERE user_id=?)"
         )
         .bind(userId, userId),
       db

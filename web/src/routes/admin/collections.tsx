@@ -4,7 +4,7 @@ import { Link, createFileRoute, useRouter } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import { useAdminAction, type AdminPayload } from '../../components/AdminNav';
 import { slugify } from '../../lib/format';
-import { MAX_RAILS } from '../../server/catalog-models';
+import { MAX_RAILS } from '../../lib/catalog-limits';
 import {
   btnDestructive,
   btnPrimary,

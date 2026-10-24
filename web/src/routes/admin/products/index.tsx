@@ -5,6 +5,7 @@ import { Link, createFileRoute, useRouter } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import { adminProducts } from '../../../server/admin-lists';
 import { pageInputSchema } from '../../../schemas/pagination';
+import { pageSearch } from '../../../lib/search-params';
 import { validateServerInput } from '../../../server/function-boundary';
 import { AdminPager } from '../../../components/AdminPager';
 import { useAdminAction } from '../../../components/AdminNav';
@@ -34,7 +35,7 @@ const getData = createServerFn({ method: 'GET' })
   });
 
 export const Route = createFileRoute('/admin/products/')({
-  validateSearch: pageInputSchema,
+  validateSearch: pageSearch,
   loaderDeps: ({ search }) => ({ page: search.page }),
   loader: async ({ deps }) => getData({ data: deps }),
   component: AdminProducts,

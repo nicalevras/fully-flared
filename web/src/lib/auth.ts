@@ -1,4 +1,5 @@
-import { betterAuth, type BetterAuthPlugin } from 'better-auth';
+import { betterAuth } from 'better-auth/minimal';
+import type { BetterAuthPlugin } from 'better-auth';
 import { drizzleAdapter } from '@better-auth/drizzle-adapter';
 import { admin, captcha, magicLink, twoFactor } from 'better-auth/plugins';
 import { APIError, createAuthMiddleware } from 'better-auth/api';

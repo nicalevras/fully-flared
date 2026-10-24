@@ -1,5 +1,5 @@
 import * as z from 'zod';
-import { LIMIT_DEFINITIONS } from './limits';
+import { LIMIT_DEFINITIONS } from '../lib/settings-definitions';
 
 export const cartLineMutationSchema = z.object({
   sku: z.string().min(1).max(128),

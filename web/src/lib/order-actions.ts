@@ -1,5 +1,4 @@
 import { formatMoney } from './format';
-import { z } from 'zod';
 
 export const SHIPPABLE_ORDER_STATUSES = ['paid', 'processing', 'partially_refunded'] as const;
 export const SHIPPABLE_PAYMENT_STATUSES = ['paid', 'partially_refunded'] as const;
@@ -115,8 +114,13 @@ export function refundOutcomeMessage(status: string, amount: number, currency: s
       : `Refund ${status === 'uncertain' ? 'awaiting confirmation' : status.replace(/_/g, ' ')}: ${money}. Settlement has not completed.`;
 }
 export function refundActionMessage(data: unknown, currency: string) {
-  const parsed = z.object({ refundStatus: z.string(), amountCents: z.number() }).safeParse(data);
-  return parsed.success
-    ? refundOutcomeMessage(parsed.data.refundStatus, parsed.data.amountCents, currency)
+  return typeof data === 'object' &&
+    data !== null &&
+    'refundStatus' in data &&
+    'amountCents' in data &&
+    typeof data.refundStatus === 'string' &&
+    typeof data.amountCents === 'number' &&
+    Number.isFinite(data.amountCents)
+    ? refundOutcomeMessage(data.refundStatus, data.amountCents, currency)
     : 'Refund result unavailable. Refresh the order before retrying.';
 }

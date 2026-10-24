@@ -7,8 +7,10 @@ import {
   listingRefKey,
   productDocKey,
   productSlugKey,
+  editorialKey,
   layoutKey,
   LAYOUT_REF_KEY,
+  ALL_LISTING,
 } from './catalog-models';
 
 const PAGE = 100;
@@ -311,7 +313,7 @@ export async function runCatalogGcUnit(
         productSlugKey(r.slug),
         productDocKey(r.product_id, r.doc_revision),
       ]);
-    } else {
+    } else if (s.step === 4) {
       const rows = await db
         .prepare(
           `SELECT key,CASE WHEN kind LIKE '%-pointer' THEN json_extract(payload_json,'$.key') END AS target FROM catalog_documents WHERE key>? ORDER BY key LIMIT 100`
@@ -321,12 +323,26 @@ export async function runCatalogGcUnit(
       length = rows.results.length;
       s.cursor = rows.results.at(-1)?.key ?? s.cursor;
       keys = rows.results.filter((r) => r.target).flatMap((r) => [r.key, r.target!]);
+    } else {
+      const rows = await db
+        .prepare(
+          "SELECT from_path FROM redirects WHERE from_path>? AND (from_path LIKE '/products/%' OR from_path LIKE '/blog/%') ORDER BY from_path LIMIT 100"
+        )
+        .bind(s.cursor)
+        .all<{ from_path: string }>();
+      length = rows.results.length;
+      s.cursor = rows.results.at(-1)?.from_path ?? s.cursor;
+      keys = rows.results.map(({ from_path }) =>
+        from_path.startsWith('/products/')
+          ? productSlugKey(from_path.slice('/products/'.length))
+          : editorialKey('post', from_path.slice('/blog/'.length))
+      );
     }
     if (length < PAGE) {
       s.step++;
       s.cursor = '';
     }
-    if (s.step > 4) {
+    if (s.step > 5) {
       s.phase = 'mark';
       s.step = 0;
     }
@@ -553,11 +569,12 @@ export async function runCatalogGcUnit(
     }
     const old = await db
       .prepare(
-        `SELECT l.listing_id,l.generation FROM catalog_listings l WHERE l.active=0 AND l.updated_at<? AND NOT EXISTS(SELECT 1 FROM catalog_listing_ref_history h WHERE h.listing_id=l.listing_id AND h.generation=l.generation) ORDER BY l.updated_at,l.listing_id,l.generation LIMIT 1`
+        `SELECT l.listing_id,l.generation,l.listing_id<>'${ALL_LISTING}' AND NOT EXISTS(SELECT 1 FROM collections c WHERE c.id=l.listing_id) AND NOT EXISTS(SELECT 1 FROM catalog_listings a WHERE a.listing_id=l.listing_id AND a.active=1) AS retired FROM catalog_listings l WHERE l.active=0 AND l.updated_at<? AND NOT EXISTS(SELECT 1 FROM catalog_listing_ref_history h WHERE h.listing_id=l.listing_id AND h.generation=l.generation) ORDER BY l.updated_at,l.listing_id,l.generation LIMIT 1`
       )
       .bind(cutoff)
-      .first<{ listing_id: string; generation: number }>();
+      .first<{ listing_id: string; generation: number; retired: number }>();
     if (old) {
+      // A retired listing keeps its last generation row until its membership is gone.
       await db.batch([
         ...guard(db, s, lease),
         db
@@ -565,11 +582,27 @@ export async function runCatalogGcUnit(
             'DELETE FROM catalog_page_products WHERE (product_id,listing_id,generation,page) IN (SELECT product_id,listing_id,generation,page FROM catalog_page_products WHERE listing_id=? AND generation=? LIMIT 100)'
           )
           .bind(old.listing_id, old.generation),
+        ...(old.retired
+          ? [
+              db
+                .prepare(
+                  'DELETE FROM catalog_membership WHERE (listing_id,product_id) IN (SELECT listing_id,product_id FROM catalog_membership WHERE listing_id=? LIMIT 100)'
+                )
+                .bind(old.listing_id),
+            ]
+          : []),
         db
           .prepare(
-            'DELETE FROM catalog_listings WHERE listing_id=? AND generation=? AND active=0 AND NOT EXISTS(SELECT 1 FROM catalog_page_products WHERE listing_id=? AND generation=?)'
+            'DELETE FROM catalog_listings WHERE listing_id=? AND generation=? AND active=0 AND NOT EXISTS(SELECT 1 FROM catalog_page_products WHERE listing_id=? AND generation=?) AND NOT EXISTS(SELECT 1 FROM catalog_membership WHERE listing_id=? AND ?)'
           )
-          .bind(old.listing_id, old.generation, old.listing_id, old.generation),
+          .bind(
+            old.listing_id,
+            old.generation,
+            old.listing_id,
+            old.generation,
+            old.listing_id,
+            old.retired
+          ),
       ]);
       return false;
     }

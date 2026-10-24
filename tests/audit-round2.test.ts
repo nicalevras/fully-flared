@@ -1,12 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { deliverStripeEvent } from './helpers/webhook';
 import { createTestDb, seedProduct, expectLedgerMatchesCounters } from './helpers/d1';
-import {
-  quoteOrder,
-  createPendingOrder,
-  cancelOrderById,
-  calculateDiscount,
-} from '../web/src/server/checkout';
+import { quoteOrder, cancelOrderById, calculateDiscount } from '../web/src/server/checkout';
 import { attachStripeSession } from './helpers/attach-session';
 import { requestRefund, settleRefund } from '../web/src/server/refunds';
 import { runAdminAction } from '../web/src/server/admin-actions';
@@ -17,8 +12,7 @@ import { handleCheckoutRequest } from '../web/src/routes/api/checkout';
 import { fakeAdmissionNamespace } from './helpers/admission';
 import { checkoutCart, reviewSession } from './helpers/checkout-review';
 import { addCartLine, cartCookieHeader, ensureCart } from '../web/src/server/cart';
-import { releaseExpiredReservations } from '../web/src/server/inventory';
-import { cancelExpiredPendingOrders } from '../web/src/server/checkout';
+import { heldOrder } from './helpers/pending-intent';
 vi.mock('../web/src/server/session', () => ({ getSessionUser: async () => null }));
 vi.mock('../web/src/server/turnstile', () => ({ verifyTurnstile: async () => true }));
 
@@ -61,7 +55,7 @@ async function coupon(value = 10, usageLimit: number | null = null, perCustomer 
     .run();
 }
 async function order(name: string, discountCode?: string) {
-  const result = await createPendingOrder(db, {
+  const result = await heldOrder(db, {
     email: `${name}@example.invalid`,
     lines: [{ sku: 'TEE-1', qty: 1 }],
     shippingCountry: 'US',
@@ -179,30 +173,11 @@ it.each(['checkout.session.expired', 'checkout.session.async_payment_failed'])(
   }
 );
 
-it('cron eventually releases a declined checkout even when its PaymentIntent is known', async () => {
-  await coupon(10, 1);
-  const o = await order('cron-decline', 'SAVE');
-  await db
-    .prepare('UPDATE orders SET stripe_payment_intent_id=? WHERE id=?')
-    .bind('pi_cron-decline', o.orderId)
-    .run();
-  await event(o, 'cron-decline', { id: 'pi_cron-decline' }, 'payment_intent.payment_failed');
-  await db.prepare("UPDATE orders SET created_at='2020-01-01' WHERE id=?").bind(o.orderId).run();
-  await db
-    .prepare("UPDATE reservations SET expires_at='2020-01-01' WHERE order_id=?")
-    .bind(o.orderId)
-    .run();
-  await releaseExpiredReservations(db);
-  await cancelExpiredPendingOrders(db);
-  expect((await row(o))?.status).toBe('canceled');
-  expect(await count('discount_usage')).toBe(0);
-});
-
 it('allows usage_per_customer=2 and atomically rejects the third concurrent claim', async () => {
   await coupon(10, null, 2);
   const results = await Promise.allSettled(
     [1, 2, 3].map(() =>
-      createPendingOrder(db, {
+      heldOrder(db, {
         email: 'repeat@example.invalid',
         discountCode: 'SAVE',
         shippingCountry: 'US',
@@ -216,33 +191,6 @@ it('allows usage_per_customer=2 and atomically rejects the third concurrent clai
   expect(
     (await db.prepare("SELECT usage_count FROM discounts WHERE id='coupon'").first())?.usage_count
   ).toBe(2);
-});
-
-it('reclaims a released coupon during late payment, blocking another last-use checkout', async () => {
-  await coupon(10, 1);
-  const o = await order('late', 'SAVE');
-  await cancelOrderById(db, o.orderId);
-  await event(o, 'late');
-  expect((await row(o))?.status).toBe('paid');
-  expect(await count('discount_usage')).toBe(1);
-  await expect(order('competitor', 'SAVE')).rejects.toThrow();
-});
-
-it('permits one of two concurrent late payments to reclaim the last coupon use', async () => {
-  await coupon(10, 1);
-  const first = await order('first-late', 'SAVE');
-  await cancelOrderById(db, first.orderId);
-  const second = await order('second-late', 'SAVE');
-  await cancelOrderById(db, second.orderId);
-  await Promise.all([event(first, 'first-late'), event(second, 'second-late')]);
-  const states = await Promise.all([row(first), row(second)]);
-  expect(states.filter((state) => state?.status === 'paid')).toHaveLength(1);
-  expect(await count('refunds')).toBe(1);
-  expect(await count('discount_usage')).toBe(1);
-  expect(
-    (await db.prepare("SELECT usage_count FROM discounts WHERE id='coupon'").first())?.usage_count
-  ).toBe(1);
-  expect(await expectLedgerMatchesCounters(db, 'TEE-1')).toEqual({ on_hand: 19, reserved: 0 });
 });
 
 it('never converts a completed payment into a late-payment refund when recovery loses a race', async () => {
@@ -334,7 +282,7 @@ it('blocks currency changes while pending or permanently locked, but permits a c
   await cancelOrderById(db, o.orderId);
   await setSetting(db, 'currency', 'EUR');
   await setSetting(db, 'currency', 'USD');
-  await event(o, 'currency');
+  await event(await order('currency-paid'), 'currency-paid');
   await expect(setSetting(db, 'currency', 'EUR')).rejects.toThrow();
   await expect(
     db.prepare("DELETE FROM settings WHERE key='currency_locked'").run()
@@ -367,7 +315,7 @@ it('rejects an order inserted from a stale-currency quote without retaining a co
     },
   });
   await expect(
-    createPendingOrder(wrapped, {
+    heldOrder(wrapped, {
       email: 'stale@example.invalid',
       shippingCountry: 'US',
       shippingRateId: 'test-rate',
@@ -448,20 +396,6 @@ it('serializes return rejection against refund creation without charging after r
     expect(refund.status).toBe('fulfilled');
     expect(rejection).toMatchObject({ status: 'fulfilled', value: { ok: false, status: 409 } });
   }
-});
-
-it('serializes payment and expiry with one coupon, receipt and inventory commitment', async () => {
-  await coupon(10, 1);
-  const o = await order('expiry-race', 'SAVE');
-  await Promise.all([event(o, 'expiry-race'), cancelOrderById(db, o.orderId)]);
-  await event(o, 'expiry-race');
-  expect((await row(o))?.status).toBe('paid');
-  expect(await count('discount_usage')).toBe(1);
-  expect(await count('outbox')).toBe(1);
-  expect(
-    (await db.prepare("SELECT usage_count FROM discounts WHERE id='coupon'").first())?.usage_count
-  ).toBe(1);
-  expect(await expectLedgerMatchesCounters(db, 'TEE-1')).toEqual({ on_hand: 19, reserved: 0 });
 });
 
 it('uses persisted order currency even if a subsequent settings read differs', async () => {

@@ -8,7 +8,6 @@ import {
   publicCacheResponse,
   takePurgeToken,
 } from '../web/src/server/public-cache';
-import { processCatalogWork } from '../web/src/server/catalog-publisher';
 
 // Phase 4 policy surface: gateway classification, response storage
 // policy, cache tags and the invalidation drain. Actual edge cache
@@ -168,6 +167,26 @@ it('stores private-free HTML: pages for 60s, not-found pages for 30s', () => {
     ['layout']
   );
   expect(json.headers.get('cache-control')).toBe('private, no-store');
+});
+
+it('edge-caches the blog RSS feed like the blog index, purged with it', () => {
+  expect(
+    publicCacheRequest(
+      new Request('https://shop.test/blog/rss.xml', {
+        headers: { accept: 'application/rss+xml, application/xml;q=0.9' },
+      })
+    )
+  ).not.toBeNull();
+  const tags = cacheTagsForPath('/blog/rss.xml');
+  expect(tags).toEqual(cacheTagsForPath('/blog'));
+  const feed = publicCacheResponse(
+    new Response('<rss version="2.0"></rss>', {
+      headers: { 'content-type': 'application/rss+xml; charset=utf-8' },
+    }),
+    tags
+  );
+  expect(feed.headers.get('cache-control')).toBe('public, max-age=0, s-maxage=60');
+  expect(feed.headers.get('cache-tag')).toBe('layout,editorial-index,listing-@posts');
 });
 
 it('maps invalidation scopes to purge tags, deduplicated', () => {
@@ -469,12 +488,11 @@ it('a hard-deleted post still invalidates its editorial document', async () => {
         "INSERT INTO posts (id, slug, title, excerpt, content_html, status, published_at, created_at, updated_at) VALUES ('post1', 'hello-world', 'Hello', '', '<p>hi</p>', 'published', '2026-01-01', '2026-01-01', '2026-01-01')"
       )
       .run();
-    const { processCatalogWork } = await import('../web/src/server/catalog-publisher');
     const { editorialKey } = await import('../web/src/server/catalog-models');
-    await processCatalogWork(db, kv as never);
+    await catalogWork(db, kv as never);
     expect(kv.map.has(editorialKey('post', 'hello-world'))).toBe(true);
     await db.prepare("DELETE FROM posts WHERE id = 'post1'").run();
-    await processCatalogWork(db, kv as never);
+    await catalogWork(db, kv as never);
     expect(kv.map.has(editorialKey('post', 'hello-world'))).toBe(false);
     const inv = await db
       .prepare("SELECT scope_id FROM catalog_invalidations WHERE scope = 'editorial'")
@@ -505,9 +523,8 @@ it('a due scheduled post is promoted and published by the catalog pass', async (
         "INSERT INTO posts (id, slug, title, excerpt, content_html, status, published_at, created_at, updated_at) VALUES ('post2', 'due-post', 'Due', '', '<p>due</p>', 'scheduled', '2000-01-01T00:00:00.000Z', '2026-01-01', '2026-01-01')"
       )
       .run();
-    const { processCatalogWork } = await import('../web/src/server/catalog-publisher');
     const { editorialKey } = await import('../web/src/server/catalog-models');
-    await processCatalogWork(db, kv as never);
+    await catalogWork(db, kv as never);
     const post = await db
       .prepare("SELECT status FROM posts WHERE id = 'post2'")
       .first<{ status: string }>();
@@ -548,7 +565,7 @@ it('publishing a product edit records the invalidations its pages need', async (
     await db.prepare('DELETE FROM catalog_invalidations').run();
 
     await db.prepare("UPDATE products SET title = 'Tee V2' WHERE id = 'p1'").run();
-    await processCatalogWork(db, kv);
+    await catalogWork(db, kv);
     const rows = await db
       .prepare(
         'SELECT scope, scope_id AS scopeId FROM catalog_invalidations ORDER BY scope, scope_id'
@@ -563,4 +580,4 @@ it('publishing a product edit records the invalidations its pages need', async (
     await dispose();
   }
 });
-import { buildCatalogReadModels } from './helpers/catalog-driver';
+import { buildCatalogReadModels, catalogWork } from './helpers/catalog-driver';

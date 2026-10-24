@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { createTestDb, seedProduct, expectLedgerMatchesCounters } from './helpers/d1';
 import { runAdminAction } from '../web/src/server/admin-actions';
-import { createPendingOrder, calculateShipping } from '../web/src/server/checkout';
+import { calculateShipping } from '../web/src/server/checkout';
 import { reserveStock, commitReservation, releaseReservation } from '../web/src/server/inventory';
 import { createAuth } from '../web/src/lib/auth';
+import { heldOrder } from './helpers/pending-intent';
 
 const now = () => new Date().toISOString();
 const owner = { id: 'owner-1', role: 'owner' };
@@ -211,7 +212,7 @@ describe('weight-based shipping and backorder at checkout', () => {
           )
           .bind(),
       ]);
-      const order = await createPendingOrder(db, {
+      const order = await heldOrder(db, {
         shippingCountry: 'US',
         email: 'w@example.com',
         lines: [{ sku, qty: 2 }],
@@ -229,7 +230,7 @@ describe('weight-based shipping and backorder at checkout', () => {
     const { db, dispose } = await createTestDb();
     try {
       const sku = await seedProduct(db, { onHand: 1, continueSelling: true });
-      const order = await createPendingOrder(db, {
+      const order = await heldOrder(db, {
         shippingCountry: 'US',
         shippingRateId: 'test-rate',
         email: 'b@example.com',

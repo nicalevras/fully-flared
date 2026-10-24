@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { applyMigrationFile, createTestDb, seedProduct } from './helpers/d1';
-import { cancelExpiredPendingOrders, createPendingOrder } from '../web/src/server/checkout';
+import { heldOrder } from './helpers/pending-intent';
 import {
   loadIntent,
   rememberProviderSession,
@@ -20,7 +20,7 @@ afterEach(async () => {
 });
 async function checkout(userId?: string) {
   const id = crypto.randomUUID();
-  const order = await createPendingOrder(
+  const order = await heldOrder(
     db,
     {
       email: 'probe@example.invalid',
@@ -36,7 +36,6 @@ async function checkout(userId?: string) {
       guestCapabilityHash: userId ? null : 'hash',
       fingerprint: 'fp',
       sessionExpiresAt: '2999-01-01',
-      holdExpiresAt: '2999-01-01',
       payloadFor: async (_quote, orderId) => ({
         orderId,
         attemptId: id,
@@ -52,6 +51,7 @@ async function checkout(userId?: string) {
 it('a stale successful provider worker cannot attach anything to the order', async () => {
   const created = await checkout();
   const provider = {
+    createCheckoutCustomer: async () => 'cus_stale',
     createCheckoutSession: async () => {
       await db
         .prepare("UPDATE checkout_intents SET claim_token='winner',fencing=fencing+1 WHERE id=?")
@@ -229,26 +229,6 @@ it('retrieval gets only the remaining orchestration budget, and no call starts a
     deadlineMs: Date.now() - 1,
   });
   expect(retrieve).not.toHaveBeenCalled();
-});
-it('expiry releases inventory but preserves the unresolved provider identity', async () => {
-  const c = await checkout();
-  await db
-    .prepare(
-      "UPDATE checkout_intents SET state='reconciliation_required',stripe_session_id='cs_late' WHERE id=?"
-    )
-    .bind(c.id)
-    .run();
-  // Use the actual business expiry transition, independent of provider uncertainty.
-  const { releaseExpiredReservations } = await import('../web/src/server/inventory');
-  await db.prepare("UPDATE reservations SET expires_at='2000-01-01'").run();
-  await releaseExpiredReservations(db);
-  await db.prepare("UPDATE orders SET created_at='2000-01-01'").run();
-  await cancelExpiredPendingOrders(db);
-  expect(
-    await db.prepare('SELECT status FROM orders WHERE id=?').bind(c.orderId).first('status')
-  ).toBe('canceled');
-  expect((await loadIntent(db, c.id))?.stripe_session_id).toBe('cs_late');
-  expect((await loadIntent(db, c.id))?.state).toBe('reconciliation_required');
 });
 it('bounded provider discovery retains a matching paid session as durable inbox work', async () => {
   const c = await checkout();

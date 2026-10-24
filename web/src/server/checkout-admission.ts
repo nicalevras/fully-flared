@@ -1,4 +1,5 @@
-import { ADMISSION_KEYS, parseAdmissionConfig, type AdmissionConfig } from '../schemas/limits';
+import { parseAdmissionConfig } from '../schemas/limits';
+import { ADMISSION_KEYS, type AdmissionConfig } from '../lib/settings-definitions';
 
 // Checkout admission control (Phase 5). A per-store token bucket plus
 // an active-permit budget, enforced synchronously by

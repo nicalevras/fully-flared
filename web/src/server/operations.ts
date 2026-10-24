@@ -35,7 +35,7 @@ export async function pruneRetention(
   // Orders keep their own session/intent identifiers independently.
   const checkoutIntents = await db
     .prepare(
-      `DELETE FROM checkout_intents WHERE id IN (SELECT id FROM checkout_intents WHERE (flow='legacy' OR payment_state IN ('finalized','canceled')) AND ((state IN ('canceled','expired') AND created_at < ?) OR (state = 'ready' AND created_at < ?)) ORDER BY created_at,id LIMIT 1000)`
+      `DELETE FROM checkout_intents WHERE id IN (SELECT id FROM checkout_intents WHERE payment_state IN ('finalized','canceled') AND ((state IN ('canceled','expired') AND created_at < ?) OR (state = 'ready' AND created_at < ?)) ORDER BY created_at,id LIMIT 1000)`
     )
     .bind(ninetyDaysAgo, yearAgo)
     .run();

@@ -34,7 +34,8 @@ import {
   type AccountReturnRow,
 } from '../../server/account-orders';
 import { validateServerInput } from '../../server/function-boundary';
-import { accountSearchSchema, pageInputSchema } from '../../schemas/pagination';
+import { pageInputSchema } from '../../schemas/pagination';
+import { accountSearch } from '../../lib/search-params';
 
 type OrderRow = AccountOrderRow;
 type ReturnRow = AccountReturnRow;
@@ -114,7 +115,7 @@ const getAccount = createServerFn({ method: 'GET' })
   });
 
 export const Route = createFileRoute('/_shop/account/')({
-  validateSearch: accountSearchSchema,
+  validateSearch: accountSearch,
   loaderDeps: ({ search: { page } }) => ({ page }),
   loader: async ({ deps }) => getAccount({ data: { page: deps.page } }),
   head: () => ({ meta: [{ title: 'Your account' }, { name: 'robots', content: 'noindex' }] }),

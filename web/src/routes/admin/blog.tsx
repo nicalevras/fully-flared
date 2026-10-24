@@ -65,6 +65,8 @@ const getData = createServerFn({ method: 'GET' })
   });
 
 export const Route = createFileRoute('/admin/blog')({
+  // The Tiptap editor renders in the browser only; the loader still runs on the server.
+  ssr: 'data-only',
   loader: async () => getData(),
   component: AdminBlog,
 });

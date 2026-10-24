@@ -7,7 +7,7 @@ import { validateServerInput } from '../server/function-boundary';
 import { searchCatalog } from '../server/catalog-discovery';
 import { storefrontLimited } from '../server/storefront-limit';
 import * as z from 'zod';
-import { searchQueryParamSchema } from '../schemas/checkout';
+import { catalogSearch } from '../lib/search-params';
 import { ProductCard } from '../components/ProductCard';
 import { SearchIcon } from '../components/icons';
 import { Button } from '@/components/ui/button';
@@ -31,15 +31,9 @@ const search = createServerFn({ method: 'GET' })
   });
 
 export const Route = createFileRoute('/_shop/search')({
-  validateSearch: searchQueryParamSchema.extend({
-    cursor: z.string().max(500).optional().catch(undefined),
-  }),
+  validateSearch: catalogSearch,
   loaderDeps: ({ search: { q, cursor } }) => ({ q, cursor }),
   loader: async ({ deps }) => search({ data: deps }),
-  headers: () => ({
-    'Cache-Control': 'public, max-age=30, stale-while-revalidate=120',
-    'CDN-Cache-Control': 'max-age=120, stale-while-revalidate=300',
-  }),
   head: () => ({ meta: [{ title: 'Search' }, { name: 'robots', content: 'noindex' }] }),
   component: SearchPage,
 });
