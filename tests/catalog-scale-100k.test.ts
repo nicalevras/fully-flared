@@ -52,7 +52,7 @@ it(
   // Includes physical handler work, revision acknowledgement and replica sweep.
   { timeout: 3_600_000 },
   async () => {
-    const { db, dispose } = await createTestDb();
+    const { db, dispose } = await createTestDb({ transportRetry: true });
     const kv = new FakeKv();
     try {
       const rows = Array.from({ length: 100_000 }, (_, i) => ({
