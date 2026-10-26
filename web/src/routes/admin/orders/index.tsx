@@ -5,6 +5,10 @@ import { LocalDate } from '../../../components/LocalDate';
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import { useAdminAction } from '../../../components/AdminNav';
+import {
+  AdminActionFeedback,
+  type AdminActionFeedbackState,
+} from '../../../components/AdminActionFeedback';
 import { formatMoney } from '../../../components/ProductCard';
 import { StatusBadge } from '../../../components/StatusBadge';
 import { adminOrders } from '../../../server/admin-lists';
@@ -56,7 +60,7 @@ function AdminOrders() {
   const router = useRouter();
   const requested = returns.filter((r) => ['requested', 'refund_failed'].includes(r.status));
   const [busyId, setBusyId] = useState('');
-  const [msg, setMsg] = useState('');
+  const [msg, setMsg] = useState<AdminActionFeedbackState>(null);
 
   return (
     <main>
@@ -66,6 +70,7 @@ function AdminOrders() {
         {totalOrders > orders.length ? `, showing ${orders.length} on this page` : ''}. Click an
         order for items, address, shipping, and refunds.
       </p>
+      <AdminActionFeedback value={msg} />
 
       <AdminPager
         label="Orders pagination"
@@ -151,6 +156,7 @@ function AdminOrders() {
                               )
                             )
                               return;
+                            setMsg(null);
                             setBusyId(o.id);
                             const r = await adminAction('order.refund', {
                               orderId: o.id,
@@ -158,9 +164,12 @@ function AdminOrders() {
                             });
                             setBusyId('');
                             if (r.ok) {
-                              setMsg(refundActionMessage(r.data, o.currency));
+                              setMsg({
+                                kind: 'status',
+                                message: refundActionMessage(r.data, o.currency),
+                              });
                               router.invalidate();
-                            } else setMsg(r.error ?? 'Refund failed');
+                            } else setMsg({ kind: 'error', message: r.error ?? 'Refund failed' });
                           }}
                         >
                           {busyId === o.id ? 'Refunding…' : 'Refund'}
@@ -252,15 +261,16 @@ function AdminOrders() {
                                 !['failed', 'canceled'].includes(r.refund_status))
                             }
                             onClick={async () => {
+                              setMsg(null);
                               setBusyId(r.id);
                               const res = await adminAction('return.approve', {
                                 returnId: r.id,
                               });
                               setBusyId('');
                               if (res.ok) {
-                                setMsg('Return approved.');
+                                setMsg({ kind: 'status', message: 'Return approved.' });
                                 router.invalidate();
-                              } else setMsg(res.error ?? 'Failed');
+                              } else setMsg({ kind: 'error', message: res.error ?? 'Failed' });
                             }}
                           >
                             Approve return
@@ -274,13 +284,17 @@ function AdminOrders() {
                             (!!r.refund_status && !['failed', 'canceled'].includes(r.refund_status))
                           }
                           onClick={async () => {
+                            setMsg(null);
                             setBusyId(r.id);
                             const res = await adminAction('return.reject', { returnId: r.id });
                             setBusyId('');
                             if (res.ok) {
-                              setMsg(`Return for ${r.number} rejected.`);
+                              setMsg({
+                                kind: 'status',
+                                message: `Return for ${r.number} rejected.`,
+                              });
                               router.invalidate();
-                            } else setMsg(res.error ?? 'Failed');
+                            } else setMsg({ kind: 'error', message: res.error ?? 'Failed' });
                           }}
                         >
                           {r.status === 'refund_failed' ? 'Close without refund' : 'Reject'}
@@ -293,11 +307,6 @@ function AdminOrders() {
             </table>
           </div>
         </section>
-      ) : null}
-      {msg ? (
-        <p className="mt-4 rounded-xl bg-green-50 px-4 py-3 text-sm text-green-700" role="status">
-          {msg}
-        </p>
       ) : null}
     </main>
   );

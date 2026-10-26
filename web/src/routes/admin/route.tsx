@@ -48,12 +48,19 @@ export const Route = createFileRoute('/admin')({
 function AdminLayout() {
   const { storeName, staff } = Route.useRouteContext();
   return (
-    <div className="min-h-screen bg-zinc-50 lg:pl-60">
-      <a href="#admin-content" className="sr-only focus:not-sr-only">
+    <div className="min-h-screen bg-white sm:pl-[190px] min-[56.25rem]:pl-[222px]">
+      <a
+        href="#admin-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[60] focus:rounded-md focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:text-zinc-950 focus:shadow"
+      >
         Skip to content
       </a>
-      <div id="admin-content" className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
-        <AdminNav storeName={storeName} role={staff?.role} />
+      <AdminNav storeName={storeName} role={staff?.role} />
+      <div
+        id="admin-content"
+        tabIndex={-1}
+        className="mx-auto max-w-[1338px] min-w-0 px-[21px] py-6 outline-none sm:px-[30px] sm:py-8 min-[75rem]:px-[70px]"
+      >
         <RealtimeRefresh />
         <Outlet />
       </div>
