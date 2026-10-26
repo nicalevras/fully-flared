@@ -296,10 +296,10 @@ it.runIf(process.env.DISCOVERY_100K === '1')(
         ]);
       }
       const sorts = ['newest', 'oldest', 'title', 'updated'] as const;
-      const statuses = ['all', 'active', 'archived'] as const;
+      const statuses = ['all', 'active', 'draft', 'archived'] as const;
       for (const sort of sorts) {
         for (const status of statuses) {
-          const pages = status === 'archived' ? 5 : 20;
+          const pages = status === 'archived' ? 5 : status === 'draft' ? 10 : 20;
           let cursor: string | null | undefined;
           for (let page = 0; page < pages; page++) {
             const result = await adminProductDiscovery(db, { sort, status, cursor });
@@ -337,6 +337,61 @@ it.runIf(process.env.DISCOVERY_100K === '1')(
           );
           expect(back.products).toHaveLength(50);
           expect(backRows).toBeLessThan(1500);
+        }
+      }
+    } finally {
+      await dispose();
+    }
+  }
+);
+
+
+it.runIf(process.env.DISCOVERY_100K === '1')(
+  'keeps deep pages bounded in a draft-heavy catalog at 100000 products',
+  { timeout: 600000 },
+  async () => {
+    const { db, dispose } = await createTestDb({ transportRetry: true });
+    try {
+      const size = 100000;
+      for (let start = 1; start <= size; start += 1000) {
+        const rows = Array.from({ length: Math.min(1000, size - start + 1) }, (_, offset) => {
+          const n = start + offset;
+          const id = `p${String(n).padStart(6, '0')}`;
+          return {
+            id,
+            title: `Product ${String(n).padStart(6, '0')}`,
+            created: String(n).padStart(6, '0'),
+            status: n % 100 < 80 ? 'draft' : n % 100 < 95 ? 'active' : 'archived',
+          };
+        });
+        const json = JSON.stringify(rows);
+        await db.batch([
+          db
+            .prepare(
+              "INSERT INTO products(id,slug,title,status,created_at,updated_at) SELECT json_extract(value,'$.id'),json_extract(value,'$.id'),json_extract(value,'$.title'),json_extract(value,'$.status'),json_extract(value,'$.created'),json_extract(value,'$.created') FROM json_each(?)"
+            )
+            .bind(json),
+          db
+            .prepare(
+              "INSERT INTO variants(id,product_id,sku,title,price_cents,created_at) SELECT 'v'||json_extract(value,'$.id'),json_extract(value,'$.id'),'SKU-'||json_extract(value,'$.id'),'Default',100,'2026' FROM json_each(?)"
+            )
+            .bind(json),
+        ]);
+      }
+      for (const sort of ['newest', 'title', 'updated'] as const) {
+        for (const status of ['draft', 'active'] as const) {
+          let cursor: string | null | undefined;
+          for (let page = 0; page < 10; page++) {
+            const result = await adminProductDiscovery(db, { sort, status, cursor });
+            expect(result.products).toHaveLength(50);
+            cursor = result.nextCursor;
+          }
+          const { db: recorded, reads } = recordingDb(db);
+          const deep = await adminProductDiscovery(recorded, { sort, status, cursor });
+          const rowsRead = reads.reduce((sum, read) => sum + read.rowsRead, 0);
+          console.warn(JSON.stringify({ name: 'draft_heavy_deep', sort, status, rowsRead }));
+          expect(deep.products).toHaveLength(50);
+          expect(rowsRead).toBeLessThan(1500);
         }
       }
     } finally {
