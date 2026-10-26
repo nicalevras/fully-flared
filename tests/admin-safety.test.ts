@@ -14,7 +14,8 @@ import {
   refundedQtyBefore,
 } from '../web/src/lib/order-actions';
 import { insertReturnRequest, validateReturnItems } from '../web/src/server/returns';
-import { adminProducts, adminCustomers, adminOrders } from '../web/src/server/admin-lists';
+import { adminCustomers, adminOrders } from '../web/src/server/admin-lists';
+import { adminProductDiscovery } from '../web/src/server/admin-product-discovery';
 import { orderPagesSchema } from '../web/src/schemas/pagination';
 import { heldOrder } from './helpers/pending-intent';
 
@@ -280,10 +281,18 @@ it('pages tied timestamps and keeps older pending returns ahead of newer decided
       "INSERT INTO returns(id,order_id,status,created_at) SELECT id,id,CASE WHEN id<='o051' THEN 'requested' ELSE 'rejected' END,CASE WHEN id<='o051' THEN '2026' ELSE '2027' END FROM orders"
     ),
   ]);
-  const first = await adminProducts(db, { page: 1 }),
-    second = await adminProducts(db, { page: 2 });
-  expect(first.products).toHaveLength(100);
-  expect(second.products.map((p) => p.id)).toEqual(['p001']);
+  const first = await adminProductDiscovery(db, {});
+  const second = await adminProductDiscovery(db, { cursor: first.nextCursor });
+  const third = await adminProductDiscovery(db, { cursor: second.nextCursor });
+  expect(first.products).toHaveLength(50);
+  expect(second.products).toHaveLength(50);
+  expect(third.products.map((p) => p.id)).toEqual(['p001']);
+  expect(
+    (await adminProductDiscovery(db, { cursor: third.previousCursor })).products.map((p) => p.id)
+  ).toEqual(second.products.map((p) => p.id));
+  expect(
+    (await adminProductDiscovery(db, { cursor: second.previousCursor })).products.map((p) => p.id)
+  ).toEqual(first.products.map((p) => p.id));
   expect((await adminCustomers(db, { page: 2 })).customers.map((u) => u.id)).toEqual(['u001']);
   const orders = await adminOrders(db, { page: 2, returnsPage: 2 });
   expect(orders.orders.map((o) => o.id)).toEqual(['o001']);
@@ -295,7 +304,7 @@ it('pages tied timestamps and keeps older pending returns ahead of newer decided
       page: 1,
       returnsPage: 1,
     });
-  expect((await adminProducts(db, { page: -2 })).products[0].id).toBe('p101');
+  expect((await adminProductDiscovery(db, { cursor: 'bad' })).products[0].id).toBe('p101');
 });
 it('baseline media defaults deletion_pending to 0 and stays FK-clean', async () => {
   await db
