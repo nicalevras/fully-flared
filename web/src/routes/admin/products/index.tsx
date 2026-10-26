@@ -9,6 +9,8 @@ import {
 } from '../../../server/admin-product-discovery';
 import {
   isProductMode,
+  isProductSort,
+  isProductStatusFilter,
   normalizeProductSearch,
   type ProductMode,
 } from '../../../lib/product-search';
@@ -46,8 +48,15 @@ const getData = createServerFn({ method: 'GET' })
   });
 
 export const Route = createFileRoute('/admin/products/')({
-  validateSearch: (search: { q?: unknown; mode?: unknown; cursor?: unknown } & SearchSchemaInput) =>
-    normalizeProductSearch(search),
+  validateSearch: (
+    search: {
+      q?: unknown;
+      mode?: unknown;
+      status?: unknown;
+      sort?: unknown;
+      cursor?: unknown;
+    } & SearchSchemaInput
+  ) => normalizeProductSearch(search),
   loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => getData({ data: deps }),
   pendingComponent: () => (
@@ -105,7 +114,15 @@ function AdminProducts() {
         onSubmit={(event) => {
           event.preventDefault();
           const q = query.trim();
-          void navigate({ search: { q, mode: q ? mode : null, cursor: undefined } });
+          void navigate({
+            search: {
+              q,
+              mode: q ? mode : null,
+              status: search.status,
+              sort: search.sort,
+              cursor: undefined,
+            },
+          });
         }}
       >
         <div className="min-w-48 flex-1">
@@ -137,13 +154,63 @@ function AdminProducts() {
             <option value="sku-prefix">SKU starts with</option>
           </select>
         </div>
+        <div>
+          <label className={labelCls} htmlFor="product-status">
+            Status
+          </label>
+          <select
+            id="product-status"
+            className={inputCls}
+            value={search.status}
+            onChange={(event) => {
+              if (isProductStatusFilter(event.target.value))
+                void navigate({
+                  search: { ...search, status: event.target.value, cursor: undefined },
+                });
+            }}
+          >
+            <option value="all">All products</option>
+            <option value="active">Active</option>
+            <option value="draft">Draft</option>
+            <option value="archived">Archived</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelCls} htmlFor="product-sort">
+            Sort by
+          </label>
+          <select
+            id="product-sort"
+            className={inputCls}
+            value={search.sort}
+            onChange={(event) => {
+              if (isProductSort(event.target.value))
+                void navigate({
+                  search: { ...search, sort: event.target.value, cursor: undefined },
+                });
+            }}
+          >
+            <option value="newest">Newest</option>
+            <option value="oldest">Oldest</option>
+            <option value="title">Title A–Z</option>
+            <option value="updated">Recently updated</option>
+          </select>
+        </div>
         <Button type="submit">Search</Button>
         <Button
           variant="outline"
           type="button"
           onClick={() => {
             setQuery('');
-            void navigate({ search: { q: '', mode: null, cursor: undefined } });
+            void navigate({
+              search: {
+                q: '',
+                mode: null,
+                status: search.status,
+                sort: search.sort,
+                cursor: undefined,
+              },
+            });
           }}
         >
           Browse all
@@ -162,18 +229,29 @@ function AdminProducts() {
             <p className="text-sm text-zinc-500" role="status">
               {search.q
                 ? 'No matching products. Try another title or SKU.'
-                : 'No products yet. Create your first product below.'}
+                : search.status !== 'all'
+                  ? `No ${search.status} products. Try another status or reset the filters.`
+                  : 'No products yet. Create your first product below.'}
             </p>
             {search.cursor ? (
               <button
                 className={`${btnSmall} mt-3`}
-                onClick={() =>
-                  void navigate({
-                    search: { q: search.q, mode: search.mode, cursor: undefined },
-                  })
-                }
+                onClick={() => void navigate({ search: { ...search, cursor: undefined } })}
               >
                 Back to first page
+              </button>
+            ) : null}
+            {search.q || search.status !== 'all' || search.sort !== 'newest' ? (
+              <button
+                className={`${btnSmall} mt-3 ml-2`}
+                onClick={() => {
+                  setQuery('');
+                  void navigate({
+                    search: { q: '', mode: null, status: 'all', sort: 'newest', cursor: undefined },
+                  });
+                }}
+              >
+                Reset filters
               </button>
             ) : null}
           </div>
@@ -221,13 +299,29 @@ function AdminProducts() {
                             {p.title}
                           </span>
                           <span className="block text-[13px] text-zinc-500">/{p.slug}</span>
+                          {p.matched_skus.map((match) => (
+                            <span key={match.sku} className="block text-[13px] text-zinc-500">
+                              {match.sku} · {match.title}
+                            </span>
+                          ))}
+                          {p.matched_sku_count > 3 ? (
+                            <span className="block text-[13px] text-zinc-500">
+                              +{p.matched_sku_count - 3} more matching SKUs
+                            </span>
+                          ) : null}
                         </span>
                       </Link>
                     </td>
                     <td>
                       <StatusBadge value={p.status} />
                     </td>
-                    <td>{p.price_cents != null ? formatMoney(p.price_cents, currency) : '-'}</td>
+                    <td>
+                      {p.price_cents != null
+                        ? p.max_price_cents != null && p.max_price_cents !== p.price_cents
+                          ? `${formatMoney(p.price_cents, currency)} – ${formatMoney(p.max_price_cents, currency)}`
+                          : formatMoney(p.price_cents, currency)
+                        : '-'}
+                    </td>
                     <td>
                       {p.available <= 0 ? (
                         <span className="font-medium text-red-600">Out of stock</span>
@@ -236,6 +330,9 @@ function AdminProducts() {
                       ) : (
                         `${p.available} in stock`
                       )}
+                      <span className="block text-[13px] text-zinc-500">
+                        {p.variant_count} {p.variant_count === 1 ? 'variant' : 'variants'}
+                      </span>
                     </td>
                     <td className="text-right">
                       <span className="inline-flex flex-wrap justify-end gap-1">

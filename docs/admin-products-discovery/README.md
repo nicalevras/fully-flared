@@ -1,6 +1,6 @@
 # Products discovery verification
 
-This PR improves finding products. It preserves the merged admin shell and existing create, import, stock and editor actions. Status filters, editor redesign and persistent drafts remain later work.
+This document covers finding products in the admin. It preserves the merged admin shell and existing create, import, stock and editor actions. Editor redesign and persistent drafts remain later work.
 
 ## Behavior
 
@@ -72,3 +72,47 @@ After:
 ![Exact SKU search](after-desktop.jpg)
 
 ![Phone search results](after-mobile.jpg)
+
+## Phase 2B: list presentation and filters
+
+The Products list now filters by product status (All, Active, Draft, Archived) and sorts by Newest, Oldest, Title A-Z, or Recently updated. Status and sort are stored in the URL with the search and cursor. Changing either returns to the first page. Each row shows the active-variant price range (a single price when all active variants share one), the total variant count under the inventory state, and, for SKU searches, the matching SKUs with variant titles under the product title: the first three in SKU order, with a remainder count. There is still no total result count.
+
+Recently updated sorts by the product record's `updated_at`. Editing a product or changing its status updates that timestamp. Editing a variant, stock, or media does not, so a variant price change may not move a product up the Recently updated list. A complete modification-timestamp contract is deferred to the product editing phase; no write behavior changed here.
+
+### Ordering contract
+
+Title order is SQLite `NOCASE` order wherever it is computed: ASCII letters fold to lowercase, ties break by product ID in binary order, and non-ASCII characters do not fold. The SQL browse queries, the application-side sort of capped search candidates, and both cursor directions use this one contract, implemented by the shared comparator in `web/src/lib/product-search.ts`. Cursors are version 2 and bind the query, mode, status, sort, sort key, and product ID. A version 1 cursor returns the first page with the committed search, status, and sort preserved.
+
+### Indexes and cursor seeks (measured, local D1)
+
+Two candidate shapes were rejected by measurement on the local workerd SQLite. A row-value title predicate `(title COLLATE NOCASE, id) > (?, ?)` and the equivalent expanded OR form both scanned the covering title index: 50,051 rows read for a mid-catalog page of 50 at 100,000 products. A strict `title COLLATE NOCASE > ?` bound seeks (51 rows read) but skips products that share the cursor's folded title. Title browse therefore seeks in two bounded branches, the equal-title remainder (`title COLLATE NOCASE = ? AND id > ?`) and strictly beyond (`title COLLATE NOCASE > ?`), merged by the shared comparator. Each branch reads at most 51 rows.
+
+Migration `0019_product_list_sort_indexes.sql` adds five indexes, each justified by a query plan at 100,000 products with a 90/9/1 active/draft/archived distribution:
+
+| Index                                                             | Justification                                                                                                                        |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `products_title_id_idx (title COLLATE NOCASE, id)`                | Unfiltered title sort. Baseline was a table scan plus temporary B-tree (149,999 rows read).                                          |
+| `products_updated_id_idx (updated_at, id)`                        | Unfiltered Recently updated. Baseline was a table scan plus temporary B-tree (149,999 rows read).                                    |
+| `products_status_created_id_idx (status, created_at, id)`         | Status-filtered Newest and Oldest. Baseline used the status index plus a temporary B-tree (135,000 rows read for the common status). |
+| `products_status_updated_id_idx (status, updated_at, id)`         | Status-filtered Recently updated, same baseline failure.                                                                             |
+| `products_status_title_id_idx (status, title COLLATE NOCASE, id)` | Status-filtered Title A-Z, same baseline failure.                                                                                    |
+
+With these indexes, every deep page tested (20 pages in; 5 pages in for the rare archived status, which holds 1,000 of the 100,000 products) reads 52 candidate rows (51 for the title branches) and 550 projection rows: 602 rows total, forward and backward, for all four sorts under All, the common status, and the rare status. The first page reads the same candidate figure, so deep pages cost what the first page costs. The projection figure is for one variant per product; the heavy-page fanout evidence above still applies to the projection.
+
+The migration checker does not compare index collation, so `check:migrations` passing does not prove the `NOCASE` ordering. A test builds the schema from the migrations, reads both title index definitions from `sqlite_master`, and asserts `COLLATE NOCASE` is present, plus a query-plan assertion that the title seek uses `SEARCH`.
+
+Matched SKUs come from the existing SKU candidate rows. The candidate queries already join variants; they now also return the matched SKU and variant title. Matches are grouped by product before deduplication, sorted by SKU in binary order, and capped at three with the remainder counted from the complete bounded candidate set. No extra query was added.
+
+| Resource or claim                                  | Classification | Evidence                                                                                                                      |
+| -------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| D1 rows read for filtered and sorted deep pages    | Measured       | Local workerd fixture at 100,000 products, recorded in `tests/admin-product-discovery-scale.test.ts` under `DISCOVERY_100K=1` |
+| Query count per list call                          | Measured       | Two statements for a ready page; three for a title-sorted browse page after the first (two seek branches plus projection)     |
+| Worker CPU, deployed latency, checkout coexistence | Unavailable    | No deployed measurement; not claimed as passed                                                                                |
+| Write, KV, queue, and purge impact                 | Not applicable | Read path only, by construction                                                                                               |
+
+Reproduce the deep-page evidence from the repository root:
+
+```sh
+DISCOVERY_100K=1 npm test -- tests/admin-product-discovery-scale.test.ts
+npm test -- tests/admin-product-list-2b.test.ts
+```

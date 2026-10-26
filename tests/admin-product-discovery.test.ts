@@ -238,21 +238,48 @@ it('returns an empty page for a cursor whose remaining rows were deleted', async
 });
 
 it('normalizes malformed search params to a safe empty or default search', () => {
-  expect(normalizeProductSearch(null)).toEqual({ q: '', mode: null });
-  expect(normalizeProductSearch('nope')).toEqual({ q: '', mode: null });
-  expect(normalizeProductSearch({ q: 42, mode: 'title' })).toEqual({ q: '', mode: null });
+  expect(normalizeProductSearch(null)).toEqual({
+    q: '',
+    mode: null,
+    status: 'all',
+    sort: 'newest',
+  });
+  expect(normalizeProductSearch('nope')).toEqual({
+    q: '',
+    mode: null,
+    status: 'all',
+    sort: 'newest',
+  });
+  expect(normalizeProductSearch({ q: 42, mode: 'title' })).toEqual({
+    q: '',
+    mode: null,
+    status: 'all',
+    sort: 'newest',
+  });
   expect(normalizeProductSearch({ q: 'x'.repeat(201), mode: 'title' })).toEqual({
     q: '',
     mode: null,
+    status: 'all',
+    sort: 'newest',
   });
   expect(normalizeProductSearch({ q: ' Hat ', mode: 'bogus' })).toEqual({
     q: 'Hat',
     mode: 'title',
+    status: 'all',
+    sort: 'newest',
     cursor: undefined,
   });
   expect(normalizeProductSearch({ q: 'Hat', mode: 'sku-exact', cursor: 'bad' })).toEqual({
     q: 'Hat',
     mode: 'sku-exact',
+    status: 'all',
+    sort: 'newest',
     cursor: undefined,
+  });
+  expect(normalizeProductSearch({ status: 'bogus', sort: 'bogus' })).toEqual({
+    q: '',
+    mode: null,
+    status: 'all',
+    sort: 'newest',
   });
 });

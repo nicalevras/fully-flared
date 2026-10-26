@@ -175,6 +175,11 @@ export const products = sqliteTable(
   (t) => [
     index('products_status_idx').on(t.status),
     index('products_created_id_idx').on(t.createdAt, t.id),
+    index('products_title_id_idx').on(sql`${t.title} COLLATE NOCASE`, t.id),
+    index('products_updated_id_idx').on(t.updatedAt, t.id),
+    index('products_status_created_id_idx').on(t.status, t.createdAt, t.id),
+    index('products_status_updated_id_idx').on(t.status, t.updatedAt, t.id),
+    index('products_status_title_id_idx').on(t.status, sql`${t.title} COLLATE NOCASE`, t.id),
   ]
 );
 
