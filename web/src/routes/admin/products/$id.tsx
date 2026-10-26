@@ -4,7 +4,7 @@ import { useStoreCurrency } from '../../../lib/use-store-currency';
 import { Link, createFileRoute, useRouter, type SearchSchemaInput } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import { validateServerInput } from '../../../server/function-boundary';
-import { normalizeProductSearch } from '../../../server/admin-product-discovery';
+import { normalizeProductSearch } from '../../../lib/product-search';
 import { idString } from '../../../schemas/common';
 import { useAdminAction, type AdminPayload } from '../../../components/AdminNav';
 import { formatMoney } from '../../../lib/format';

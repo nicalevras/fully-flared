@@ -1,23 +1,20 @@
 import { z } from 'zod';
 import type { ProductStatus } from '../db/schema';
+import {
+  decodeProductSearchCursor,
+  normalizeProductSearch,
+  productSearchModes,
+  type ProductSearchCursor,
+} from '../lib/product-search';
 
-export const productModeSchema = z.enum(['title', 'sku-exact', 'sku-prefix']);
-export type ProductMode = z.infer<typeof productModeSchema>;
-const cursorSchema = z.object({
-  v: z.literal(1),
-  direction: z.enum(['next', 'previous']),
-  q: z.string(),
-  mode: productModeSchema.nullable(),
-  createdAt: z.string(),
-  id: z.string(),
-});
+export const productModeSchema = z.enum(productSearchModes);
 export const productDiscoveryInputSchema = z.object({
   q: z.string().max(200).default(''),
   mode: productModeSchema.nullable().default(null),
   cursor: z.string().max(2000).optional(),
 });
 export type ProductDiscoveryInput = z.infer<typeof productDiscoveryInputSchema>;
-type Position = Pick<z.infer<typeof cursorSchema>, 'createdAt' | 'id' | 'direction'>;
+type Position = ProductSearchCursor;
 type Candidate = { id: string; created_at: string };
 export type AdminProductRow = {
   id: string;
@@ -35,44 +32,6 @@ type DiscoveryResult = {
   previousCursor: string | null;
   state: 'ready' | 'refine';
 };
-
-function decodeCursor(
-  cursor: string | undefined,
-  q: string,
-  mode: ProductMode | null
-): Position | null {
-  if (!cursor) return null;
-  try {
-    const bytes = Uint8Array.from(atob(cursor), (character) => character.charCodeAt(0));
-    const value = cursorSchema.safeParse(
-      JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
-    );
-    if (!value.success || value.data.q !== q || value.data.mode !== mode) return null;
-    return { createdAt: value.data.createdAt, id: value.data.id, direction: value.data.direction };
-  } catch {
-    return null;
-  }
-}
-
-export function normalizeProductSearch(value: unknown): ProductDiscoveryInput {
-  const raw = z
-    .object({
-      q: z.unknown().optional(),
-      mode: z.unknown().optional(),
-      cursor: z.unknown().optional(),
-    })
-    .safeParse(value);
-  if (!raw.success) return { q: '', mode: null };
-  const q = typeof raw.data.q === 'string' && raw.data.q.length <= 200 ? raw.data.q.trim() : '';
-  const mode = q ? productModeSchema.catch('title').parse(raw.data.mode) : null;
-  const cursor =
-    typeof raw.data.cursor === 'string' &&
-    raw.data.cursor.length <= 2000 &&
-    decodeCursor(raw.data.cursor, q, mode)
-      ? raw.data.cursor
-      : undefined;
-  return { q, mode, cursor };
-}
 
 function encodeCursor(
   input: ProductDiscoveryInput,
@@ -192,7 +151,7 @@ export async function adminProductDiscovery(
   raw: unknown
 ): Promise<DiscoveryResult> {
   const input = productDiscoveryInputSchema.parse(normalizeProductSearch(raw));
-  const cursor = decodeCursor(input.cursor, input.q, input.mode);
+  const cursor = decodeProductSearchCursor(input.cursor, input.q, input.mode);
   let candidates: Candidate[];
   if (input.mode === null) {
     const previous = cursor?.direction === 'previous';

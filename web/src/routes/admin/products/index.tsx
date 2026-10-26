@@ -5,11 +5,17 @@ import { Link, createFileRoute, useRouter, type SearchSchemaInput } from '@tanst
 import { createServerFn } from '@tanstack/react-start';
 import {
   adminProductDiscovery,
-  normalizeProductSearch,
   productDiscoveryInputSchema,
-  productModeSchema,
-  type ProductMode,
 } from '../../../server/admin-product-discovery';
+import {
+  isProductMode,
+  normalizeProductSearch,
+  type ProductMode,
+} from '../../../lib/product-search';
+import {
+  AdminActionFeedback,
+  type AdminActionFeedbackState,
+} from '../../../components/AdminActionFeedback';
 import { validateServerInput } from '../../../server/function-boundary';
 import { useAdminAction } from '../../../components/AdminNav';
 import { formatMoney, slugify } from '../../../lib/format';
@@ -49,10 +55,15 @@ export const Route = createFileRoute('/admin/products/')({
       Loading products…
     </p>
   ),
-  errorComponent: () => (
-    <p className="p-5 text-sm text-red-700" role="alert">
-      Products could not be loaded. Refresh to try again.
-    </p>
+  errorComponent: ({ reset }) => (
+    <div className="p-5">
+      <p className="text-sm text-red-700" role="alert">
+        Products could not be loaded.
+      </p>
+      <button className={btnSmall} onClick={reset}>
+        Try again
+      </button>
+    </div>
   ),
   component: AdminProducts,
 });
@@ -68,7 +79,7 @@ function AdminProducts() {
   const [form, setForm] = useState({ title: '', slug: '', sku: '', price: '29.99', stock: '10' });
   const [csv, setCsv] = useState('title,slug,sku,price_cents,stock\n');
   const [adjust, setAdjust] = useState({ sku: '', delta: '10' });
-  const [msg, setMsg] = useState('');
+  const [msg, setMsg] = useState<AdminActionFeedbackState>(null);
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState(search.q);
   const [mode, setMode] = useState<ProductMode>(search.mode ?? 'title');
@@ -87,6 +98,7 @@ function AdminProducts() {
           </p>
         </div>
       </div>
+      <AdminActionFeedback value={msg} />
 
       <form
         className={`${cardCls} mt-5 flex flex-wrap items-end gap-3 p-4`}
@@ -117,8 +129,7 @@ function AdminProducts() {
             className={inputCls}
             value={mode}
             onChange={(event) => {
-              const parsed = productModeSchema.safeParse(event.target.value);
-              if (parsed.success) setMode(parsed.data);
+              if (isProductMode(event.target.value)) setMode(event.target.value);
             }}
           >
             <option value="title">Title</option>
@@ -144,14 +155,28 @@ function AdminProducts() {
       <section className={`${cardCls} mt-6 overflow-hidden`}>
         {state === 'refine' ? (
           <p className="p-5 text-sm text-zinc-600" role="status">
-            More than 1,000 matches. Refine your title or SKU search to see products.
+            This search is too broad to display safely. Try a more specific title or SKU.
           </p>
         ) : products.length === 0 ? (
-          <p className="p-5 text-sm text-zinc-500" role="status">
-            {search.q
-              ? 'No matching products. Try another title or SKU.'
-              : 'No products yet. Create your first product below.'}
-          </p>
+          <div className="p-5">
+            <p className="text-sm text-zinc-500" role="status">
+              {search.q
+                ? 'No matching products. Try another title or SKU.'
+                : 'No products yet. Create your first product below.'}
+            </p>
+            {search.cursor ? (
+              <button
+                className={`${btnSmall} mt-3`}
+                onClick={() =>
+                  void navigate({
+                    search: { q: search.q, mode: search.mode, cursor: undefined },
+                  })
+                }
+              >
+                Back to first page
+              </button>
+            ) : null}
+          </div>
         ) : (
           <div className={tableWrap} tabIndex={0} role="region" aria-label="Product results">
             <table className={`${tableCls} min-w-[680px]`}>
@@ -231,9 +256,9 @@ function AdminProducts() {
                               status: next,
                             });
                             if (r.ok) {
-                              setMsg(`${p.title} is now ${next}.`);
+                              setMsg({ kind: 'status', message: `${p.title} is now ${next}.` });
                               router.invalidate();
-                            } else setMsg(r.error ?? 'Failed');
+                            } else setMsg({ kind: 'error', message: r.error ?? 'Failed' });
                           }}
                         >
                           {p.status === 'active' ? 'Move to draft' : 'Publish'}
@@ -293,11 +318,11 @@ function AdminProducts() {
             setBusy(false);
             if (r.ok) {
               const data = r.data as { productId?: string } | undefined;
-              setMsg('Product created as a draft.');
+              setMsg({ kind: 'status', message: 'Product created as a draft.' });
               if (data?.productId)
                 router.navigate({ to: '/admin/products/$id', params: { id: data.productId } });
               else router.invalidate();
-            } else setMsg(r.error ?? 'Failed');
+            } else setMsg({ kind: 'error', message: r.error ?? 'Failed' });
           }}
         >
           <h2 className="text-sm font-medium text-zinc-950">Add product</h2>
@@ -423,9 +448,9 @@ function AdminProducts() {
                   reason: 'restock',
                 });
                 if (r.ok) {
-                  setMsg('Stock adjusted.');
+                  setMsg({ kind: 'status', message: 'Stock adjusted.' });
                   router.invalidate();
-                } else setMsg(r.error ?? 'Failed');
+                } else setMsg({ kind: 'error', message: r.error ?? 'Failed' });
               }}
             >
               Adjust stock
@@ -452,9 +477,9 @@ function AdminProducts() {
               onClick={async () => {
                 const r = await adminAction('import.productsCsv', { csv });
                 if (r.ok) {
-                  setMsg(`Import finished: ${JSON.stringify(r.data)}`);
+                  setMsg({ kind: 'status', message: `Import finished: ${JSON.stringify(r.data)}` });
                   router.invalidate();
-                } else setMsg(r.error ?? 'Import failed');
+                } else setMsg({ kind: 'error', message: r.error ?? 'Import failed' });
               }}
             >
               Import CSV
@@ -462,11 +487,6 @@ function AdminProducts() {
           </section>
         </div>
       </div>
-      {msg ? (
-        <p className="mt-4 rounded-xl bg-green-50 px-4 py-3 text-sm text-green-700" role="status">
-          {msg}
-        </p>
-      ) : null}
     </main>
   );
 }
