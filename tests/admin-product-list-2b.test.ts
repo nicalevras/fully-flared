@@ -200,3 +200,20 @@ it('projects price range and total variant count in one row', async () => {
   const bare = (await adminProductDiscovery(db, { q: 'Bare', mode: 'title' })).products[0];
   expect(bare).toMatchObject({ price_cents: null, max_price_cents: null, variant_count: 0 });
 });
+
+it('creates the title indexes with NOCASE collation in the migrated schema', async () => {
+  const result = await db
+    .prepare(
+      "SELECT name, sql FROM sqlite_master WHERE type='index' AND name IN ('products_title_id_idx','products_status_title_id_idx') ORDER BY name"
+    )
+    .all<{ name: string; sql: string }>();
+  expect(result.results).toHaveLength(2);
+  for (const row of result.results) expect(row.sql).toContain('COLLATE NOCASE');
+  const plan = await db
+    .prepare(
+      "EXPLAIN QUERY PLAN SELECT id FROM products WHERE title COLLATE NOCASE > ? ORDER BY title COLLATE NOCASE, id LIMIT 51"
+    )
+    .bind('Product 050000')
+    .all<{ detail: string }>();
+  expect(plan.results.map((row) => row.detail).join(' ')).toContain('SEARCH');
+});

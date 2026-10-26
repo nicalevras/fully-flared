@@ -214,16 +214,25 @@ async function browse(db: D1Database, input: ProductDiscoveryInput): Promise<Can
     clauses.push('status=?');
     binds.push(input.status);
   }
-  if (cursor) {
-    if (input.sort === 'title') {
-      clauses.push(
-        `(title COLLATE NOCASE ${operator} ? OR (title COLLATE NOCASE = ? AND id ${operator} ?))`
+  if (cursor && input.sort === 'title') {
+    const branch = async (clause: string, branchBinds: string[]) => {
+      const branchClauses = [...clauses, clause];
+      const statement = db.prepare(
+        `SELECT id,created_at,updated_at,title FROM products WHERE ${branchClauses.join(' AND ')} ORDER BY title COLLATE NOCASE ${direction},id ${direction} LIMIT 51`
       );
-      binds.push(cursor.key, cursor.key, cursor.id);
-    } else {
-      clauses.push(`(${spec.column},id) ${operator} (?,?)`);
-      binds.push(cursor.key, cursor.id);
-    }
+      return (await statement.bind(...binds, ...branchBinds).all<Candidate>()).results;
+    };
+    const equal = await branch(`title COLLATE NOCASE = ? AND id ${operator} ?`, [
+      cursor.key,
+      cursor.id,
+    ]);
+    const beyond = await branch(`title COLLATE NOCASE ${operator} ?`, [cursor.key]);
+    const merged = [...equal, ...beyond].sort(compareProductTitles);
+    return previous ? merged.reverse() : merged;
+  }
+  if (cursor) {
+    clauses.push(`(${spec.column},id) ${operator} (?,?)`);
+    binds.push(cursor.key, cursor.id);
   }
   const query = `SELECT id,created_at,updated_at,title FROM products ${
     clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
