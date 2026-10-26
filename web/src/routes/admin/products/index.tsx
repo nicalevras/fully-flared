@@ -229,7 +229,9 @@ function AdminProducts() {
             <p className="text-sm text-zinc-500" role="status">
               {search.q
                 ? 'No matching products. Try another title or SKU.'
-                : 'No products yet. Create your first product below.'}
+                : search.status !== 'all'
+                  ? `No ${search.status} products. Try another status or reset the filters.`
+                  : 'No products yet. Create your first product below.'}
             </p>
             {search.cursor ? (
               <button
