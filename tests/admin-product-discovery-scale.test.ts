@@ -262,3 +262,82 @@ it(
     }
   }
 );
+
+it.runIf(process.env.DISCOVERY_100K === '1')(
+  'keeps deep cursor pages bounded for every sort and status filter at 100000 products',
+  { timeout: 600000 },
+  async () => {
+    const { db, dispose } = await createTestDb({ transportRetry: true });
+    try {
+      const size = 100000;
+      for (let start = 1; start <= size; start += 1000) {
+        const rows = Array.from({ length: Math.min(1000, size - start + 1) }, (_, offset) => {
+          const n = start + offset;
+          const id = `p${String(n).padStart(6, '0')}`;
+          return {
+            id,
+            title: `Product ${String(n).padStart(6, '0')}`,
+            created: String(n).padStart(6, '0'),
+            status: n % 100 < 90 ? 'active' : n % 100 < 99 ? 'draft' : 'archived',
+          };
+        });
+        const json = JSON.stringify(rows);
+        await db.batch([
+          db
+            .prepare(
+              "INSERT INTO products(id,slug,title,status,created_at,updated_at) SELECT json_extract(value,'$.id'),json_extract(value,'$.id'),json_extract(value,'$.title'),json_extract(value,'$.status'),json_extract(value,'$.created'),json_extract(value,'$.created') FROM json_each(?)"
+            )
+            .bind(json),
+          db
+            .prepare(
+              "INSERT INTO variants(id,product_id,sku,title,price_cents,created_at) SELECT 'v'||json_extract(value,'$.id'),json_extract(value,'$.id'),'SKU-'||json_extract(value,'$.id'),'Default',100,'2026' FROM json_each(?)"
+            )
+            .bind(json),
+        ]);
+      }
+      const sorts = ['newest', 'oldest', 'title', 'updated'] as const;
+      const statuses = ['all', 'active', 'archived'] as const;
+      for (const sort of sorts) {
+        for (const status of statuses) {
+          const pages = status === 'archived' ? 5 : 20;
+          let cursor: string | null | undefined;
+          for (let page = 0; page < pages; page++) {
+            const result = await adminProductDiscovery(db, { sort, status, cursor });
+            expect(result.products).toHaveLength(50);
+            cursor = result.nextCursor;
+          }
+          const { db: recorded, reads } = recordingDb(db);
+          const deep = await adminProductDiscovery(recorded, { sort, status, cursor });
+          const deepRows = reads.reduce((sum, read) => sum + read.rowsRead, 0);
+          console.warn(
+            JSON.stringify({
+              name: 'deep_page',
+              sort,
+              status,
+              pages,
+              statements: reads.length,
+              rowsRead: deepRows,
+              details: reads.map((read) => ({ rowsRead: read.rowsRead, sql: read.sql.slice(0, 90) })),
+            })
+          );
+          expect(deep.products).toHaveLength(50);
+          expect(deepRows).toBeLessThan(1500);
+          const { db: recordedBack, reads: backReads } = recordingDb(db);
+          const back = await adminProductDiscovery(recordedBack, {
+            sort,
+            status,
+            cursor: deep.previousCursor,
+          });
+          const backRows = backReads.reduce((sum, read) => sum + read.rowsRead, 0);
+          console.warn(
+            JSON.stringify({ name: 'deep_page_back', sort, status, rowsRead: backRows })
+          );
+          expect(back.products).toHaveLength(50);
+          expect(backRows).toBeLessThan(1500);
+        }
+      }
+    } finally {
+      await dispose();
+    }
+  }
+);
