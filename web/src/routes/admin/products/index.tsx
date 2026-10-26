@@ -1,16 +1,21 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { staffMiddleware } from '../../../server/staff-middleware';
 import { useStoreCurrency } from '../../../lib/use-store-currency';
-import { Link, createFileRoute, useRouter } from '@tanstack/react-router';
+import { Link, createFileRoute, useRouter, type SearchSchemaInput } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
-import { adminProducts } from '../../../server/admin-lists';
-import { pageInputSchema } from '../../../schemas/pagination';
-import { pageSearch } from '../../../lib/search-params';
+import {
+  adminProductDiscovery,
+  normalizeProductSearch,
+  productDiscoveryInputSchema,
+  productModeSchema,
+  type ProductMode,
+} from '../../../server/admin-product-discovery';
 import { validateServerInput } from '../../../server/function-boundary';
-import { AdminPager } from '../../../components/AdminPager';
 import { useAdminAction } from '../../../components/AdminNav';
 import { formatMoney, slugify } from '../../../lib/format';
 import { StatusBadge } from '../../../components/StatusBadge';
+import { Button } from '../../../components/ui/button';
+import { Input } from '../../../components/ui/input';
 import {
   btnGhost,
   btnPrimary,
@@ -28,16 +33,27 @@ import {
 
 const getData = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
-  .validator(validateServerInput(pageInputSchema))
+  .validator(validateServerInput(productDiscoveryInputSchema))
   .handler(async ({ data }) => {
     const { env } = await import('cloudflare:workers');
-    return adminProducts(env.DB, data);
+    return adminProductDiscovery(env.DB, data);
   });
 
 export const Route = createFileRoute('/admin/products/')({
-  validateSearch: pageSearch,
-  loaderDeps: ({ search }) => ({ page: search.page }),
+  validateSearch: (search: { q?: unknown; mode?: unknown; cursor?: unknown } & SearchSchemaInput) =>
+    normalizeProductSearch(search),
+  loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => getData({ data: deps }),
+  pendingComponent: () => (
+    <p className="p-5 text-sm" role="status">
+      Loading products…
+    </p>
+  ),
+  errorComponent: () => (
+    <p className="p-5 text-sm text-red-700" role="alert">
+      Products could not be loaded. Refresh to try again.
+    </p>
+  ),
   component: AdminProducts,
 });
 
@@ -45,7 +61,8 @@ function AdminProducts() {
   const adminAction = useAdminAction();
 
   const currency = useStoreCurrency();
-  const { products, total, page } = Route.useLoaderData();
+  const { products, nextCursor, previousCursor, state } = Route.useLoaderData();
+  const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
   const [form, setForm] = useState({ title: '', slug: '', sku: '', price: '29.99', stock: '10' });
@@ -53,6 +70,12 @@ function AdminProducts() {
   const [adjust, setAdjust] = useState({ sku: '', delta: '10' });
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  const [query, setQuery] = useState(search.q);
+  const [mode, setMode] = useState<ProductMode>(search.mode ?? 'title');
+  useEffect(() => {
+    setQuery(search.q);
+    setMode(search.mode ?? 'title');
+  }, [search.q, search.mode]);
 
   return (
     <main>
@@ -60,30 +83,78 @@ function AdminProducts() {
         <div>
           <h1 className={pageTitle}>Products</h1>
           <p className={pageSub}>
-            {total} product{total === 1 ? '' : 's'} in your catalog
-            {total > products.length ? `, showing ${products.length} on this page` : ''}. Click a
-            product to edit it, its variants, stock, and images.
+            Find a product by title or SKU. Click a product to edit its variants, stock, and images.
           </p>
         </div>
       </div>
 
-      <AdminPager
-        label="Products pagination"
-        page={page}
-        total={total}
-        pageSize={100}
-        onPage={(page) => {
-          void navigate({ search: (prev) => ({ ...prev, page }) });
+      <form
+        className={`${cardCls} mt-5 flex flex-wrap items-end gap-3 p-4`}
+        onSubmit={(event) => {
+          event.preventDefault();
+          const q = query.trim();
+          void navigate({ search: { q, mode: q ? mode : null, cursor: undefined } });
         }}
-      />
+      >
+        <div className="min-w-48 flex-1">
+          <label className={labelCls} htmlFor="product-query">
+            Find products
+          </label>
+          <Input
+            id="product-query"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Title or SKU"
+            maxLength={200}
+          />
+        </div>
+        <div>
+          <label className={labelCls} htmlFor="product-mode">
+            Search by
+          </label>
+          <select
+            id="product-mode"
+            className={inputCls}
+            value={mode}
+            onChange={(event) => {
+              const parsed = productModeSchema.safeParse(event.target.value);
+              if (parsed.success) setMode(parsed.data);
+            }}
+          >
+            <option value="title">Title</option>
+            <option value="sku-exact">Exact SKU</option>
+            <option value="sku-prefix">SKU starts with</option>
+          </select>
+        </div>
+        <Button type="submit">Search</Button>
+        <Button
+          variant="outline"
+          type="button"
+          onClick={() => {
+            setQuery('');
+            void navigate({ search: { q: '', mode: null, cursor: undefined } });
+          }}
+        >
+          Browse all
+        </Button>
+        <p className="w-full text-xs text-zinc-500">
+          SKU search is case-sensitive. Search runs when you press Search or Enter.
+        </p>
+      </form>
       <section className={`${cardCls} mt-6 overflow-hidden`}>
-        {products.length === 0 ? (
+        {state === 'refine' ? (
+          <p className="p-5 text-sm text-zinc-600" role="status">
+            More than 1,000 matches. Refine your title or SKU search to see products.
+          </p>
+        ) : products.length === 0 ? (
           <p className="p-5 text-sm text-zinc-500" role="status">
-            No products yet. Create your first product below.
+            {search.q
+              ? 'No matching products. Try another title or SKU.'
+              : 'No products yet. Create your first product below.'}
           </p>
         ) : (
-          <div className={tableWrap}>
-            <table className={tableCls}>
+          <div className={tableWrap} tabIndex={0} role="region" aria-label="Product results">
+            <table className={`${tableCls} min-w-[680px]`}>
               <caption className="sr-only">Products</caption>
               <thead>
                 <tr>
@@ -103,11 +174,12 @@ function AdminProducts() {
                       <Link
                         to="/admin/products/$id"
                         params={{ id: p.id }}
+                        search={search}
                         className="flex items-center gap-3"
                       >
-                        {p.imageKey ? (
+                        {p.image_key ? (
                           <img
-                            src={`/media/${p.imageKey}`}
+                            src={`/media/${p.image_key}`}
                             alt=""
                             className="h-10 w-10 shrink-0 rounded-lg object-cover"
                           />
@@ -130,11 +202,11 @@ function AdminProducts() {
                     <td>
                       <StatusBadge value={p.status} />
                     </td>
-                    <td>{p.priceCents != null ? formatMoney(p.priceCents, currency) : '-'}</td>
+                    <td>{p.price_cents != null ? formatMoney(p.price_cents, currency) : '-'}</td>
                     <td>
-                      {(p.available ?? 0) <= 0 ? (
+                      {p.available <= 0 ? (
                         <span className="font-medium text-red-600">Out of stock</span>
-                      ) : (p.available ?? 0) <= 5 ? (
+                      ) : p.available <= 5 ? (
                         <span className="font-medium text-yellow-800">{p.available} left</span>
                       ) : (
                         `${p.available} in stock`
@@ -142,7 +214,12 @@ function AdminProducts() {
                     </td>
                     <td className="text-right">
                       <span className="inline-flex flex-wrap justify-end gap-1">
-                        <Link to="/admin/products/$id" params={{ id: p.id }} className={btnSmall}>
+                        <Link
+                          to="/admin/products/$id"
+                          params={{ id: p.id }}
+                          search={search}
+                          className={btnSmall}
+                        >
                           Edit
                         </Link>
                         <button
@@ -170,6 +247,28 @@ function AdminProducts() {
           </div>
         )}
       </section>
+      {previousCursor || nextCursor ? (
+        <div className="mt-4 flex justify-between gap-3">
+          {previousCursor ? (
+            <button
+              className={btnSmall}
+              onClick={() => void navigate({ search: { ...search, cursor: previousCursor } })}
+            >
+              Previous 50 products
+            </button>
+          ) : (
+            <span />
+          )}
+          {nextCursor ? (
+            <button
+              className={btnSmall}
+              onClick={() => void navigate({ search: { ...search, cursor: nextCursor } })}
+            >
+              Next 50 products
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="mt-5 grid items-start gap-5 lg:grid-cols-2">
         <form

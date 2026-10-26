@@ -1,4 +1,3 @@
-import { listProducts } from './catalog';
 import { grossSalePredicate } from './reports';
 import { pageInputSchema, orderPagesSchema } from '../schemas/pagination';
 import type { OrderStatus, PaymentStatus, ReturnStatus } from '../db/schema';
@@ -37,14 +36,6 @@ type CustomerRow = {
   spending_json: string;
   last_order_at: string | null;
 };
-export async function adminProducts(db: D1Database, input: unknown) {
-  const { page } = pageInputSchema.parse(input);
-  const [products, count] = await Promise.all([
-    listProducts(db, { limit: 100, offset: (page - 1) * 100 }),
-    db.prepare('SELECT COUNT(*) AS n FROM products').first<{ n: number }>(),
-  ]);
-  return { products, total: count?.n ?? 0, page };
-}
 export async function adminCustomers(db: D1Database, input: unknown) {
   const { page } = pageInputSchema.parse(input);
   const rows = await db

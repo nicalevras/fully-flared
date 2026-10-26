@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { staffMiddleware } from '../../../server/staff-middleware';
 import { useStoreCurrency } from '../../../lib/use-store-currency';
-import { Link, createFileRoute, useRouter } from '@tanstack/react-router';
+import { Link, createFileRoute, useRouter, type SearchSchemaInput } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import { validateServerInput } from '../../../server/function-boundary';
+import { normalizeProductSearch } from '../../../server/admin-product-discovery';
 import { idString } from '../../../schemas/common';
 import { useAdminAction, type AdminPayload } from '../../../components/AdminNav';
 import { formatMoney } from '../../../lib/format';
@@ -100,12 +101,15 @@ const getData = createServerFn({ method: 'GET' })
   });
 
 export const Route = createFileRoute('/admin/products/$id')({
+  validateSearch: (search: { q?: unknown; mode?: unknown; cursor?: unknown } & SearchSchemaInput) =>
+    normalizeProductSearch(search),
   loader: async ({ params }) => getData({ data: params.id }),
   component: EditProduct,
 });
 
 function EditProduct() {
   const data = Route.useLoaderData();
+  const search = Route.useSearch();
   const router = useRouter();
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
@@ -115,7 +119,7 @@ function EditProduct() {
       <main>
         <h1 className={pageTitle}>Product not found</h1>
         <p className={pageSub}>This product does not exist.</p>
-        <Link to="/admin/products" className={`${btnSecondary} mt-5`}>
+        <Link to="/admin/products" search={search} className={`${btnSecondary} mt-5`}>
           Back to products
         </Link>
       </main>
@@ -179,6 +183,8 @@ function EditForm({
   );
   const [uploading, setUploading] = useState(false);
 
+  const search = Route.useSearch();
+
   async function act(action: string, payload: AdminPayload, okMsg: string) {
     setBusy(true);
     const r = await adminAction(action, payload);
@@ -196,6 +202,7 @@ function EditForm({
     <main>
       <Link
         to="/admin/products"
+        search={search}
         className="text-[13px] font-medium text-zinc-500 hover:text-zinc-950"
       >
         ← Products

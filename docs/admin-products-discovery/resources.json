@@ -1,0 +1,524 @@
+[
+  {
+    "size": 10,
+    "name": "baseline_count_shape",
+    "rows": 1,
+    "rowsRead": 10,
+    "plan": ["SCAN products USING COVERING INDEX products_status_idx"]
+  },
+  {
+    "size": 10,
+    "name": "baseline_first_shape",
+    "rows": 10,
+    "rowsRead": 39,
+    "plan": [
+      "SCAN p USING INDEX sqlite_autoindex_products_1",
+      "SEARCH v USING INDEX variants_product_idx (product_id=?) LEFT-JOIN",
+      "SEARCH s USING COVERING INDEX sqlite_autoindex_stock_1 (sku=?) LEFT-JOIN",
+      "USE TEMP B-TREE FOR ORDER BY"
+    ]
+  },
+  {
+    "size": 10,
+    "name": "baseline_deep_shape",
+    "rows": 0,
+    "rowsRead": 39,
+    "plan": [
+      "SCAN p USING INDEX sqlite_autoindex_products_1",
+      "SEARCH v USING INDEX variants_product_idx (product_id=?) LEFT-JOIN",
+      "SEARCH s USING COVERING INDEX sqlite_autoindex_stock_1 (sku=?) LEFT-JOIN",
+      "USE TEMP B-TREE FOR ORDER BY"
+    ]
+  },
+  {
+    "size": 10,
+    "name": "browse_first",
+    "rows": 10,
+    "rowsRead": 10,
+    "plan": ["SCAN products USING COVERING INDEX products_created_id_idx"]
+  },
+  {
+    "size": 10,
+    "name": "browse_deep",
+    "rows": 10,
+    "rowsRead": 10,
+    "plan": ["SEARCH products USING COVERING INDEX products_created_id_idx ((created_at,id)<(?,?))"]
+  },
+  {
+    "size": 10,
+    "name": "sku_exact_hit",
+    "rows": 1,
+    "rowsRead": 2,
+    "plan": [
+      "SEARCH v USING INDEX variants_sku_unique (sku=?)",
+      "SEARCH p USING INDEX sqlite_autoindex_products_1 (id=?)"
+    ]
+  },
+  {
+    "size": 10,
+    "name": "sku_exact_miss",
+    "rows": 0,
+    "rowsRead": 0,
+    "plan": [
+      "SEARCH v USING INDEX variants_sku_unique (sku=?)",
+      "SEARCH p USING INDEX sqlite_autoindex_products_1 (id=?)"
+    ]
+  },
+  {
+    "size": 10,
+    "name": "sku_prefix_narrow",
+    "rows": 1,
+    "rowsRead": 3,
+    "plan": [
+      "SEARCH v USING INDEX variants_sku_unique (sku>? AND sku<?)",
+      "SEARCH p USING INDEX sqlite_autoindex_products_1 (id=?)"
+    ]
+  },
+  {
+    "size": 10,
+    "name": "sku_prefix_broad",
+    "rows": 10,
+    "rowsRead": 20,
+    "plan": [
+      "SEARCH v USING INDEX variants_sku_unique (sku>? AND sku<?)",
+      "SEARCH p USING INDEX sqlite_autoindex_products_1 (id=?)"
+    ]
+  },
+  {
+    "size": 10,
+    "name": "title_narrow",
+    "rows": 1,
+    "rowsRead": 2,
+    "plan": ["SCAN f VIRTUAL TABLE INDEX 0:M3", "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"]
+  },
+  {
+    "size": 10,
+    "name": "title_common",
+    "rows": 9,
+    "rowsRead": 18,
+    "plan": ["SCAN f VIRTUAL TABLE INDEX 0:M3", "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"]
+  },
+  {
+    "size": 10,
+    "name": "title_multi_absent",
+    "rows": 0,
+    "rowsRead": 0,
+    "plan": ["SCAN f VIRTUAL TABLE INDEX 0:M3", "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"]
+  },
+  {
+    "size": 10,
+    "name": "old_cards_first",
+    "statements": 2,
+    "rowsRead": 79,
+    "details": [
+      {
+        "rowsRead": 69
+      },
+      {
+        "rowsRead": 10
+      }
+    ]
+  },
+  {
+    "size": 10,
+    "name": "old_cards_deep",
+    "statements": 2,
+    "rowsRead": 79,
+    "details": [
+      {
+        "rowsRead": 69
+      },
+      {
+        "rowsRead": 10
+      }
+    ]
+  },
+  {
+    "size": 10,
+    "name": "new_browse_first",
+    "statements": 2,
+    "rowsRead": 78,
+    "details": [
+      {
+        "rowsRead": 10
+      },
+      {
+        "rowsRead": 68
+      }
+    ]
+  },
+  {
+    "size": 10,
+    "name": "new_browse_deep",
+    "statements": 2,
+    "rowsRead": 78,
+    "details": [
+      {
+        "rowsRead": 10
+      },
+      {
+        "rowsRead": 68
+      }
+    ]
+  },
+  {
+    "size": 10,
+    "name": "new_title_common",
+    "statements": 2,
+    "rowsRead": 79,
+    "details": [
+      {
+        "rowsRead": 18
+      },
+      {
+        "rowsRead": 61
+      }
+    ]
+  },
+  {
+    "size": 5000,
+    "name": "baseline_count_shape",
+    "rows": 1,
+    "rowsRead": 5000,
+    "plan": ["SCAN products USING COVERING INDEX products_status_idx"]
+  },
+  {
+    "size": 5000,
+    "name": "baseline_first_shape",
+    "rows": 100,
+    "rowsRead": 19999,
+    "plan": [
+      "SCAN p USING INDEX sqlite_autoindex_products_1",
+      "SEARCH v USING INDEX variants_product_idx (product_id=?) LEFT-JOIN",
+      "SEARCH s USING COVERING INDEX sqlite_autoindex_stock_1 (sku=?) LEFT-JOIN",
+      "USE TEMP B-TREE FOR ORDER BY"
+    ]
+  },
+  {
+    "size": 5000,
+    "name": "baseline_deep_shape",
+    "rows": 100,
+    "rowsRead": 19999,
+    "plan": [
+      "SCAN p USING INDEX sqlite_autoindex_products_1",
+      "SEARCH v USING INDEX variants_product_idx (product_id=?) LEFT-JOIN",
+      "SEARCH s USING COVERING INDEX sqlite_autoindex_stock_1 (sku=?) LEFT-JOIN",
+      "USE TEMP B-TREE FOR ORDER BY"
+    ]
+  },
+  {
+    "size": 5000,
+    "name": "browse_first",
+    "rows": 51,
+    "rowsRead": 51,
+    "plan": ["SCAN products USING COVERING INDEX products_created_id_idx"]
+  },
+  {
+    "size": 5000,
+    "name": "browse_deep",
+    "rows": 51,
+    "rowsRead": 52,
+    "plan": ["SEARCH products USING COVERING INDEX products_created_id_idx ((created_at,id)<(?,?))"]
+  },
+  {
+    "size": 5000,
+    "name": "sku_exact_hit",
+    "rows": 1,
+    "rowsRead": 2,
+    "plan": [
+      "SEARCH v USING INDEX variants_sku_unique (sku=?)",
+      "SEARCH p USING INDEX sqlite_autoindex_products_1 (id=?)"
+    ]
+  },
+  {
+    "size": 5000,
+    "name": "sku_exact_miss",
+    "rows": 0,
+    "rowsRead": 0,
+    "plan": [
+      "SEARCH v USING INDEX variants_sku_unique (sku=?)",
+      "SEARCH p USING INDEX sqlite_autoindex_products_1 (id=?)"
+    ]
+  },
+  {
+    "size": 5000,
+    "name": "sku_prefix_narrow",
+    "rows": 1,
+    "rowsRead": 3,
+    "plan": [
+      "SEARCH v USING INDEX variants_sku_unique (sku>? AND sku<?)",
+      "SEARCH p USING INDEX sqlite_autoindex_products_1 (id=?)"
+    ]
+  },
+  {
+    "size": 5000,
+    "name": "sku_prefix_broad",
+    "rows": 1001,
+    "rowsRead": 2002,
+    "plan": [
+      "SEARCH v USING INDEX variants_sku_unique (sku>? AND sku<?)",
+      "SEARCH p USING INDEX sqlite_autoindex_products_1 (id=?)"
+    ]
+  },
+  {
+    "size": 5000,
+    "name": "title_narrow",
+    "rows": 1,
+    "rowsRead": 2,
+    "plan": ["SCAN f VIRTUAL TABLE INDEX 0:M3", "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"]
+  },
+  {
+    "size": 5000,
+    "name": "title_common",
+    "rows": 1001,
+    "rowsRead": 2001,
+    "plan": ["SCAN f VIRTUAL TABLE INDEX 0:M3", "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"]
+  },
+  {
+    "size": 5000,
+    "name": "title_multi_absent",
+    "rows": 0,
+    "rowsRead": 0,
+    "plan": ["SCAN f VIRTUAL TABLE INDEX 0:M3", "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"]
+  },
+  {
+    "size": 5000,
+    "name": "old_cards_first",
+    "statements": 2,
+    "rowsRead": 39999,
+    "details": [
+      {
+        "rowsRead": 34999
+      },
+      {
+        "rowsRead": 5000
+      }
+    ]
+  },
+  {
+    "size": 5000,
+    "name": "old_cards_deep",
+    "statements": 2,
+    "rowsRead": 39999,
+    "details": [
+      {
+        "rowsRead": 34999
+      },
+      {
+        "rowsRead": 5000
+      }
+    ]
+  },
+  {
+    "size": 5000,
+    "name": "new_browse_first",
+    "statements": 2,
+    "rowsRead": 399,
+    "details": [
+      {
+        "rowsRead": 51
+      },
+      {
+        "rowsRead": 348
+      }
+    ]
+  },
+  {
+    "size": 5000,
+    "name": "new_browse_deep",
+    "statements": 2,
+    "rowsRead": 402,
+    "details": [
+      {
+        "rowsRead": 52
+      },
+      {
+        "rowsRead": 350
+      }
+    ]
+  },
+  {
+    "size": 5000,
+    "name": "new_title_common",
+    "statements": 1,
+    "rowsRead": 2001,
+    "details": [
+      {
+        "rowsRead": 2001
+      }
+    ]
+  },
+  {
+    "size": 100000,
+    "name": "baseline_count_shape",
+    "rows": 1,
+    "rowsRead": 100000,
+    "plan": ["SCAN products USING COVERING INDEX products_status_idx"]
+  },
+  {
+    "size": 100000,
+    "name": "baseline_first_shape",
+    "rows": 100,
+    "rowsRead": 399999,
+    "plan": [
+      "SCAN p USING INDEX sqlite_autoindex_products_1",
+      "SEARCH v USING INDEX variants_product_idx (product_id=?) LEFT-JOIN",
+      "SEARCH s USING COVERING INDEX sqlite_autoindex_stock_1 (sku=?) LEFT-JOIN",
+      "USE TEMP B-TREE FOR ORDER BY"
+    ]
+  },
+  {
+    "size": 100000,
+    "name": "baseline_deep_shape",
+    "rows": 100,
+    "rowsRead": 399999,
+    "plan": [
+      "SCAN p USING INDEX sqlite_autoindex_products_1",
+      "SEARCH v USING INDEX variants_product_idx (product_id=?) LEFT-JOIN",
+      "SEARCH s USING COVERING INDEX sqlite_autoindex_stock_1 (sku=?) LEFT-JOIN",
+      "USE TEMP B-TREE FOR ORDER BY"
+    ]
+  },
+  {
+    "size": 100000,
+    "name": "browse_first",
+    "rows": 51,
+    "rowsRead": 51,
+    "plan": ["SCAN products USING COVERING INDEX products_created_id_idx"]
+  },
+  {
+    "size": 100000,
+    "name": "browse_deep",
+    "rows": 51,
+    "rowsRead": 52,
+    "plan": ["SEARCH products USING COVERING INDEX products_created_id_idx ((created_at,id)<(?,?))"]
+  },
+  {
+    "size": 100000,
+    "name": "sku_exact_hit",
+    "rows": 1,
+    "rowsRead": 2,
+    "plan": [
+      "SEARCH v USING INDEX variants_sku_unique (sku=?)",
+      "SEARCH p USING INDEX sqlite_autoindex_products_1 (id=?)"
+    ]
+  },
+  {
+    "size": 100000,
+    "name": "sku_exact_miss",
+    "rows": 0,
+    "rowsRead": 0,
+    "plan": [
+      "SEARCH v USING INDEX variants_sku_unique (sku=?)",
+      "SEARCH p USING INDEX sqlite_autoindex_products_1 (id=?)"
+    ]
+  },
+  {
+    "size": 100000,
+    "name": "sku_prefix_narrow",
+    "rows": 1,
+    "rowsRead": 3,
+    "plan": [
+      "SEARCH v USING INDEX variants_sku_unique (sku>? AND sku<?)",
+      "SEARCH p USING INDEX sqlite_autoindex_products_1 (id=?)"
+    ]
+  },
+  {
+    "size": 100000,
+    "name": "sku_prefix_broad",
+    "rows": 1001,
+    "rowsRead": 2002,
+    "plan": [
+      "SEARCH v USING INDEX variants_sku_unique (sku>? AND sku<?)",
+      "SEARCH p USING INDEX sqlite_autoindex_products_1 (id=?)"
+    ]
+  },
+  {
+    "size": 100000,
+    "name": "title_narrow",
+    "rows": 1,
+    "rowsRead": 2,
+    "plan": ["SCAN f VIRTUAL TABLE INDEX 0:M3", "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"]
+  },
+  {
+    "size": 100000,
+    "name": "title_common",
+    "rows": 1001,
+    "rowsRead": 2001,
+    "plan": ["SCAN f VIRTUAL TABLE INDEX 0:M3", "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"]
+  },
+  {
+    "size": 100000,
+    "name": "title_multi_absent",
+    "rows": 0,
+    "rowsRead": 0,
+    "plan": ["SCAN f VIRTUAL TABLE INDEX 0:M3", "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"]
+  },
+  {
+    "size": 100000,
+    "name": "old_cards_first",
+    "statements": 2,
+    "rowsRead": 799999,
+    "details": [
+      {
+        "rowsRead": 699999
+      },
+      {
+        "rowsRead": 100000
+      }
+    ]
+  },
+  {
+    "size": 100000,
+    "name": "old_cards_deep",
+    "statements": 2,
+    "rowsRead": 799999,
+    "details": [
+      {
+        "rowsRead": 699999
+      },
+      {
+        "rowsRead": 100000
+      }
+    ]
+  },
+  {
+    "size": 100000,
+    "name": "new_browse_first",
+    "statements": 2,
+    "rowsRead": 399,
+    "details": [
+      {
+        "rowsRead": 51
+      },
+      {
+        "rowsRead": 348
+      }
+    ]
+  },
+  {
+    "size": 100000,
+    "name": "new_browse_deep",
+    "statements": 2,
+    "rowsRead": 402,
+    "details": [
+      {
+        "rowsRead": 52
+      },
+      {
+        "rowsRead": 350
+      }
+    ]
+  },
+  {
+    "size": 100000,
+    "name": "new_title_common",
+    "statements": 1,
+    "rowsRead": 2001,
+    "details": [
+      {
+        "rowsRead": 2001
+      }
+    ]
+  }
+]

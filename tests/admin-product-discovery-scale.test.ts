@@ -1,0 +1,208 @@
+import { expect, it } from 'vitest';
+import { createTestDb } from './helpers/d1';
+import { adminProductDiscovery } from '../web/src/server/admin-product-discovery';
+import { listProducts } from '../web/src/server/catalog';
+
+const sizes = process.env.DISCOVERY_100K === '1' ? [10, 5000, 100000] : [10, 5000];
+
+function recordingDb(db: D1Database) {
+  const reads: Array<{ sql: string; rowsRead: number }> = [];
+  function wrap(statement: D1PreparedStatement, sql: string): D1PreparedStatement {
+    return new Proxy(statement, {
+      get(target, property) {
+        if (property === 'bind') return (...values: unknown[]) => wrap(target.bind(...values), sql);
+        if (property === 'all')
+          return async () => {
+            const result = await target.all();
+            reads.push({ sql, rowsRead: result.meta.rows_read });
+            return result;
+          };
+        if (property === 'raw')
+          return async () => {
+            const result = await target.all();
+            reads.push({ sql, rowsRead: result.meta.rows_read });
+            return target.raw();
+          };
+        const member: unknown = Reflect.get(target, property);
+        return typeof member === 'function' ? member.bind(target) : member;
+      },
+    });
+  }
+  return {
+    db: new Proxy(db, {
+      get(target, property) {
+        if (property === 'prepare') return (sql: string) => wrap(target.prepare(sql), sql);
+        const member: unknown = Reflect.get(target, property);
+        return typeof member === 'function' ? member.bind(target) : member;
+      },
+    }),
+    reads,
+  };
+}
+
+for (const size of sizes)
+  it(`records real D1 discovery resources with ${size} products`, { timeout: 600000 }, async () => {
+    const { db, dispose } = await createTestDb({ transportRetry: true });
+    try {
+      for (let start = 1; start <= size; start += 1000) {
+        const rows = Array.from({ length: Math.min(1000, size - start + 1) }, (_, offset) => {
+          const n = start + offset;
+          const id = `p${String(n).padStart(6, '0')}`;
+          return {
+            id,
+            title: n === 1 ? 'Narrow Azure Hat' : 'Common Shirt',
+            sku: `SKU-${String(n).padStart(6, '0')}`,
+            created: String(n).padStart(6, '0'),
+          };
+        });
+        const json = JSON.stringify(rows);
+        await db.batch([
+          db
+            .prepare(
+              "INSERT INTO products(id,slug,title,created_at,updated_at) SELECT json_extract(value,'$.id'),json_extract(value,'$.id'),json_extract(value,'$.title'),json_extract(value,'$.created'),json_extract(value,'$.created') FROM json_each(?)"
+            )
+            .bind(json),
+          db
+            .prepare(
+              "INSERT INTO variants(id,product_id,sku,title,price_cents,created_at) SELECT 'v'||json_extract(value,'$.id'),json_extract(value,'$.id'),json_extract(value,'$.sku'),'Default',100,'2026' FROM json_each(?)"
+            )
+            .bind(json),
+        ]);
+      }
+      const scenarios = [
+        ['baseline_count_shape', 'SELECT COUNT(*) AS n FROM products', []],
+        [
+          'baseline_first_shape',
+          "SELECT p.id FROM products p LEFT JOIN variants v ON v.product_id=p.id AND v.status='active' LEFT JOIN stock s ON s.sku=v.sku GROUP BY p.id ORDER BY p.created_at DESC,p.id DESC LIMIT 100 OFFSET 0",
+          [],
+        ],
+        [
+          'baseline_deep_shape',
+          "SELECT p.id FROM products p LEFT JOIN variants v ON v.product_id=p.id AND v.status='active' LEFT JOIN stock s ON s.sku=v.sku GROUP BY p.id ORDER BY p.created_at DESC,p.id DESC LIMIT 100 OFFSET 4000",
+          [],
+        ],
+        [
+          'browse_first',
+          'SELECT id,created_at FROM products ORDER BY created_at DESC,id DESC LIMIT 51',
+          [],
+        ],
+        [
+          'browse_deep',
+          'SELECT id,created_at FROM products WHERE (created_at,id) < (?,?) ORDER BY created_at DESC,id DESC LIMIT 51',
+          ['001000', 'p001000'],
+        ],
+        [
+          'sku_exact_hit',
+          'SELECT p.id,p.created_at FROM variants v JOIN products p ON p.id=v.product_id WHERE v.sku=? LIMIT 1001',
+          ['SKU-000001'],
+        ],
+        [
+          'sku_exact_miss',
+          'SELECT p.id,p.created_at FROM variants v JOIN products p ON p.id=v.product_id WHERE v.sku=? LIMIT 1001',
+          ['ABSENT'],
+        ],
+        [
+          'sku_prefix_narrow',
+          'SELECT p.id,p.created_at FROM variants v JOIN products p ON p.id=v.product_id WHERE v.sku>=? AND v.sku<? LIMIT 1001',
+          ['SKU-000001', 'SKU-000002'],
+        ],
+        [
+          'sku_prefix_broad',
+          'SELECT p.id,p.created_at FROM variants v JOIN products p ON p.id=v.product_id WHERE v.sku>=? AND v.sku<? LIMIT 1001',
+          ['SKU-', 'SKU.'],
+        ],
+        [
+          'title_narrow',
+          'SELECT p.id,p.created_at FROM products_fts f JOIN products p ON p.rowid=f.rowid WHERE products_fts MATCH ? LIMIT 1001',
+          ['title : ("Narrow" AND "Azure")'],
+        ],
+        [
+          'title_common',
+          'SELECT p.id,p.created_at FROM products_fts f JOIN products p ON p.rowid=f.rowid WHERE products_fts MATCH ? LIMIT 1001',
+          ['title : ("Common")'],
+        ],
+        [
+          'title_multi_absent',
+          'SELECT p.id,p.created_at FROM products_fts f JOIN products p ON p.rowid=f.rowid WHERE products_fts MATCH ? LIMIT 1001',
+          ['title : ("Common" AND "Absent")'],
+        ],
+      ] as const;
+      for (const [name, sql, bindings] of scenarios) {
+        const plan = await db
+          .prepare(`EXPLAIN QUERY PLAN ${sql}`)
+          .bind(...bindings)
+          .all<{ detail: string }>();
+        const result = await db
+          .prepare(sql)
+          .bind(...bindings)
+          .all();
+        console.warn(
+          JSON.stringify({
+            size,
+            name,
+            rows: result.results.length,
+            rowsRead: result.meta.rows_read,
+            plan: plan.results.map((row) => row.detail),
+          })
+        );
+      }
+      let deepCursor: string | null = null;
+      if (size > 1000) {
+        for (let page = 0; page < 20; page++) {
+          const result = await adminProductDiscovery(db, { cursor: deepCursor });
+          deepCursor = result.nextCursor;
+        }
+      }
+      for (const [name, run] of [
+        [
+          'old_cards_first',
+          async (recorded: D1Database) => {
+            await listProducts(recorded, { limit: 100, offset: 0 });
+            await recorded.prepare('SELECT COUNT(*) AS n FROM products').all();
+          },
+        ],
+        [
+          'old_cards_deep',
+          async (recorded: D1Database) => {
+            await listProducts(recorded, { limit: 100, offset: 4000 });
+            await recorded.prepare('SELECT COUNT(*) AS n FROM products').all();
+          },
+        ],
+        ['new_browse_first', (recorded: D1Database) => adminProductDiscovery(recorded, {})],
+        [
+          'new_browse_deep',
+          (recorded: D1Database) => adminProductDiscovery(recorded, { cursor: deepCursor }),
+        ],
+        [
+          'new_title_common',
+          (recorded: D1Database) => adminProductDiscovery(recorded, { q: 'Common', mode: 'title' }),
+        ],
+      ] as const) {
+        const { db: recorded, reads } = recordingDb(db);
+        await run(recorded);
+        const rowsRead = reads.reduce((sum, read) => sum + read.rowsRead, 0);
+        if (name === 'new_browse_first' || name === 'new_browse_deep') {
+          expect(rowsRead).toBeLessThan(1000);
+        }
+        if (name === 'new_title_common') expect(rowsRead).toBeLessThan(2100);
+        console.warn(
+          JSON.stringify({
+            size,
+            name,
+            statements: reads.length,
+            rowsRead,
+            details: reads.map((read) => ({ rowsRead: read.rowsRead, sql: read.sql })),
+          })
+        );
+      }
+      const first = await adminProductDiscovery(db, {});
+      const deep = await adminProductDiscovery(db, { cursor: first.nextCursor });
+      expect(first.products).toHaveLength(Math.min(50, size));
+      expect(deep.products).toHaveLength(size === 10 ? 10 : 50);
+      expect((await adminProductDiscovery(db, { q: 'Common', mode: 'title' })).state).toBe(
+        size > 1000 ? 'refine' : 'ready'
+      );
+    } finally {
+      await dispose();
+    }
+  });
