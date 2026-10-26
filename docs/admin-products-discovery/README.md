@@ -89,13 +89,13 @@ Two candidate shapes were rejected by measurement on the local workerd SQLite. A
 
 Migration `0019_product_list_sort_indexes.sql` adds five indexes, each justified by a query plan at 100,000 products with a 90/9/1 active/draft/archived distribution:
 
-| Index | Justification |
-| --- | --- |
-| `products_title_id_idx (title COLLATE NOCASE, id)` | Unfiltered title sort. Baseline was a table scan plus temporary B-tree (149,999 rows read). |
-| `products_updated_id_idx (updated_at, id)` | Unfiltered Recently updated. Baseline was a table scan plus temporary B-tree (149,999 rows read). |
-| `products_status_created_id_idx (status, created_at, id)` | Status-filtered Newest and Oldest. Baseline used the status index plus a temporary B-tree (135,000 rows read for the common status). |
-| `products_status_updated_id_idx (status, updated_at, id)` | Status-filtered Recently updated, same baseline failure. |
-| `products_status_title_id_idx (status, title COLLATE NOCASE, id)` | Status-filtered Title A-Z, same baseline failure. |
+| Index                                                             | Justification                                                                                                                        |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `products_title_id_idx (title COLLATE NOCASE, id)`                | Unfiltered title sort. Baseline was a table scan plus temporary B-tree (149,999 rows read).                                          |
+| `products_updated_id_idx (updated_at, id)`                        | Unfiltered Recently updated. Baseline was a table scan plus temporary B-tree (149,999 rows read).                                    |
+| `products_status_created_id_idx (status, created_at, id)`         | Status-filtered Newest and Oldest. Baseline used the status index plus a temporary B-tree (135,000 rows read for the common status). |
+| `products_status_updated_id_idx (status, updated_at, id)`         | Status-filtered Recently updated, same baseline failure.                                                                             |
+| `products_status_title_id_idx (status, title COLLATE NOCASE, id)` | Status-filtered Title A-Z, same baseline failure.                                                                                    |
 
 With these indexes, every deep page tested (20 pages in; 5 pages in for the rare archived status, which holds 1,000 of the 100,000 products) reads 52 candidate rows (51 for the title branches) and 550 projection rows: 602 rows total, forward and backward, for all four sorts under All, the common status, and the rare status. The first page reads the same candidate figure, so deep pages cost what the first page costs. The projection figure is for one variant per product; the heavy-page fanout evidence above still applies to the projection.
 
@@ -103,12 +103,12 @@ The migration checker does not compare index collation, so `check:migrations` pa
 
 Matched SKUs come from the existing SKU candidate rows. The candidate queries already join variants; they now also return the matched SKU and variant title. Matches are grouped by product before deduplication, sorted by SKU in binary order, and capped at three with the remainder counted from the complete bounded candidate set. No extra query was added.
 
-| Resource or claim | Classification | Evidence |
-| --- | --- | --- |
-| D1 rows read for filtered and sorted deep pages | Measured | Local workerd fixture at 100,000 products, recorded in `tests/admin-product-discovery-scale.test.ts` under `DISCOVERY_100K=1` |
-| Query count per list call | Measured | Two statements for a ready page; three for a title-sorted browse page after the first (two seek branches plus projection) |
-| Worker CPU, deployed latency, checkout coexistence | Unavailable | No deployed measurement; not claimed as passed |
-| Write, KV, queue, and purge impact | Not applicable | Read path only, by construction |
+| Resource or claim                                  | Classification | Evidence                                                                                                                      |
+| -------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| D1 rows read for filtered and sorted deep pages    | Measured       | Local workerd fixture at 100,000 products, recorded in `tests/admin-product-discovery-scale.test.ts` under `DISCOVERY_100K=1` |
+| Query count per list call                          | Measured       | Two statements for a ready page; three for a title-sorted browse page after the first (two seek branches plus projection)     |
+| Worker CPU, deployed latency, checkout coexistence | Unavailable    | No deployed measurement; not claimed as passed                                                                                |
+| Write, KV, queue, and purge impact                 | Not applicable | Read path only, by construction                                                                                               |
 
 Reproduce the deep-page evidence from the repository root:
 

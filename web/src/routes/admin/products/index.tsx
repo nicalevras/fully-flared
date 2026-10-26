@@ -48,8 +48,15 @@ const getData = createServerFn({ method: 'GET' })
   });
 
 export const Route = createFileRoute('/admin/products/')({
-  validateSearch: (search: { q?: unknown; mode?: unknown; status?: unknown; sort?: unknown; cursor?: unknown } & SearchSchemaInput) =>
-    normalizeProductSearch(search),
+  validateSearch: (
+    search: {
+      q?: unknown;
+      mode?: unknown;
+      status?: unknown;
+      sort?: unknown;
+      cursor?: unknown;
+    } & SearchSchemaInput
+  ) => normalizeProductSearch(search),
   loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => getData({ data: deps }),
   pendingComponent: () => (
@@ -108,7 +115,13 @@ function AdminProducts() {
           event.preventDefault();
           const q = query.trim();
           void navigate({
-            search: { q, mode: q ? mode : null, status: search.status, sort: search.sort, cursor: undefined },
+            search: {
+              q,
+              mode: q ? mode : null,
+              status: search.status,
+              sort: search.sort,
+              cursor: undefined,
+            },
           });
         }}
       >
@@ -190,7 +203,13 @@ function AdminProducts() {
           onClick={() => {
             setQuery('');
             void navigate({
-              search: { q: '', mode: null, status: search.status, sort: search.sort, cursor: undefined },
+              search: {
+                q: '',
+                mode: null,
+                status: search.status,
+                sort: search.sort,
+                cursor: undefined,
+              },
             });
           }}
         >

@@ -281,8 +281,7 @@ export async function adminProductDiscovery(
         list.push({ sku: row.sku, title: row.variant_title ?? '' });
         matched.set(row.id, list);
       }
-      for (const list of matched.values())
-        list.sort((a, b) => compareBinaryStrings(a.sku, b.sku));
+      for (const list of matched.values()) list.sort((a, b) => compareBinaryStrings(a.sku, b.sku));
     }
     candidates = [...new Map(candidates.map((row) => [row.id, row])).values()]
       .sort((a, b) => compareCandidates(input.sort, a, b))

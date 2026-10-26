@@ -238,8 +238,18 @@ it('returns an empty page for a cursor whose remaining rows were deleted', async
 });
 
 it('normalizes malformed search params to a safe empty or default search', () => {
-  expect(normalizeProductSearch(null)).toEqual({ q: '', mode: null, status: 'all', sort: 'newest' });
-  expect(normalizeProductSearch('nope')).toEqual({ q: '', mode: null, status: 'all', sort: 'newest' });
+  expect(normalizeProductSearch(null)).toEqual({
+    q: '',
+    mode: null,
+    status: 'all',
+    sort: 'newest',
+  });
+  expect(normalizeProductSearch('nope')).toEqual({
+    q: '',
+    mode: null,
+    status: 'all',
+    sort: 'newest',
+  });
   expect(normalizeProductSearch({ q: 42, mode: 'title' })).toEqual({
     q: '',
     mode: null,

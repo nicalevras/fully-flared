@@ -317,7 +317,10 @@ it.runIf(process.env.DISCOVERY_100K === '1')(
               pages,
               statements: reads.length,
               rowsRead: deepRows,
-              details: reads.map((read) => ({ rowsRead: read.rowsRead, sql: read.sql.slice(0, 90) })),
+              details: reads.map((read) => ({
+                rowsRead: read.rowsRead,
+                sql: read.sql.slice(0, 90),
+              })),
             })
           );
           expect(deep.products).toHaveLength(50);

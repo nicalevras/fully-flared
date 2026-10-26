@@ -24,13 +24,17 @@ async function product(
   status = 'draft'
 ) {
   await db
-    .prepare(
-      'INSERT INTO products(id,slug,title,status,created_at,updated_at) VALUES(?,?,?,?,?,?)'
-    )
+    .prepare('INSERT INTO products(id,slug,title,status,created_at,updated_at) VALUES(?,?,?,?,?,?)')
     .bind(id, id, title, status, createdAt, updatedAt)
     .run();
 }
-async function variant(id: string, productId: string, sku: string, price = 1000, title = 'Default') {
+async function variant(
+  id: string,
+  productId: string,
+  sku: string,
+  price = 1000,
+  title = 'Default'
+) {
   await db
     .prepare(
       'INSERT INTO variants(id,product_id,sku,title,price_cents,created_at) VALUES(?,?,?,?,?,?)'
@@ -113,18 +117,18 @@ it('filters by product status in browse and in every search mode', async () => {
   await variant('v1', 'act', 'HAT-1');
   await variant('v2', 'drf', 'HAT-2');
   await variant('v3', 'arc', 'HAT-3');
-  expect((await adminProductDiscovery(db, { status: 'active' })).products.map((r) => r.id)).toEqual([
-    'act',
-  ]);
+  expect((await adminProductDiscovery(db, { status: 'active' })).products.map((r) => r.id)).toEqual(
+    ['act']
+  );
   expect(
-    (await adminProductDiscovery(db, { q: 'Red Hat', mode: 'title', status: 'draft' })).products.map(
-      (r) => r.id
-    )
+    (
+      await adminProductDiscovery(db, { q: 'Red Hat', mode: 'title', status: 'draft' })
+    ).products.map((r) => r.id)
   ).toEqual(['drf']);
   expect(
-    (await adminProductDiscovery(db, { q: 'HAT-', mode: 'sku-prefix', status: 'archived' })).products.map(
-      (r) => r.id
-    )
+    (
+      await adminProductDiscovery(db, { q: 'HAT-', mode: 'sku-prefix', status: 'archived' })
+    ).products.map((r) => r.id)
   ).toEqual(['arc']);
   expect(
     (await adminProductDiscovery(db, { q: 'HAT-1', mode: 'sku-exact', status: 'draft' })).products
@@ -188,7 +192,9 @@ it('projects price range and total variant count in one row', async () => {
   await variant('v1', 'p', 'P-1', 900);
   await variant('v2', 'p', 'P-2', 400);
   await db
-    .prepare("INSERT INTO variants(id,product_id,sku,title,price_cents,status,created_at) VALUES('v3','p','P-3','Draft',100,'draft','2026')")
+    .prepare(
+      "INSERT INTO variants(id,product_id,sku,title,price_cents,status,created_at) VALUES('v3','p','P-3','Draft',100,'draft','2026')"
+    )
     .run();
   const result = await adminProductDiscovery(db, {});
   expect(result.products[0]).toMatchObject({
@@ -211,7 +217,7 @@ it('creates the title indexes with NOCASE collation in the migrated schema', asy
   for (const row of result.results) expect(row.sql).toContain('COLLATE NOCASE');
   const plan = await db
     .prepare(
-      "EXPLAIN QUERY PLAN SELECT id FROM products WHERE title COLLATE NOCASE > ? ORDER BY title COLLATE NOCASE, id LIMIT 51"
+      'EXPLAIN QUERY PLAN SELECT id FROM products WHERE title COLLATE NOCASE > ? ORDER BY title COLLATE NOCASE, id LIMIT 51'
     )
     .bind('Product 050000')
     .all<{ detail: string }>();
