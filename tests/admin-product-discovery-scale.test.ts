@@ -206,3 +206,59 @@ for (const size of sizes)
       await dispose();
     }
   });
+
+it(
+  'records a heavy 50-product page with variant and media fanout',
+  { timeout: 120000 },
+  async () => {
+    const { db, dispose } = await createTestDb({ transportRetry: true });
+    try {
+      await db
+        .prepare(
+          "WITH RECURSIVE c(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM c WHERE n<50) INSERT INTO products(id,slug,title,created_at,updated_at) SELECT printf('h%03d',n),printf('h%03d',n),'Heavy','2026','2026' FROM c"
+        )
+        .run();
+      await db
+        .prepare(
+          "WITH RECURSIVE p(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM p WHERE n<50), v(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM v WHERE n<20) INSERT INTO variants(id,product_id,sku,title,price_cents,created_at) SELECT printf('hv%03d-%02d',p.n,v.n),printf('h%03d',p.n),printf('H%03d-%02d',p.n,v.n),'Variant',100+v.n,'2026' FROM p,v"
+        )
+        .run();
+      await db
+        .prepare(
+          "WITH RECURSIVE p(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM p WHERE n<50), m(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM m WHERE n<5) INSERT INTO media(id,r2_key,filename,content_type,created_at,ready) SELECT printf('hm%03d-%d',p.n,m.n),printf('hk%03d-%d',p.n,m.n),'x.jpg','image/jpeg','2026',1 FROM p,m"
+        )
+        .run();
+      await db
+        .prepare(
+          "INSERT INTO product_media(product_id,media_id,position) SELECT printf('h%03d',CAST(SUBSTR(id,3,3) AS INTEGER)),id,CAST(SUBSTR(id,7) AS INTEGER) FROM media"
+        )
+        .run();
+      await db
+        .prepare(
+          "INSERT INTO stock(sku,on_hand,reserved,updated_at) SELECT sku,10,1,'2026' FROM variants"
+        )
+        .run();
+      const { db: recorded, reads } = recordingDb(db);
+      const result = await adminProductDiscovery(recorded, {});
+      expect(result.products).toHaveLength(50);
+      expect(result.products[0]).toMatchObject({
+        id: 'h050',
+        price_cents: 101,
+        available: 180,
+        image_key: 'hk050-1',
+      });
+      const totalRowsRead = reads.reduce((sum, read) => sum + read.rowsRead, 0);
+      console.warn(
+        JSON.stringify({
+          name: 'heavy_page_50x20x5',
+          statements: reads.length,
+          rowsRead: totalRowsRead,
+          details: reads.map((read) => ({ rowsRead: read.rowsRead, sql: read.sql.slice(0, 80) })),
+        })
+      );
+      expect(totalRowsRead).toBeLessThan(20000);
+    } finally {
+      await dispose();
+    }
+  }
+);

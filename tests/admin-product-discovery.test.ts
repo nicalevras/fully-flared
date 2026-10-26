@@ -1,9 +1,7 @@
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { createTestDb } from './helpers/d1';
-import {
-  adminProductDiscovery,
-  normalizeProductSearch,
-} from '../web/src/server/admin-product-discovery';
+import { adminProductDiscovery } from '../web/src/server/admin-product-discovery';
+import { normalizeProductSearch } from '../web/src/lib/product-search';
 
 let db: D1Database;
 let dispose: () => Promise<void>;
@@ -177,5 +175,84 @@ it('projects a product with many child rows without multiplying the visible prod
     price_cents: 1,
     available: 0,
     image_key: 'k01',
+  });
+});
+
+it('handles punctuation, quotes and malformed title input without throwing', async () => {
+  await product('cpp', 'C++ Shirt', '2026');
+  await product('hat', 'New Wool & Hat', '2025');
+  for (const q of [
+    '"',
+    "'",
+    '+++',
+    '()',
+    ':',
+    'A " B',
+    '-',
+    '*',
+    '...',
+    '!!!',
+    'C++ AND (',
+    'title:',
+  ]) {
+    const result = await adminProductDiscovery(db, { q, mode: 'title' });
+    expect(Array.isArray(result.products)).toBe(true);
+  }
+  expect(
+    (await adminProductDiscovery(db, { q: 'C++', mode: 'title' })).products.map((row) => row.id)
+  ).toEqual(['cpp']);
+  expect((await adminProductDiscovery(db, { q: '"', mode: 'title' })).products).toEqual([]);
+  expect(
+    (await adminProductDiscovery(db, { q: 'Wool Hat', mode: 'title' })).products.map(
+      (row) => row.id
+    )
+  ).toEqual(['hat']);
+  expect((await adminProductDiscovery(db, { q: '&', mode: 'title' })).products).toEqual([]);
+});
+
+it('refines a broad title search and succeeds when the search is narrowed', async () => {
+  await db
+    .prepare(
+      "WITH RECURSIVE c(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM c WHERE n<1001) INSERT INTO products(id,slug,title,created_at,updated_at) SELECT printf('c%04d',n),printf('c%04d',n),'Common Shirt','2026','2026' FROM c"
+    )
+    .run();
+  await product('unique', 'Common Unique Shirt', '2027');
+  expect((await adminProductDiscovery(db, { q: 'Common', mode: 'title' })).state).toBe('refine');
+  const narrowed = await adminProductDiscovery(db, { q: 'Common Unique', mode: 'title' });
+  expect(narrowed.state).toBe('ready');
+  expect(narrowed.products.map((row) => row.id)).toEqual(['unique']);
+});
+
+it('returns an empty page for a cursor whose remaining rows were deleted', async () => {
+  await db
+    .prepare(
+      "WITH RECURSIVE c(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM c WHERE n<51) INSERT INTO products(id,slug,title,created_at,updated_at) SELECT printf('d%03d',n),printf('d%03d',n),'Row','2026','2026' FROM c"
+    )
+    .run();
+  const first = await adminProductDiscovery(db, {});
+  expect(first.products).toHaveLength(50);
+  await db.prepare("DELETE FROM products WHERE id='d001'").run();
+  const emptied = await adminProductDiscovery(db, { cursor: first.nextCursor });
+  expect(emptied.products).toEqual([]);
+  expect(emptied.nextCursor).toBeNull();
+});
+
+it('normalizes malformed search params to a safe empty or default search', () => {
+  expect(normalizeProductSearch(null)).toEqual({ q: '', mode: null });
+  expect(normalizeProductSearch('nope')).toEqual({ q: '', mode: null });
+  expect(normalizeProductSearch({ q: 42, mode: 'title' })).toEqual({ q: '', mode: null });
+  expect(normalizeProductSearch({ q: 'x'.repeat(201), mode: 'title' })).toEqual({
+    q: '',
+    mode: null,
+  });
+  expect(normalizeProductSearch({ q: ' Hat ', mode: 'bogus' })).toEqual({
+    q: 'Hat',
+    mode: 'title',
+    cursor: undefined,
+  });
+  expect(normalizeProductSearch({ q: 'Hat', mode: 'sku-exact', cursor: 'bad' })).toEqual({
+    q: 'Hat',
+    mode: 'sku-exact',
+    cursor: undefined,
   });
 });
