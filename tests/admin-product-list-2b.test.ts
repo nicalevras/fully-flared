@@ -223,4 +223,3 @@ it('creates the title indexes with NOCASE collation in the migrated schema', asy
     .all<{ detail: string }>();
   expect(plan.results.map((row) => row.detail).join(' ')).toContain('SEARCH');
 });
-
