@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ebb6a522-35bb-4ba0-b54c-7d321e3e41bd",
+  "id": "a95976f7-4be5-41fb-b905-787b9cbe19f9",
   "prevId": "4f516c19-d567-4fa8-86e1-78271f3c9ca3",
   "tables": {
     "account": {
@@ -3869,7 +3869,7 @@
         },
         "products_title_id_idx": {
           "name": "products_title_id_idx",
-          "columns": ["title", "id"],
+          "columns": ["\"title\" COLLATE NOCASE", "id"],
           "isUnique": false
         },
         "products_updated_id_idx": {
@@ -3889,7 +3889,7 @@
         },
         "products_status_title_id_idx": {
           "name": "products_status_title_id_idx",
-          "columns": ["status", "title", "id"],
+          "columns": ["status", "\"title\" COLLATE NOCASE", "id"],
           "isUnique": false
         }
       },
@@ -5331,6 +5331,21 @@
     "columns": {}
   },
   "internal": {
-    "indexes": {}
+    "indexes": {
+      "products_title_id_idx": {
+        "columns": {
+          "\"title\" COLLATE NOCASE": {
+            "isExpression": true
+          }
+        }
+      },
+      "products_status_title_id_idx": {
+        "columns": {
+          "\"title\" COLLATE NOCASE": {
+            "isExpression": true
+          }
+        }
+      }
+    }
   }
 }
