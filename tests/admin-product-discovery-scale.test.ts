@@ -345,7 +345,6 @@ it.runIf(process.env.DISCOVERY_100K === '1')(
   }
 );
 
-
 it.runIf(process.env.DISCOVERY_100K === '1')(
   'keeps deep pages bounded in a draft-heavy catalog at 100000 products',
   { timeout: 600000 },
