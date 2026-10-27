@@ -18,6 +18,7 @@ import {
   MAX_OPTION_GROUPS,
   MAX_VARIANT_COMBINATIONS,
   countCombinations,
+  droppedEditedCombinations,
   generateVariantCombinations,
   validateOptionGroups,
   validateVariantCombinations,
@@ -81,16 +82,15 @@ function AdminProductNew() {
   const combinationCount = countCombinations(groups);
 
   const confirmEditedLoss = (nextGroups: VariantOptionGroup[]): boolean => {
-    const nextKeys = new Set(
+    const dropped = droppedEditedCombinations(
+      combinations,
+      editedKeys,
       generateVariantCombinations(
         nextGroups,
         draft.slug || suggestedProductSlug(draft.title),
         { price: draft.price, stock: draft.stock },
         combinations
-      ).map((combo) => combo.key)
-    );
-    const dropped = combinations.filter(
-      (combo) => editedKeys.has(combo.key) && !nextKeys.has(combo.key)
+      )
     );
     if (dropped.length === 0) return true;
     return window.confirm(

@@ -59,6 +59,15 @@ export function validateOptionGroups(groups: VariantOptionGroup[]): string[] {
   return errors;
 }
 
+export function droppedEditedCombinations(
+  combinations: VariantCombination[],
+  editedKeys: ReadonlySet<string>,
+  next: VariantCombination[]
+): VariantCombination[] {
+  const nextKeys = new Set(next.map((combo) => combo.key));
+  return combinations.filter((combo) => editedKeys.has(combo.key) && !nextKeys.has(combo.key));
+}
+
 export function countCombinations(groups: VariantOptionGroup[]): number {
   const cleaned = cleanOptionGroups(groups);
   if (cleaned.length === 0) return 0;

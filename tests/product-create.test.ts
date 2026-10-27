@@ -47,6 +47,25 @@ describe('product creation draft', () => {
     expect(errors.stock).toBeTruthy();
   });
 
+  it('rejects prices that are not exact cent amounts', () => {
+    for (const price of ['29.999', '1e2', '-1', '', 'abc', '1000000.01']) {
+      expect(validateProductCreateDraft({ ...valid, price }).price, price).toBeTruthy();
+    }
+  });
+
+  it('accepts exact prices and carries their cents into the payload', () => {
+    for (const [price, cents] of [
+      ['0', 0],
+      ['0.00', 0],
+      ['29.99', 2999],
+      ['1000000.00', 100_000_000],
+    ] as const) {
+      const draft = { ...valid, price };
+      expect(validateProductCreateDraft(draft)).toEqual({});
+      expect(productCreatePayload(draft).variants[0]?.priceCents).toBe(cents);
+    }
+  });
+
   it('maps duplicate server errors back to their fields', () => {
     expect(productCreateServerField('A product with slug everyday-tote already exists')).toBe(
       'slug'
