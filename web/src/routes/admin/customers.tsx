@@ -9,7 +9,7 @@ import { btnPrimary, labelCls } from '../../components/ui';
 import { validateServerInput } from '../../server/function-boundary';
 import { AdminPager } from '../../components/AdminPager';
 import { formatDate } from '../../lib/format';
-import { createFileRoute, useRouter } from '@tanstack/react-router';
+import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import { useAdminAction } from '../../components/AdminNav';
 import { formatMoney } from '../../components/ProductCard';
@@ -79,10 +79,27 @@ function AdminCustomers() {
       <h1 className={pageTitle}>Customers</h1>
       <p className={pageSub}>
         {total} account{total === 1 ? '' : 's'}
-        {total > customers.length ? `, showing ${customers.length} on this page` : ''}. Everyone who
-        signs up appears here with their order history. Staff roles control what someone can do in
-        this admin.
+        {total > customers.length ? `, showing ${customers.length} on this page` : ''}. Shoppers and
+        staff are listed together here for now, and staff rows are marked by their role. Open a
+        customer to see their workspace. Role changes affect admin access, never shopper history.
       </p>
+      <section className={`${cardCls} mt-5 p-4`} aria-label="Staff accounts on this page">
+        <h2 className="text-sm font-medium text-zinc-950">Staff on this page</h2>
+        {customers.filter((c) => c.role !== 'customer').length === 0 ? (
+          <p className="mt-1 text-sm text-zinc-500">No staff accounts on this page.</p>
+        ) : (
+          <ul className="mt-1 space-y-1 text-sm text-zinc-600">
+            {customers
+              .filter((c) => c.role !== 'customer')
+              .map((c) => (
+                <li key={c.id}>
+                  {c.email} · {c.role}. Staff access is managed with the role control in the table.
+                  Shopper support never changes a role.
+                </li>
+              ))}
+          </ul>
+        )}
+      </section>
 
       <form
         className={`${cardCls} mt-5 flex flex-wrap items-end gap-3 p-4`}
@@ -220,7 +237,15 @@ function AdminCustomers() {
                           {(c.name || c.email).slice(0, 1).toUpperCase()}
                         </span>
                         <span>
-                          <span className="block font-medium text-zinc-950">{c.name || '—'}</span>
+                          <span className="block font-medium text-zinc-950">
+                            <Link
+                              to="/admin/customers/$id"
+                              params={{ id: c.id }}
+                              className="hover:underline"
+                            >
+                              {c.name || '—'}
+                            </Link>
+                          </span>
                           <span className="block text-[13px] text-zinc-500">{c.email}</span>
                         </span>
                       </span>
