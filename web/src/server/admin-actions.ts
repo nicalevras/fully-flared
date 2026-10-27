@@ -436,6 +436,9 @@ export async function runAdminAction(
       case 'stock.adjust': {
         const f = parsedAction.data;
         if (f.operationId) {
+          // FF-08: the audit row commits inside the same batch as stock,
+          // ledger, and receipt. A replay never re-runs the batch, so it
+          // can never add a second audit row.
           const outcome = await adjustStockIdempotent(db, {
             operationId: f.operationId,
             actorId: actor.id,
@@ -443,15 +446,17 @@ export async function runAdminAction(
             delta: f.delta,
             reason: (f.reason as 'restock') || 'restock',
             ...(f.note !== undefined ? { note: f.note } : {}),
+            extraStatements: [
+              auditStmt(db, actor.id, 'stock.adjust', 'stock', f.sku, {
+                delta: f.delta,
+                operationId: f.operationId,
+                replayed: false,
+              }),
+            ],
           });
           if (outcome.status === 'conflict')
             return { ok: false, error: outcome.error, conflict: true };
           if (outcome.status === 'missing-sku') return { ok: false, error: outcome.error };
-          await audit(db, actor.id, 'stock.adjust', 'stock', f.sku, {
-            delta: f.delta,
-            operationId: f.operationId,
-            replayed: outcome.replayed,
-          });
           await broadcastAdminRealtime('inventory.updated', { sku: f.sku as string });
           return {
             ok: true,
@@ -462,8 +467,9 @@ export async function runAdminAction(
             },
           };
         }
-        await adjustStock(db, f.sku, f.delta, (f.reason as 'restock') || 'restock');
-        await audit(db, actor.id, 'stock.adjust', 'stock', f.sku, { delta: f.delta });
+        await adjustStock(db, f.sku, f.delta, (f.reason as 'restock') || 'restock', [
+          auditStmt(db, actor.id, 'stock.adjust', 'stock', f.sku, { delta: f.delta }),
+        ]);
         await broadcastAdminRealtime('inventory.updated', { sku: f.sku as string });
         return { ok: true };
       }
