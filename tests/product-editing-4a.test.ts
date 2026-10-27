@@ -98,3 +98,15 @@ describe('Phase 4A reviewed product save', () => {
     expect(await revision()).toBe(beforeRevision);
   });
 });
+
+describe('product editor presentation remediation (FF-12, FF-15)', () => {
+  it('labels prices in the store currency and blocks internal navigation while dirty', async () => {
+    const { readFileSync } = await import('node:fs');
+    const source = readFileSync('web/src/routes/admin/products/$id.tsx', 'utf8');
+    expect(source).not.toContain('Price ($)');
+    expect(source).not.toContain('Compare at ($)');
+    expect(source).toContain('Price ({currency})');
+    expect(source).toContain('useBlocker');
+    expect(source).toContain("blocker.status === 'blocked'");
+  });
+});
