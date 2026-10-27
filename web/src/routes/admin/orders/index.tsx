@@ -11,24 +11,33 @@ import {
 } from '../../../components/AdminActionFeedback';
 import { formatMoney } from '../../../components/ProductCard';
 import { StatusBadge } from '../../../components/StatusBadge';
-import { adminOrders } from '../../../server/admin-lists';
-import { orderPagesSchema } from '../../../schemas/pagination';
-import { orderPagesSearch } from '../../../lib/search-params';
+import { adminOrderDiscovery } from '../../../server/admin-order-discovery';
+import { orderDiscoveryInputSchema } from '../../../server/admin-order-discovery';
+import { normalizeOrderSearch, type OrderView } from '../../../lib/order-search';
 import { validateServerInput } from '../../../server/function-boundary';
-import { AdminPager } from '../../../components/AdminPager';
 import { roles, type StaffRole } from '../../../lib/permissions';
 import { refundActionMessage } from '../../../lib/order-actions';
-import { btnSmall, cardCls, pageSub, pageTitle, tableCls, tableWrap } from '../../../components/ui';
+import {
+  btnPrimary,
+  btnSmall,
+  cardCls,
+  inputCls,
+  labelCls,
+  pageSub,
+  pageTitle,
+  tableCls,
+  tableWrap,
+} from '../../../components/ui';
 
 const getData = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
-  .validator(validateServerInput(orderPagesSchema))
+  .validator(validateServerInput(orderDiscoveryInputSchema))
   .handler(async ({ data, context }) => {
     requireStaffPermission(context.staff, 'order', 'view');
     const { env } = await import('cloudflare:workers');
     const role = roles[context.staff.role as StaffRole];
     return {
-      ...(await adminOrders(env.DB, data)),
+      ...(await adminOrderDiscovery(env.DB, data)),
       canRefund: role?.authorize({ order: ['refund'] }).success ?? false,
       canApprove: role?.authorize({ return: ['approve'] }).success ?? false,
       canReject: role?.authorize({ return: ['reject'] }).success ?? false,
@@ -36,8 +45,8 @@ const getData = createServerFn({ method: 'GET' })
   });
 
 export const Route = createFileRoute('/admin/orders/')({
-  validateSearch: orderPagesSearch,
-  loaderDeps: ({ search }) => ({ page: search.page, returnsPage: search.returnsPage }),
+  validateSearch: (search: Record<string, unknown>) => normalizeOrderSearch(search),
+  loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => getData({ data: deps }),
   component: AdminOrders,
 });
@@ -45,20 +54,16 @@ export const Route = createFileRoute('/admin/orders/')({
 function AdminOrders() {
   const adminAction = useAdminAction();
 
-  const {
-    orders,
-    returns,
-    totalOrders,
-    totalReturns,
-    page,
-    returnsPage,
-    canRefund,
-    canApprove,
-    canReject,
-  } = Route.useLoaderData();
+  const { orders, returns, nextCursor, previousCursor, canRefund, canApprove, canReject } =
+    Route.useLoaderData();
+  const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
-  const requested = returns.filter((r) => ['requested', 'refund_failed'].includes(r.status));
+  const [query, setQuery] = useState(search.q);
+  const [payment, setPayment] = useState(search.payment);
+  const [from, setFrom] = useState(search.from);
+  const [to, setTo] = useState(search.to);
+  const requested = returns;
   const [busyId, setBusyId] = useState('');
   const [msg, setMsg] = useState<AdminActionFeedbackState>(null);
 
@@ -66,25 +71,147 @@ function AdminOrders() {
     <main>
       <h1 className={pageTitle}>Orders</h1>
       <p className={pageSub}>
-        {totalOrders} order{totalOrders === 1 ? '' : 's'}
-        {totalOrders > orders.length ? `, showing ${orders.length} on this page` : ''}. Click an
-        order for items, address, shipping, and refunds.
+        Find an order by number or customer email, work the paid and unfulfilled queue, and open an
+        order for items, address, shipping, and refunds. Fulfillment is read from the order status.
+        Paid and processing orders are unfulfilled.
       </p>
       <AdminActionFeedback value={msg} />
 
-      <AdminPager
-        label="Orders pagination"
-        page={page}
-        total={totalOrders}
-        pageSize={100}
-        onPage={(page) => {
-          void navigate({ search: (prev) => ({ ...prev, page }) });
+      <form
+        className={`${cardCls} mt-5 flex flex-wrap items-end gap-3 p-4`}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void navigate({
+            search: { q: query.trim(), view: search.view, payment, from, to },
+          });
         }}
-      />
+      >
+        <div className="min-w-48 flex-1">
+          <label className={labelCls} htmlFor="order-q">
+            Order number or customer email
+          </label>
+          <input
+            id="order-q"
+            className={inputCls}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="FF-1001 or ada@example.com"
+          />
+        </div>
+        <div>
+          <label className={labelCls} htmlFor="order-view">
+            View
+          </label>
+          <select
+            id="order-view"
+            className={inputCls}
+            value={search.view}
+            onChange={(event) =>
+              void navigate({
+                search: {
+                  q: query.trim(),
+                  view: event.target.value as OrderView,
+                  payment,
+                  from,
+                  to,
+                },
+              })
+            }
+          >
+            <option value="queue">Paid and unfulfilled</option>
+            <option value="all">All orders</option>
+            <option value="payment-issues">Payment issues</option>
+            <option value="returns">Return requests</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelCls} htmlFor="order-payment">
+            Payment
+          </label>
+          <select
+            id="order-payment"
+            className={inputCls}
+            value={payment}
+            onChange={(event) => setPayment(event.target.value as typeof payment)}
+          >
+            <option value="all">Any payment state</option>
+            <option value="unpaid">Unpaid</option>
+            <option value="paid">Paid</option>
+            <option value="failed">Failed</option>
+            <option value="refunded">Refunded</option>
+            <option value="partially_refunded">Partially refunded</option>
+            <option value="disputed">Disputed</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelCls} htmlFor="order-from">
+            From
+          </label>
+          <input
+            id="order-from"
+            type="date"
+            className={inputCls}
+            value={from}
+            onChange={(event) => setFrom(event.target.value)}
+          />
+        </div>
+        <div>
+          <label className={labelCls} htmlFor="order-to">
+            To
+          </label>
+          <input
+            id="order-to"
+            type="date"
+            className={inputCls}
+            value={to}
+            onChange={(event) => setTo(event.target.value)}
+          />
+        </div>
+        <button type="submit" className={btnPrimary}>
+          Search
+        </button>
+        <nav className="flex gap-2" aria-label="Orders pagination">
+          <button
+            type="button"
+            className={btnSmall}
+            disabled={!previousCursor}
+            onClick={() =>
+              previousCursor && void navigate({ search: { ...search, cursor: previousCursor } })
+            }
+          >
+            Previous
+          </button>
+          <button
+            type="button"
+            className={btnSmall}
+            disabled={!nextCursor}
+            onClick={() =>
+              nextCursor && void navigate({ search: { ...search, cursor: nextCursor } })
+            }
+          >
+            Next
+          </button>
+        </nav>
+      </form>
       <section className={`${cardCls} mt-6 overflow-hidden`}>
         {orders.length === 0 ? (
           <p className="p-5 text-sm text-zinc-500" role="status">
-            No orders yet.
+            {search.view === 'queue'
+              ? 'Nothing is waiting to be fulfilled in this view.'
+              : 'No orders match this search.'}{' '}
+            <button
+              type="button"
+              className="underline"
+              onClick={() => {
+                setQuery('');
+                setPayment('all');
+                setFrom('');
+                setTo('');
+                void navigate({ search: { q: '', view: 'all', payment: 'all', from: '', to: '' } });
+              }}
+            >
+              Clear the search and filters
+            </button>
           </p>
         ) : (
           <div className={tableWrap}>
@@ -189,20 +316,9 @@ function AdminOrders() {
         )}
       </section>
 
-      <AdminPager
-        label="Pending returns pagination"
-        page={returnsPage}
-        total={totalReturns}
-        pageSize={50}
-        onPage={(returnsPage) => {
-          void navigate({ search: (prev) => ({ ...prev, returnsPage }) });
-        }}
-      />
-      {requested.length > 0 ? (
+      {search.view === 'returns' && requested.length > 0 ? (
         <section className={`${cardCls} mt-5 overflow-hidden`}>
-          <h2 className="px-5 pt-4 pb-3 text-sm font-medium text-zinc-950">
-            Return requests ({totalReturns})
-          </h2>
+          <h2 className="px-5 pt-4 pb-3 text-sm font-medium text-zinc-950">Return requests</h2>
           <div className={tableWrap}>
             <table className={tableCls}>
               <caption className="sr-only">Return requests</caption>
