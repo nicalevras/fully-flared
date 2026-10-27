@@ -23,7 +23,7 @@ describe('FF-16 Tier A: audit commits atomically with the change', () => {
       .run();
     await db
       .prepare(
-        "INSERT INTO media (id, r2_key, filename, content_type, created_at) VALUES ('m1', 'k1', 'a.jpg', 'image/jpeg', '2026')"
+        "INSERT INTO media (id, r2_key, filename, content_type, alt_text, created_at) VALUES ('m1', 'k1', 'a.jpg', 'image/jpeg', 'original', '2026')"
       )
       .run();
     await db
@@ -52,7 +52,11 @@ describe('FF-16 Tier A: audit commits atomically with the change', () => {
       )?.n
     ).toBe(0);
     expect(
-      (await db.prepare('SELECT COUNT(*) AS n FROM shipping_rates WHERE name = 'Std'').first<{ n: number }>())?.n
+      (
+        await db
+          .prepare("SELECT COUNT(*) AS n FROM shipping_rates WHERE name = 'Std'")
+          .first<{ n: number }>()
+      )?.n
     ).toBe(0);
     expect(
       (await db.prepare('SELECT COUNT(*) AS n FROM collections').first<{ n: number }>())?.n
@@ -61,7 +65,7 @@ describe('FF-16 Tier A: audit commits atomically with the change', () => {
       .prepare('SELECT alt_text FROM media WHERE id = ?')
       .bind('m1')
       .first<{ alt_text: string | null }>();
-    expect(media?.alt_text ?? null).toBeNull();
+    expect(media?.alt_text).toBe('original');
     await db.prepare('DROP TRIGGER audit_fail').run();
     // The same operations succeed once the audit write can land.
     const ok = await runAdminAction(db, env, owner, 'discount.create', {
@@ -80,5 +84,19 @@ describe('FF-05: discount edit mode survives a failed update', () => {
     const source = readFileSync('web/src/routes/admin/discounts.tsx', 'utf8');
     expect(source).toContain('if (succeeded && editingId) setEditingId');
     expect(source).not.toContain("if (editingId) setEditingId('');");
+  });
+});
+
+describe('FF-11: shipping sample quote checks permission server-side', () => {
+  it('requires the shipping permission in the server function, not just staff auth', async () => {
+    const { readFileSync } = await import('node:fs');
+    const source = readFileSync('web/src/routes/admin/shipping.tsx', 'utf8');
+    const fn = source.slice(source.indexOf('const previewQuoteFn'));
+    expect(fn).toContain("requireStaffPermission(context.staff, 'shipping', 'create-zone')");
+    const { roleCan } = await import('../web/src/lib/permissions');
+    expect(roleCan('support', 'shipping', 'create-zone')).toBe(false);
+    expect(roleCan('warehouse', 'shipping', 'create-zone')).toBe(false);
+    expect(roleCan('manager', 'shipping', 'create-zone')).toBe(true);
+    expect(roleCan('owner', 'shipping', 'create-zone')).toBe(true);
   });
 });

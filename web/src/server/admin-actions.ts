@@ -585,12 +585,16 @@ export async function runAdminAction(
       }
       case 'shipping.deleteRate': {
         const f = parsedAction.data;
-        const deleted = await db
-          .prepare('DELETE FROM shipping_rates WHERE id = ?')
+        const exists = await db
+          .prepare('SELECT id FROM shipping_rates WHERE id = ?')
           .bind(f.rateId)
-          .run();
-        if (!deleted.meta.changes) return { ok: false, error: 'Rate not found', status: 404 };
-        await audit(db, actor.id, 'shipping.deleteRate', 'shipping_rate', f.rateId);
+          .first();
+        if (!exists) return { ok: false, error: 'Rate not found', status: 404 };
+        const [deleted] = await db.batch([
+          db.prepare('DELETE FROM shipping_rates WHERE id = ?').bind(f.rateId),
+          auditStmt(db, actor.id, 'shipping.deleteRate', 'shipping_rate', f.rateId),
+        ]);
+        if (!deleted?.meta.changes) return { ok: false, error: 'Rate not found', status: 404 };
         return { ok: true };
       }
       case 'order.ship': {
