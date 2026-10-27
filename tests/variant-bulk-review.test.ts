@@ -17,8 +17,12 @@ describe('bulk variant price review', () => {
   });
 
   it('rejects an empty selection and a missing price', () => {
-    expect(buildBulkPriceReview(variants, [], 2500).errors).toContain('Select at least one variant.');
-    expect(buildBulkPriceReview(variants, ['v1'], null).errors).toContain('Enter a price of zero or more.');
+    expect(buildBulkPriceReview(variants, [], 2500).errors).toContain(
+      'Select at least one variant.'
+    );
+    expect(buildBulkPriceReview(variants, ['v1'], null).errors).toContain(
+      'Enter a price of zero or more.'
+    );
   });
 
   it('rejects a selection past the bounded cap', () => {
