@@ -6,6 +6,8 @@ import { staffMiddleware } from '../server/staff-middleware';
 import { validateServerInput } from '../server/function-boundary';
 import { roleCan } from '../lib/permissions';
 import type { GlobalSearchResult } from '../server/admin-global-search';
+import { createSearchGate, runLatestSearch } from '../lib/global-search';
+import { SearchIcon } from './icons';
 import { cardCls, inputCls } from './ui';
 
 const searchFn = createServerFn({ method: 'POST' })
@@ -36,61 +38,115 @@ export function GlobalSearchTrigger() {
   );
 }
 
+export function GlobalSearchMobileTrigger() {
+  return (
+    <button
+      type="button"
+      aria-label="Open global search"
+      className="ml-auto flex size-10 shrink-0 items-center justify-center rounded-md text-zinc-600 hover:bg-zinc-50"
+      onClick={() => window.dispatchEvent(new Event(GLOBAL_SEARCH_EVENT))}
+    >
+      <SearchIcon className="size-5" />
+    </button>
+  );
+}
+
 export function GlobalSearchDialog() {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const [result, setResult] = useState<GlobalSearchResult | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [active, setActive] = useState(0);
-  const seq = useRef(0);
+  const gate = useRef(createSearchGate());
+  const queryRef = useRef('');
+  const returnFocusRef = useRef<HTMLElement | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const run = useServerFn(searchFn);
 
+  const close = () => {
+    gate.current.invalidate();
+    setOpen(false);
+    setQ('');
+    queryRef.current = '';
+    setResult(null);
+    setSearchError(null);
+    const target = returnFocusRef.current;
+    returnFocusRef.current = null;
+    if (target) requestAnimationFrame(() => target.focus({ preventScroll: true }));
+  };
+
   useEffect(() => {
+    const openDialog = () => {
+      if (document.activeElement instanceof HTMLElement) {
+        returnFocusRef.current = document.activeElement;
+      }
+      setOpen(true);
+    };
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        setOpen(true);
+        openDialog();
       }
     };
-    const onOpen = () => setOpen(true);
     window.addEventListener('keydown', onKey);
-    window.addEventListener(GLOBAL_SEARCH_EVENT, onOpen);
+    window.addEventListener(GLOBAL_SEARCH_EVENT, openDialog);
     return () => {
       window.removeEventListener('keydown', onKey);
-      window.removeEventListener(GLOBAL_SEARCH_EVENT, onOpen);
+      window.removeEventListener(GLOBAL_SEARCH_EVENT, openDialog);
     };
   }, []);
 
   useEffect(() => {
     if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  useEffect(() => {
+    queryRef.current = q;
+    if (!open) return;
     const query = q.trim();
     if (query.length < 2) {
+      gate.current.invalidate();
       setResult(null);
+      setSearchError(null);
       return;
     }
-    const mine = ++seq.current;
     const timer = setTimeout(async () => {
-      const r = await run({ data: { q: query } });
-      if (seq.current === mine) {
-        setResult(r);
-        setActive(0);
+      try {
+        const outcome = await runLatestSearch(
+          gate.current,
+          query,
+          () => queryRef.current,
+          (value) => run({ data: { q: value } })
+        );
+        if (outcome.applied) {
+          setResult(outcome.value);
+          setSearchError(null);
+          setActive(0);
+        }
+      } catch {
+        setResult(null);
+        setSearchError('Search failed. Check your connection and try again.');
       }
     }, 250);
     return () => clearTimeout(timer);
   }, [open, q, run]);
 
   if (!open) return null;
-  const close = () => {
-    seq.current++;
-    setOpen(false);
-    setQ('');
-    setResult(null);
-  };
   const linkCount =
     (result?.products.length ?? 0) + (result?.orders.length ?? 0) + (result?.customers.length ?? 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-zinc-950/40 p-4 pt-20">
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center bg-zinc-950/40 p-4 pt-20"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) close();
+      }}
+    >
       <div
         role="dialog"
         aria-modal="true"
@@ -124,7 +180,11 @@ export function GlobalSearchDialog() {
             }
           }}
         />
-        {result ? (
+        {searchError ? (
+          <p className="mt-3 text-sm text-red-700" role="alert">
+            {searchError}
+          </p>
+        ) : result ? (
           <div className="mt-3 space-y-4">
             {result.products.length ? (
               <div>
