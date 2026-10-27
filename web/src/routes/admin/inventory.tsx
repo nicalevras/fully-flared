@@ -6,6 +6,13 @@ import { staffMiddleware } from '../../server/staff-middleware';
 import { validateServerInput } from '../../server/function-boundary';
 import { useAdminAction } from '../../components/AdminNav';
 import {
+  applyMultiOutcome,
+  parseMultiAdjustments,
+  retryableItems,
+  summarizeMulti,
+  type MultiAdjustmentItem,
+} from '../../lib/inventory-multi';
+import {
   AdminActionFeedback,
   type AdminActionFeedbackState,
 } from '../../components/AdminActionFeedback';
@@ -129,6 +136,48 @@ function AdminInventory() {
   const [operationId, setOperationId] = useState(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<AdminActionFeedbackState>(null);
+  const [multiText, setMultiText] = useState('');
+  const [multiReason, setMultiReason] = useState('restock');
+  const [multiItems, setMultiItems] = useState<MultiAdjustmentItem[] | null>(null);
+  const [multiBusy, setMultiBusy] = useState(false);
+
+  async function runMulti(itemsToRun: MultiAdjustmentItem[]) {
+    setMultiBusy(true);
+    let current = multiItems ?? itemsToRun;
+    for (const item of itemsToRun) {
+      const result = await adminAction('stock.adjust', {
+        sku: item.sku,
+        delta: item.delta,
+        reason: item.reason,
+        note: item.note,
+        operationId: item.operationId,
+      });
+      current = applyMultiOutcome(current, item.sku, {
+        ok: result.ok,
+        message: result.ok
+          ? (result.data as { replayed?: boolean } | undefined)?.replayed
+            ? 'Already recorded. Not applied twice.'
+            : 'Recorded'
+          : result.error,
+      });
+      setMultiItems(current);
+    }
+    setMultiBusy(false);
+    const summary = summarizeMulti(current);
+    if (summary.complete) {
+      setFeedback({ kind: 'status', message: `All ${summary.total} adjustments recorded.` });
+    } else if (summary.partial) {
+      setFeedback({
+        kind: 'error',
+        message: `${summary.applied} of ${summary.total} adjustments recorded. Review the failed rows, then retry only those rows.`,
+      });
+    } else {
+      setFeedback({
+        kind: 'error',
+        message: 'No adjustments were recorded. Review the rows below.',
+      });
+    }
+  }
 
   return (
     <main>
@@ -191,6 +240,136 @@ function AdminInventory() {
           No stock record for {search.sku}.
         </p>
       ) : null}
+
+      <section className={`${cardCls} mt-5 p-5`}>
+        <h2 className="text-sm font-medium text-zinc-950">Adjust several SKUs</h2>
+        <p className="mt-1 text-sm text-zinc-500">
+          One SKU and a signed amount per line, for example TEE-1, 5 or HAT-2, -3. At most 20 SKUs
+          at once. Review the list before anything is recorded.
+        </p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <div className="sm:col-span-2">
+            <label className={labelCls} htmlFor="multi-lines">
+              SKUs and amounts
+            </label>
+            <textarea
+              id="multi-lines"
+              className={inputCls}
+              rows={5}
+              value={multiText}
+              onChange={(event) => {
+                setMultiText(event.target.value);
+                setMultiItems(null);
+              }}
+              placeholder={'TEE-1, 5\nHAT-2, -3'}
+            />
+          </div>
+          <div>
+            <label className={labelCls} htmlFor="multi-reason">
+              Reason for every row
+            </label>
+            <select
+              id="multi-reason"
+              className={inputCls}
+              value={multiReason}
+              onChange={(event) => {
+                setMultiReason(event.target.value);
+                setMultiItems(null);
+              }}
+            >
+              <option value="restock">Restock</option>
+              <option value="correction">Correction</option>
+              <option value="damaged">Damaged</option>
+              <option value="return">Return</option>
+            </select>
+          </div>
+        </div>
+        {!multiItems ? (
+          <button
+            type="button"
+            className={btnPrimary}
+            onClick={() => {
+              const parsed = parseMultiAdjustments(
+                multiText,
+                { reason: multiReason, note: '' },
+                () => crypto.randomUUID()
+              );
+              if (parsed.errors.length > 0) {
+                setFeedback({ kind: 'error', message: parsed.errors.join(' ') });
+                return;
+              }
+              setMultiItems(parsed.items);
+            }}
+          >
+            Review adjustments
+          </button>
+        ) : (
+          <div className="mt-3">
+            <div className={tableWrap} tabIndex={0} role="region" aria-label="Reviewed adjustments">
+              <table className={`${tableCls} min-w-[520px]`}>
+                <thead>
+                  <tr>
+                    <th>SKU</th>
+                    <th>Change</th>
+                    <th>Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {multiItems.map((item) => (
+                    <tr key={item.operationId}>
+                      <td>{item.sku}</td>
+                      <td>{item.delta > 0 ? `+${item.delta}` : item.delta}</td>
+                      <td>
+                        {item.status === 'pending'
+                          ? 'Not recorded yet'
+                          : item.status === 'applied'
+                            ? item.message
+                            : `Failed. ${item.message}`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {summarizeMulti(multiItems).pending > 0 ? (
+                <button
+                  type="button"
+                  className={btnPrimary}
+                  disabled={multiBusy}
+                  onClick={() => void runMulti(retryableItems(multiItems))}
+                >
+                  {multiBusy ? 'Recording...' : 'Record reviewed adjustments'}
+                </button>
+              ) : null}
+              {retryableItems(multiItems).length > 0 && summarizeMulti(multiItems).failed > 0 ? (
+                <button
+                  type="button"
+                  className={btnPrimary}
+                  disabled={multiBusy}
+                  onClick={() => void runMulti(retryableItems(multiItems))}
+                >
+                  Retry failed rows only
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className={btnSmall}
+                disabled={multiBusy}
+                onClick={() => setMultiItems(null)}
+              >
+                Edit list
+              </button>
+            </div>
+            {summarizeMulti(multiItems).partial ? (
+              <p className="mt-2 text-sm text-amber-700" role="status">
+                Partial success. Recorded rows stay recorded. Retrying sends only the failed rows,
+                with their original operation IDs, so nothing is adjusted twice.
+              </p>
+            ) : null}
+          </div>
+        )}
+      </section>
 
       {detail ? (
         <>
