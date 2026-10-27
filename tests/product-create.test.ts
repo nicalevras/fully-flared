@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   emptyProductCreateDraft,
   productCreatePayload,
@@ -72,5 +73,14 @@ describe('product creation draft', () => {
     );
     expect(productCreateServerField('SKU TOTE-001 is already in use')).toBe('sku');
     expect(productCreateServerField('Something else failed')).toBeNull();
+  });
+});
+
+describe('product creation confirmation (FF-01)', () => {
+  it('uses the shared ConfirmDialog, never window.confirm', () => {
+    const source = readFileSync('web/src/routes/admin/products/new.tsx', 'utf8');
+    expect(source).not.toContain('window.confirm');
+    expect(source).toContain('ConfirmDialog');
+    expect(source).toContain('pendingGroups');
   });
 });

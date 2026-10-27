@@ -26,6 +26,7 @@ import {
   type VariantOptionGroup,
 } from '../../../lib/product-variant-options';
 import { useStoreCurrency } from '../../../lib/use-store-currency';
+import { ConfirmDialog, type ConfirmRequest } from '../../../components/ConfirmDialog';
 import { roleCan } from '../../../lib/permissions';
 import { parseMoneyCents } from '../../../lib/format';
 import { normalizeProductSearch } from '../../../lib/product-search';
@@ -81,7 +82,10 @@ function AdminProductNew() {
 
   const combinationCount = countCombinations(groups);
 
-  const confirmEditedLoss = (nextGroups: VariantOptionGroup[]): boolean => {
+  const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
+  const [pendingGroups, setPendingGroups] = useState<VariantOptionGroup[] | null>(null);
+
+  const requestOptionChange = (nextGroups: VariantOptionGroup[]): void => {
     const dropped = droppedEditedCombinations(
       combinations,
       editedKeys,
@@ -92,10 +96,17 @@ function AdminProductNew() {
         combinations
       )
     );
-    if (dropped.length === 0) return true;
-    return window.confirm(
-      `This removes ${dropped.length} edited variant(s): ${dropped.map((combo) => combo.title).join(', ')}. Their SKU, price, and stock edits will be lost.`
-    );
+    if (dropped.length === 0) {
+      setGroups(nextGroups);
+      regenerate(nextGroups, combinations);
+      return;
+    }
+    setPendingGroups(nextGroups);
+    setConfirmRequest({
+      title: 'Remove edited variants?',
+      body: `This removes ${dropped.length} edited variant(s): ${dropped.map((combo) => combo.title).join(', ')}. Their SKU, price, and stock edits will be lost.`,
+      confirmLabel: 'Remove variants',
+    });
   };
 
   const regenerate = (nextGroups: VariantOptionGroup[], previous: VariantCombination[]) => {
@@ -153,6 +164,22 @@ function AdminProductNew() {
         </Link>
       </div>
       <AdminActionFeedback value={feedback} />
+      <ConfirmDialog
+        request={confirmRequest}
+        busy={busy}
+        onConfirm={() => {
+          if (pendingGroups) {
+            setGroups(pendingGroups);
+            regenerate(pendingGroups, combinations);
+          }
+          setPendingGroups(null);
+          setConfirmRequest(null);
+        }}
+        onCancel={() => {
+          setPendingGroups(null);
+          setConfirmRequest(null);
+        }}
+      />
 
       <form
         className={`${cardCls} mt-5 space-y-6 p-5 sm:p-6`}
@@ -469,9 +496,7 @@ function AdminProductNew() {
                         const next = groups.map((item, index) =>
                           index === groupIndex ? { ...item, valuesText: event.target.value } : item
                         );
-                        if (!confirmEditedLoss(next)) return;
-                        setGroups(next);
-                        regenerate(next, combinations);
+                        requestOptionChange(next);
                       }}
                     />
                   </div>
@@ -487,9 +512,7 @@ function AdminProductNew() {
                     onClick={() => {
                       setResetArmed(false);
                       const next = groups.filter((_, index) => index !== groupIndex);
-                      if (!confirmEditedLoss(next)) return;
-                      setGroups(next);
-                      regenerate(next, combinations);
+                      requestOptionChange(next);
                     }}
                   >
                     Remove {group.name.trim() || `option ${groupIndex + 1}`}
