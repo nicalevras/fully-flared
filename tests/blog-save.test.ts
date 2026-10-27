@@ -121,13 +121,11 @@ describe('runEditorSave', () => {
 });
 
 describe('blog editor wiring', () => {
-  it('epoch resets on creation and discard; fill uses the local conversion', () => {
-    const page = readFileSync('web/src/routes/admin/blog.tsx', 'utf8');
-    expect(page).toContain('key={form.id || `new-${editorEpoch}`}');
-    expect(page.match(/setEditorEpoch\(\(epoch\) => epoch \+ 1\)/g)?.length).toBeGreaterThanOrEqual(
-      2
-    );
-    expect(page).toContain('utcToLocalDateTimeInput(p.published_at)');
+  it('editor remounts per post and fill uses the local conversion', () => {
+    const page = readFileSync('web/src/routes/admin/blog_/$id.tsx', 'utf8');
+    expect(page).toContain("key={post?.id ?? 'new'}");
+    expect(page).toContain("key={form.id || 'new'}");
+    expect(page).toContain('utcToLocalDateTimeInput(post.published_at)');
     expect(page).not.toContain('slice(0, 16)');
     const editor = readFileSync('web/src/components/BlogEditor.tsx', 'utf8');
     expect(editor).toContain('runEditorSave');

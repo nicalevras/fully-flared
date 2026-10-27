@@ -49,6 +49,7 @@ import { Route as ShopCollectionsIndexRouteImport } from './routes/_shop.collect
 import { Route as ShopCollectionsSlugRouteImport } from './routes/_shop.collections/$slug'
 import { Route as ShopPagesSlugRouteImport } from './routes/_shop.pages/$slug'
 import { Route as ShopProductsSlugRouteImport } from './routes/_shop.products/$slug'
+import { Route as AdminBlogIdRouteImport } from './routes/admin/blog_/$id'
 import { Route as AdminCustomersIdRouteImport } from './routes/admin/customers_/$id'
 import { Route as AdminOrdersIndexRouteImport } from './routes/admin/orders/index'
 import { Route as AdminOrdersIdRouteImport } from './routes/admin/orders/$id'
@@ -260,6 +261,11 @@ const ShopProductsSlugRoute = ShopProductsSlugRouteImport.update({
   path: '/products/$slug',
   getParentRoute: () => ShopRoute,
 } as any)
+const AdminBlogIdRoute = AdminBlogIdRouteImport.update({
+  id: '/blog_/$id',
+  path: '/blog/$id',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const AdminCustomersIdRoute = AdminCustomersIdRouteImport.update({
   id: '/customers_/$id',
   path: '/customers/$id',
@@ -347,6 +353,7 @@ export interface FileRoutesByFullPath {
   '/collections/$slug': typeof ShopCollectionsSlugRoute
   '/pages/$slug': typeof ShopPagesSlugRoute
   '/products/$slug': typeof ShopProductsSlugRoute
+  '/admin/blog/$id': typeof AdminBlogIdRoute
   '/admin/customers/$id': typeof AdminCustomersIdRoute
   '/admin/orders/$id': typeof AdminOrdersIdRoute
   '/admin/products/$id': typeof AdminProductsIdRoute
@@ -396,6 +403,7 @@ export interface FileRoutesByTo {
   '/collections/$slug': typeof ShopCollectionsSlugRoute
   '/pages/$slug': typeof ShopPagesSlugRoute
   '/products/$slug': typeof ShopProductsSlugRoute
+  '/admin/blog/$id': typeof AdminBlogIdRoute
   '/admin/customers/$id': typeof AdminCustomersIdRoute
   '/admin/orders/$id': typeof AdminOrdersIdRoute
   '/admin/products/$id': typeof AdminProductsIdRoute
@@ -449,6 +457,7 @@ export interface FileRoutesById {
   '/_shop/collections/$slug': typeof ShopCollectionsSlugRoute
   '/_shop/pages/$slug': typeof ShopPagesSlugRoute
   '/_shop/products/$slug': typeof ShopProductsSlugRoute
+  '/admin/blog_/$id': typeof AdminBlogIdRoute
   '/admin/customers_/$id': typeof AdminCustomersIdRoute
   '/admin/orders/$id': typeof AdminOrdersIdRoute
   '/admin/products/$id': typeof AdminProductsIdRoute
@@ -502,6 +511,7 @@ export interface FileRouteTypes {
     | '/collections/$slug'
     | '/pages/$slug'
     | '/products/$slug'
+    | '/admin/blog/$id'
     | '/admin/customers/$id'
     | '/admin/orders/$id'
     | '/admin/products/$id'
@@ -551,6 +561,7 @@ export interface FileRouteTypes {
     | '/collections/$slug'
     | '/pages/$slug'
     | '/products/$slug'
+    | '/admin/blog/$id'
     | '/admin/customers/$id'
     | '/admin/orders/$id'
     | '/admin/products/$id'
@@ -603,6 +614,7 @@ export interface FileRouteTypes {
     | '/_shop/collections/$slug'
     | '/_shop/pages/$slug'
     | '/_shop/products/$slug'
+    | '/admin/blog_/$id'
     | '/admin/customers_/$id'
     | '/admin/orders/$id'
     | '/admin/products/$id'
@@ -917,6 +929,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShopProductsSlugRouteImport
       parentRoute: typeof ShopRoute
     }
+    '/admin/blog_/$id': {
+      id: '/admin/blog_/$id'
+      path: '/blog/$id'
+      fullPath: '/admin/blog/$id'
+      preLoaderRoute: typeof AdminBlogIdRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/customers_/$id': {
       id: '/admin/customers_/$id'
       path: '/customers/$id'
@@ -1002,6 +1021,7 @@ interface AdminRouteRouteChildren {
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminShippingRoute: typeof AdminShippingRoute
   AdminIndexRoute: typeof AdminIndexRoute
+  AdminBlogIdRoute: typeof AdminBlogIdRoute
   AdminCustomersIdRoute: typeof AdminCustomersIdRoute
   AdminOrdersIdRoute: typeof AdminOrdersIdRoute
   AdminProductsIdRoute: typeof AdminProductsIdRoute
@@ -1023,6 +1043,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminSettingsRoute: AdminSettingsRoute,
   AdminShippingRoute: AdminShippingRoute,
   AdminIndexRoute: AdminIndexRoute,
+  AdminBlogIdRoute: AdminBlogIdRoute,
   AdminCustomersIdRoute: AdminCustomersIdRoute,
   AdminOrdersIdRoute: AdminOrdersIdRoute,
   AdminProductsIdRoute: AdminProductsIdRoute,
