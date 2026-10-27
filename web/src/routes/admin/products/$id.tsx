@@ -18,6 +18,7 @@ import { formatMoney } from '../../../lib/format';
 import { uploadMedia } from '../../../lib/upload';
 import { applyVariantEdits, type VariantEdits } from '../../../lib/variant-edits';
 import { BlogEditor } from '../../../components/BlogEditor';
+import { buildBulkPriceReview } from '../../../lib/variant-bulk-review';
 import {
   btnDestructive,
   btnPrimary,
@@ -216,7 +217,8 @@ function EditForm({
       Object.fromEntries(Object.entries(current).filter(([id]) => !ids.includes(id)))
     );
   const [selectedVariants, setSelectedVariants] = useState<string[]>([]);
-  const [bulk, setBulk] = useState({ price: '', stockDelta: '' });
+  const [bulk, setBulk] = useState({ price: '' });
+  const [bulkReviewOpen, setBulkReviewOpen] = useState(false);
   const [newVariant, setNewVariant] = useState({ sku: '', title: '', price: '29.99' });
   const [stockDelta, setStockDelta] = useState<Record<string, string>>({});
   const [collectionIds, setCollectionIds] = useState<string[]>(
@@ -607,39 +609,12 @@ function EditForm({
                 onChange={(e) => setBulk({ ...bulk, price: e.target.value })}
               />
             </span>
-            <span>
-              <label className="sr-only" htmlFor="bulk-stock">
-                Bulk stock change
-              </label>
-              <input
-                id="bulk-stock"
-                placeholder="Stock +10"
-                className={`${inputCls} w-28`}
-                value={bulk.stockDelta}
-                onChange={(e) => setBulk({ ...bulk, stockDelta: e.target.value })}
-              />
-            </span>
             <button
               className={btnSmall}
-              disabled={busy || selectedVariants.length === 0 || (!bulk.price && !bulk.stockDelta)}
-              onClick={async () => {
-                const ok = await act(
-                  'variant.bulkUpdate',
-                  {
-                    variantIds: selectedVariants,
-                    priceCents: bulk.price ? Math.round(Number(bulk.price) * 100) : null,
-                    stockDelta: bulk.stockDelta ? Number(bulk.stockDelta) : 0,
-                  },
-                  `Bulk update applied to ${selectedVariants.length} variant${selectedVariants.length === 1 ? '' : 's'}.`
-                );
-                if (ok) {
-                  discardEdits(selectedVariants);
-                  setSelectedVariants([]);
-                  setBulk({ price: '', stockDelta: '' });
-                }
-              }}
+              disabled={busy || selectedVariants.length === 0 || !bulk.price}
+              onClick={() => setBulkReviewOpen(true)}
             >
-              Apply to selected
+              Review price changes
             </button>
             <button
               className={btnSmall}
@@ -651,6 +626,78 @@ function EditForm({
             >
               {selectedVariants.length === variants.length ? 'Clear selection' : 'Select all'}
             </button>
+          </div>
+        ) : null}
+        {bulkReviewOpen ? (
+          <div
+            className="mt-4 rounded-xl border border-zinc-200 p-4"
+            role="region"
+            aria-label="Review bulk price changes"
+          >
+            {(() => {
+              const review = buildBulkPriceReview(
+                variants,
+                selectedVariants,
+                bulk.price ? Math.round(Number(bulk.price) * 100) : null
+              );
+              return (
+                <>
+                  <h3 className="text-sm font-medium text-zinc-950">Review price changes</h3>
+                  {review.errors.length > 0 ? (
+                    <p className="mt-1 text-sm text-red-700" role="alert">
+                      {review.errors.join(' ')}
+                    </p>
+                  ) : (
+                    <ul className="mt-2 space-y-1 text-sm text-zinc-600">
+                      {review.rows.map((row) => (
+                        <li key={row.id}>
+                          {row.sku} ({row.title}): {formatMoney(row.oldPriceCents, currency)} to{' '}
+                          {formatMoney(row.newPriceCents, currency)}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="mt-2 text-xs text-zinc-500">
+                    One submission updates every listed variant together. If any variant fails, none
+                    are changed. Stock is not changed here. Use the stock controls or Inventory so
+                    every stock change goes through the ledger.
+                  </p>
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      type="button"
+                      className={btnPrimary}
+                      disabled={busy || review.errors.length > 0}
+                      onClick={async () => {
+                        const ok = await act(
+                          'variant.bulkUpdate',
+                          {
+                            variantIds: selectedVariants,
+                            priceCents: bulk.price ? Math.round(Number(bulk.price) * 100) : null,
+                            stockDelta: 0,
+                          },
+                          `Price updated for ${selectedVariants.length} variant${selectedVariants.length === 1 ? '' : 's'}.`
+                        );
+                        if (ok) {
+                          discardEdits(selectedVariants);
+                          setSelectedVariants([]);
+                          setBulk({ price: '' });
+                          setBulkReviewOpen(false);
+                        }
+                      }}
+                    >
+                      Apply price to {selectedVariants.length} selected
+                    </button>
+                    <button
+                      type="button"
+                      className={btnSmall}
+                      onClick={() => setBulkReviewOpen(false)}
+                    >
+                      Back
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         ) : null}
         <div className="mt-4 space-y-3">
