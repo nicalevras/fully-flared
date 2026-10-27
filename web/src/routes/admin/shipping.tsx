@@ -1,8 +1,16 @@
 import { useState } from 'react';
 import { staffMiddleware } from '../../server/staff-middleware';
+import { requireStaffPermission } from '../../server/session';
 import { useStoreCurrency } from '../../lib/use-store-currency';
 import { createFileRoute, useRouter } from '@tanstack/react-router';
-import { createServerFn } from '@tanstack/react-start';
+import { createServerFn, useServerFn } from '@tanstack/react-start';
+import * as z from 'zod';
+import { validateServerInput } from '../../server/function-boundary';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
+import {
+  AdminActionFeedback,
+  type AdminActionFeedbackState,
+} from '../../components/AdminActionFeedback';
 import { useAdminAction, type AdminPayload } from '../../components/AdminNav';
 import { formatMoney } from '../../components/ProductCard';
 import {
@@ -29,6 +37,57 @@ type Zone = {
     per_kg_cents: number | null;
   }>;
 };
+
+export function countryLabel(code: string): string {
+  try {
+    const name = new Intl.DisplayNames(['en'], { type: 'region' }).of(code.toUpperCase());
+    return name ? `${name} (${code.toUpperCase()})` : code.toUpperCase();
+  } catch {
+    return code.toUpperCase();
+  }
+}
+
+export function rateKindLabel(kind: string): string {
+  if (kind === 'weight') return 'Weight based';
+  if (kind === 'free_over') return 'Free over threshold';
+  return 'Flat';
+}
+
+const previewQuoteFn = createServerFn({ method: 'POST' })
+  .middleware([staffMiddleware])
+  .validator(
+    validateServerInput(
+      z.object({
+        rateId: z.string().min(1).max(200),
+        country: z
+          .string()
+          .trim()
+          .length(2)
+          .transform((s) => s.toUpperCase()),
+        subtotalCents: z.number().int().min(0).max(100_000_000),
+        weightGrams: z.number().int().min(0).max(1_000_000),
+      })
+    )
+  )
+  .handler(async ({ data, context }) => {
+    // FF-11: staff authentication alone is not enough; the sample quote
+    // requires the same shipping permission as rate management.
+    requireStaffPermission(context.staff, 'shipping', 'create-zone');
+    const { env } = await import('cloudflare:workers');
+    const { calculateShipping } = await import('../../server/checkout');
+    try {
+      const cents = await calculateShipping(
+        env.DB,
+        data.rateId,
+        data.subtotalCents,
+        data.weightGrams,
+        data.country
+      );
+      return { ok: true as const, cents };
+    } catch (e) {
+      return { ok: false as const, error: e instanceof Error ? e.message : 'Quote unavailable' };
+    }
+  });
 
 const getData = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
@@ -69,7 +128,20 @@ function Page() {
     kind: 'flat',
     perKg: '',
   });
-  const [msg, setMsg] = useState('');
+  const [feedback, setFeedback] = useState<AdminActionFeedbackState>(null);
+  const [pendingDelete, setPendingDelete] = useState<{
+    rateId: string;
+    rateName: string;
+    lastRate: boolean;
+  } | null>(null);
+  const [quote, setQuote] = useState({
+    rateId: '',
+    country: 'US',
+    subtotal: '100.00',
+    weightKg: '1',
+  });
+  const [quoteMsg, setQuoteMsg] = useState('');
+  const previewQuote = useServerFn(previewQuoteFn);
   const [busy, setBusy] = useState(false);
 
   async function run(action: string, payload: AdminPayload, ok: string) {
@@ -77,9 +149,9 @@ function Page() {
     const r = await adminAction(action, payload);
     setBusy(false);
     if (r.ok) {
-      setMsg(ok);
+      setFeedback({ kind: 'status', message: ok });
       router.invalidate();
-    } else setMsg(r.error ?? 'Failed');
+    } else setFeedback({ kind: 'error', message: r.error ?? 'Failed' });
   }
 
   return (
@@ -90,6 +162,7 @@ function Page() {
         check out. A $0 rate is free shipping, and a free-over threshold makes shipping free above
         an order total.
       </p>
+      <AdminActionFeedback value={feedback} />
 
       <div className="mt-6 space-y-4">
         {zones.length === 0 ? (
@@ -103,7 +176,7 @@ function Page() {
               <div className="flex flex-wrap items-baseline gap-x-3 px-5 pt-4 pb-3">
                 <h2 className="text-sm font-medium text-zinc-950">{z.name}</h2>
                 <span className="text-[13px] text-zinc-500">
-                  {(JSON.parse(z.countries_json) as string[]).join(', ')}
+                  {(JSON.parse(z.countries_json) as string[]).map(countryLabel).join(', ')}
                 </span>
               </div>
               {z.rates.length === 0 ? (
@@ -116,14 +189,17 @@ function Page() {
                   <thead>
                     <tr>
                       <th scope="col">Rate</th>
+                      <th scope="col">Type</th>
                       <th scope="col">Price</th>
                       <th scope="col">Free over</th>
+                      <th scope="col">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {z.rates.map((r) => (
                       <tr key={r.id}>
                         <td className="font-medium">{r.name}</td>
+                        <td className="text-zinc-500">{rateKindLabel(r.kind)}</td>
                         <td>
                           {r.kind === 'weight'
                             ? `Base + ${formatMoney(r.per_kg_cents ?? 0, currency)}/kg: `
@@ -134,6 +210,22 @@ function Page() {
                           {r.free_over_cents != null
                             ? formatMoney(r.free_over_cents, currency)
                             : '—'}
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className="text-sm text-red-700 underline"
+                            disabled={busy}
+                            onClick={() =>
+                              setPendingDelete({
+                                rateId: r.id,
+                                rateName: r.name,
+                                lastRate: z.rates.length === 1,
+                              })
+                            }
+                          >
+                            Delete
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -297,11 +389,118 @@ function Page() {
           </button>
         </form>
       </div>
-      {msg ? (
-        <p className="mt-4 rounded-xl bg-green-50 px-4 py-3 text-sm text-green-700" role="status">
-          {msg}
+      <form
+        className={`${cardCls} mt-5 space-y-4 p-5 sm:p-6`}
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setQuoteMsg('');
+          const r = await previewQuote({
+            data: {
+              rateId: quote.rateId,
+              country: quote.country,
+              subtotalCents: Math.round(Number(quote.subtotal || 0) * 100),
+              weightGrams: Math.round(Number(quote.weightKg || 0) * 1000),
+            },
+          });
+          setQuoteMsg(
+            r.ok
+              ? `Sample quote: ${r.cents === 0 ? 'Free' : formatMoney(r.cents, currency)}`
+              : (r.error ?? 'Quote unavailable')
+          );
+        }}
+      >
+        <h2 className="text-sm font-medium text-zinc-950">Sample quote</h2>
+        <p className={hintCls}>
+          Uses the same shipping calculation as checkout. Changing the sample does not change any
+          rate.
         </p>
-      ) : null}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className={labelCls} htmlFor="q-rate">
+              Rate
+            </label>
+            <select
+              id="q-rate"
+              className={inputCls}
+              value={quote.rateId}
+              onChange={(e) => setQuote({ ...quote, rateId: e.target.value })}
+            >
+              <option value="">Select a rate</option>
+              {zones.flatMap((z) =>
+                z.rates.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {z.name}: {r.name}
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls} htmlFor="q-country">
+              Country code
+            </label>
+            <input
+              id="q-country"
+              className={inputCls}
+              value={quote.country}
+              onChange={(e) => setQuote({ ...quote, country: e.target.value.toUpperCase() })}
+            />
+          </div>
+          <div>
+            <label className={labelCls} htmlFor="q-subtotal">
+              Order subtotal ($)
+            </label>
+            <input
+              id="q-subtotal"
+              inputMode="decimal"
+              className={inputCls}
+              value={quote.subtotal}
+              onChange={(e) => setQuote({ ...quote, subtotal: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className={labelCls} htmlFor="q-weight">
+              Total weight (kg)
+            </label>
+            <input
+              id="q-weight"
+              inputMode="decimal"
+              className={inputCls}
+              value={quote.weightKg}
+              onChange={(e) => setQuote({ ...quote, weightKg: e.target.value })}
+            />
+          </div>
+        </div>
+        <button className={btnPrimary} type="submit" disabled={!quote.rateId}>
+          Preview quote
+        </button>
+        {quoteMsg ? (
+          <p className="text-sm text-zinc-700" role="status">
+            {quoteMsg}
+          </p>
+        ) : null}
+      </form>
+      <ConfirmDialog
+        request={
+          pendingDelete
+            ? {
+                title: `Delete rate ${pendingDelete.rateName}?`,
+                body: pendingDelete.lastRate
+                  ? 'This is the last rate in its zone. Customers in that zone will not be able to check out until you add another rate.'
+                  : 'Customers will no longer be able to choose this rate at checkout.',
+                confirmLabel: 'Delete rate',
+              }
+            : null
+        }
+        busy={busy}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={async () => {
+          if (!pendingDelete) return;
+          const rateId = pendingDelete.rateId;
+          setPendingDelete(null);
+          await run('shipping.deleteRate', { rateId }, 'Rate deleted.');
+        }}
+      />
     </main>
   );
 }

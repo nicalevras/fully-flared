@@ -583,6 +583,20 @@ export async function runAdminAction(
         ]);
         return { ok: true, data: { rateId } };
       }
+      case 'shipping.deleteRate': {
+        const f = parsedAction.data;
+        const exists = await db
+          .prepare('SELECT id FROM shipping_rates WHERE id = ?')
+          .bind(f.rateId)
+          .first();
+        if (!exists) return { ok: false, error: 'Rate not found', status: 404 };
+        const [deleted] = await db.batch([
+          db.prepare('DELETE FROM shipping_rates WHERE id = ?').bind(f.rateId),
+          auditStmt(db, actor.id, 'shipping.deleteRate', 'shipping_rate', f.rateId),
+        ]);
+        if (!deleted?.meta.changes) return { ok: false, error: 'Rate not found', status: 404 };
+        return { ok: true };
+      }
       case 'order.ship': {
         const f = parsedAction.data;
         const transition = id();
