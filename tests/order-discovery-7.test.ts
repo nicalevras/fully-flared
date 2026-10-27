@@ -123,3 +123,64 @@ describe('Phase 7 order discovery', () => {
     expect(queue.returns).toEqual([]);
   });
 });
+
+describe('FF-03: returns view pagination', () => {
+  it('pages through 55 open returns exactly once in both directions', async () => {
+    // Tied timestamps across the page boundary, failed refunds first.
+    for (let i = 1; i <= 55; i++) {
+      const id = `r${String(i).padStart(3, '0')}`;
+      const status = i <= 3 ? 'refund_failed' : 'requested';
+      await insertOrder(
+        `or${i}`,
+        `FF-20${String(i).padStart(2, '0')}`,
+        'ada@example.com',
+        'paid',
+        'paid',
+        '2026-02-01T00:00:00.000Z'
+      );
+      await db
+        .prepare(
+          "INSERT INTO returns(id,order_id,status,reason,created_at) VALUES(?, ?, ?, 'Changed mind', '2026-02-01T00:00:00.000Z')"
+        )
+        .bind(id, `or${i}`, status)
+        .run();
+    }
+    const first = await adminOrderDiscovery(db, { view: 'returns' });
+    expect(first.returns).toHaveLength(50);
+    expect(first.returns.slice(0, 3).map((r) => r.status)).toEqual([
+      'refund_failed',
+      'refund_failed',
+      'refund_failed',
+    ]);
+    expect(first.returnsNextCursor).not.toBeNull();
+    const second = await adminOrderDiscovery(db, {
+      view: 'returns',
+      returnsCursor: first.returnsNextCursor,
+    });
+    expect(second.returns).toHaveLength(5);
+    expect(second.returnsNextCursor).toBeNull();
+    const seen = [...first.returns, ...second.returns].map((r) => r.id);
+    expect(new Set(seen).size).toBe(55);
+    const back = await adminOrderDiscovery(db, {
+      view: 'returns',
+      returnsCursor: second.returnsPreviousCursor,
+    });
+    expect(back.returns.map((r) => r.id)).toEqual(first.returns.map((r) => r.id));
+  });
+
+  it('rejects a returns cursor from a different search', async () => {
+    await db
+      .prepare(
+        "INSERT INTO returns(id,order_id,status,reason,created_at) VALUES('rx','o1','requested','x','2026-02-01T00:00:00.000Z')"
+      )
+      .run();
+    const first = await adminOrderDiscovery(db, { view: 'returns', q: '' });
+    const other = await adminOrderDiscovery(db, {
+      view: 'returns',
+      q: 'ada',
+      returnsCursor: first.returnsNextCursor ?? undefined,
+    });
+    // Cross-query cursor is ignored, landing on the first page of the new search.
+    expect(other.returnsPreviousCursor).toBeNull();
+  });
+});
