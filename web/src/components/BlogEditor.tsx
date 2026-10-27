@@ -12,10 +12,12 @@ export function BlogEditor({
   initialHtml,
   onSave,
   onChange,
+  showSave,
 }: {
   initialHtml?: string;
   onSave: (html: string, json: string) => Promise<void>;
   onChange?: (html: string) => void;
+  showSave?: boolean;
 }) {
   const [saving, setSaving] = useState(false);
   const [uploadError, setUploadError] = useState('');
@@ -122,7 +124,7 @@ export function BlogEditor({
             {uploadError}
           </span>
         ) : null}
-        {onChange ? null : (
+        {onChange && !showSave ? null : (
           <button
             type="button"
             disabled={saving}
