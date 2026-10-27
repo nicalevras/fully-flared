@@ -4,6 +4,7 @@ import type { ComponentType, ReactElement } from 'react';
 import type { z } from 'zod';
 import { Link, linkOptions, useLocation } from '@tanstack/react-router';
 import { MenuIcon } from 'lucide-react';
+import { GlobalSearchDialog, GlobalSearchTrigger } from './GlobalSearch';
 import { adminActionFn } from '../lib/adminFns';
 import { roleCan, type statement } from '../lib/permissions';
 import { Button } from './ui/button';
@@ -217,6 +218,7 @@ export function AdminNav({
         className="fixed inset-y-0 left-0 z-40 hidden w-[190px] flex-col border-r border-zinc-100 bg-white sm:flex min-[56.25rem]:w-[222px]"
       >
         {storeIdentity}
+        <GlobalSearchTrigger />
         <NavigationLinks sections={visibleSections} settings={settings} />
       </aside>
       <div className="flex h-[62px] items-center gap-2 border-b border-zinc-100 bg-white px-4 sm:hidden">
@@ -250,6 +252,7 @@ export function AdminNav({
         </Sheet>
         <span className="min-w-0 truncate text-sm font-medium text-zinc-950">{storeName}</span>
       </div>
+      <GlobalSearchDialog />
     </>
   );
 }
