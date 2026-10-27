@@ -15,17 +15,6 @@ export type GuestDataPreview = {
   totals: Array<{ currency: string; orders: number; total_cents: number }>;
 };
 
-async function emailDigest(email: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(email));
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-export async function erasedEmailFor(rawEmail: string): Promise<string> {
-  const email = normalizeContactEmail(rawEmail);
-  const digest = await emailDigest(email);
-  return `erased-${digest.slice(0, 24)}@erased.invalid`;
-}
-
 export async function previewGuestData(
   db: D1Database,
   rawEmail: string
@@ -108,20 +97,4 @@ export async function exportGuestData(db: D1Database, rawEmail: string) {
     returns: returns.results,
     retainedTotals: preview.totals,
   };
-}
-
-export async function eraseGuestData(
-  db: D1Database,
-  rawEmail: string
-): Promise<{ ordersUpdated: number; replacement: string } | null> {
-  const email = normalizeContactEmail(rawEmail);
-  if (!email) return null;
-  const replacement = await erasedEmailFor(email);
-  const result = await db
-    .prepare(
-      `UPDATE orders SET customer_email = ?, shipping_name = NULL, shipping_address_json = NULL, customer_ip = NULL WHERE user_id IS NULL AND lower(customer_email) = ?`
-    )
-    .bind(replacement, email)
-    .run();
-  return { ordersUpdated: result.meta.changes ?? 0, replacement };
 }

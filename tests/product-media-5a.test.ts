@@ -59,6 +59,7 @@ describe('Phase 5A product media', () => {
     const result = await runAdminAction(db, env, owner, 'product.reorderMedia', {
       productId: 'p1',
       mediaIds: ['m3', 'm1', 'm2'],
+      expectedMediaIds: ['m1', 'm2', 'm3'],
     });
     expect(result.ok).toBe(true);
     expect(await order()).toEqual(['m3', 'm1', 'm2']);
@@ -68,9 +69,54 @@ describe('Phase 5A product media', () => {
     const result = await runAdminAction(db, env, owner, 'product.reorderMedia', {
       productId: 'p1',
       mediaIds: ['m3', 'm1'],
+      expectedMediaIds: ['m1', 'm2', 'm3'],
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.conflict).toBe(true);
     expect(await order()).toEqual(['m1', 'm2', 'm3']);
+  });
+});
+
+describe('FF-04: competing media reorders', () => {
+  it('the second reorder from the same loaded order conflicts and changes nothing', async () => {
+    const first = await runAdminAction(db, env, owner, 'product.reorderMedia', {
+      productId: 'p1',
+      mediaIds: ['m2', 'm1', 'm3'],
+      expectedMediaIds: ['m1', 'm2', 'm3'],
+    });
+    expect(first.ok).toBe(true);
+    const second = await runAdminAction(db, env, owner, 'product.reorderMedia', {
+      productId: 'p1',
+      mediaIds: ['m3', 'm2', 'm1'],
+      expectedMediaIds: ['m1', 'm2', 'm3'],
+    });
+    expect(second.ok).toBe(false);
+    if (!second.ok) expect(second.conflict).toBe(true);
+    expect(await order()).toEqual(['m2', 'm1', 'm3']);
+    const audits = await db
+      .prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'product.reorderMedia'")
+      .first<{ n: number }>();
+    expect(audits?.n).toBe(1);
+  });
+
+  it('concurrent reorders from one loaded order produce exactly one success', async () => {
+    const [a, b] = await Promise.all([
+      runAdminAction(db, env, owner, 'product.reorderMedia', {
+        productId: 'p1',
+        mediaIds: ['m2', 'm3', 'm1'],
+        expectedMediaIds: ['m1', 'm2', 'm3'],
+      }),
+      runAdminAction(db, env, owner, 'product.reorderMedia', {
+        productId: 'p1',
+        mediaIds: ['m3', 'm1', 'm2'],
+        expectedMediaIds: ['m1', 'm2', 'm3'],
+      }),
+    ]);
+    expect([a, b].filter((r) => r.ok)).toHaveLength(1);
+    const stored = await order();
+    expect([
+      ['m2', 'm3', 'm1'],
+      ['m3', 'm1', 'm2'],
+    ]).toContainEqual(stored);
   });
 });
