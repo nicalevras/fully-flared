@@ -106,6 +106,9 @@ function AdminProducts() {
             Find a product by title or SKU. Click a product to edit its variants, stock, and images.
           </p>
         </div>
+        <Link to="/admin/products/new" className={btnPrimary}>
+          Add product
+        </Link>
       </div>
       <AdminActionFeedback value={msg} />
 
