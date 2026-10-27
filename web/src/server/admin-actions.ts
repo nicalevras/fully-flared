@@ -475,6 +475,32 @@ export async function runAdminAction(
         await audit(db, actor.id, 'discount.create', 'discount', discountId);
         return { ok: true, data: { discountId } };
       }
+      case 'discount.update': {
+        const f = parsedAction.data;
+        const duplicate = await db
+          .prepare('SELECT id FROM discounts WHERE code = ? AND id != ?')
+          .bind(f.code.toUpperCase(), f.discountId)
+          .first();
+        if (duplicate)
+          return { ok: false, error: `A discount code ${f.code.toUpperCase()} already exists` };
+        const updated = await db
+          .prepare(
+            `UPDATE discounts SET code = ?, type = ?, value = ?, min_purchase_cents = ?, usage_limit = ?, expires_at = ? WHERE id = ?`
+          )
+          .bind(
+            f.code.toUpperCase(),
+            f.type,
+            f.value,
+            f.minPurchaseCents,
+            f.usageLimit ?? null,
+            f.expiresAt || null,
+            f.discountId
+          )
+          .run();
+        if (!updated.meta.changes) return { ok: false, error: 'Discount not found', status: 404 };
+        await audit(db, actor.id, 'discount.update', 'discount', f.discountId);
+        return { ok: true };
+      }
       case 'discount.toggle': {
         const f = parsedAction.data;
         await db
