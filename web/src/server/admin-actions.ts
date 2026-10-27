@@ -17,6 +17,7 @@ import type { Auth } from '../lib/auth';
 export const CSV_IMPORT_MAX_ROWS = 1000;
 import { AccountDeletionError, deleteAccountAtomically } from './account-deletion';
 import { exportCustomerData } from './account';
+import { exportGuestData } from './guest-data';
 import { deleteMediaObjects, publicMediaEnvironment } from './media-delivery';
 import { SHIPPABLE_ORDER_STATUSES, SHIPPABLE_PAYMENT_STATUSES } from '../lib/order-actions';
 
@@ -1411,6 +1412,13 @@ export async function runAdminAction(
         const data = await exportCustomerData(db, userId);
         if (!data) return { ok: false, error: 'Customer not found' };
         await audit(db, actor.id, 'customer.export', 'user', userId, {});
+        return { ok: true, data: z.json().parse(data) };
+      }
+      case 'guest.export': {
+        const f = parsedAction.data;
+        const data = await exportGuestData(db, f.email);
+        if (!data) return { ok: false, error: 'No guest purchases found for that email' };
+        await audit(db, actor.id, 'guest.export', 'guest', data.email, {});
         return { ok: true, data: z.json().parse(data) };
       }
       case 'customer.delete': {

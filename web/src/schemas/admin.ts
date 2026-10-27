@@ -220,6 +220,7 @@ export const adminActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('import.productsCsv'), csv: z.string().min(1).max(2_000_000) }),
   z.object({ action: z.literal('customer.export'), userId: idString }),
   z.object({ action: z.literal('customer.delete'), userId: idString }),
+  z.object({ action: z.literal('guest.export'), email: z.string().min(3).max(320) }),
   z.object({
     action: z.literal('user.setRole'),
     userId: idString,
