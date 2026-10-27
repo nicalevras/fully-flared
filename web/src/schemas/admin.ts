@@ -107,6 +107,21 @@ export const adminActionSchema = z.discriminatedUnion('action', [
       path: ['value'],
       message: 'Percentage discounts must be between 0 and 100',
     }),
+  z
+    .object({
+      action: z.literal('discount.update'),
+      discountId: idString,
+      code: nonEmptyString(64),
+      type: z.enum(['percentage', 'fixed_amount']),
+      value: z.number().int().min(0).max(100_000_000),
+      minPurchaseCents: centsInt.optional().default(0),
+      usageLimit: z.number().int().min(1).nullable().optional(),
+      expiresAt: z.string().max(40).nullable().optional(),
+    })
+    .refine((discount) => discount.type !== 'percentage' || discount.value <= 100, {
+      path: ['value'],
+      message: 'Percentage discounts must be between 0 and 100',
+    }),
   z.object({ action: z.literal('discount.toggle'), discountId: idString, active: z.boolean() }),
   z.object({ action: z.literal('discount.delete'), discountId: idString }),
   z.object({

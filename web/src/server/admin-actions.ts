@@ -483,68 +483,104 @@ export async function runAdminAction(
         if (existing)
           return { ok: false, error: `A discount code ${f.code.toUpperCase()} already exists` };
         const discountId = id();
-        await db
-          .prepare(
-            `INSERT INTO discounts (id, code, type, value, status, min_purchase_cents, usage_limit, starts_at, expires_at, created_at)
+        await db.batch([
+          db
+            .prepare(
+              `INSERT INTO discounts (id, code, type, value, status, min_purchase_cents, usage_limit, starts_at, expires_at, created_at)
            VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)`
-          )
-          .bind(
-            discountId,
-            f.code.toUpperCase(),
-            f.type || 'percentage',
-            f.value,
-            f.minPurchaseCents,
-            f.usageLimit ?? null,
-            f.startsAt || null,
-            f.expiresAt || null,
-            now()
-          )
-          .run();
-        await audit(db, actor.id, 'discount.create', 'discount', discountId);
+            )
+            .bind(
+              discountId,
+              f.code.toUpperCase(),
+              f.type || 'percentage',
+              f.value,
+              f.minPurchaseCents,
+              f.usageLimit ?? null,
+              f.startsAt || null,
+              f.expiresAt || null,
+              now()
+            ),
+          auditStmt(db, actor.id, 'discount.create', 'discount', discountId),
+        ]);
         return { ok: true, data: { discountId } };
+      }
+      case 'discount.update': {
+        const f = parsedAction.data;
+        const duplicate = await db
+          .prepare('SELECT id FROM discounts WHERE code = ? AND id != ?')
+          .bind(f.code.toUpperCase(), f.discountId)
+          .first();
+        if (duplicate)
+          return { ok: false, error: `A discount code ${f.code.toUpperCase()} already exists` };
+        const exists = await db
+          .prepare('SELECT id FROM discounts WHERE id = ?')
+          .bind(f.discountId)
+          .first();
+        if (!exists) return { ok: false, error: 'Discount not found', status: 404 };
+        const [updated] = await db.batch([
+          db
+            .prepare(
+              `UPDATE discounts SET code = ?, type = ?, value = ?, min_purchase_cents = ?, usage_limit = ?, expires_at = ? WHERE id = ?`
+            )
+            .bind(
+              f.code.toUpperCase(),
+              f.type,
+              f.value,
+              f.minPurchaseCents,
+              f.usageLimit ?? null,
+              f.expiresAt || null,
+              f.discountId
+            ),
+          auditStmt(db, actor.id, 'discount.update', 'discount', f.discountId),
+        ]);
+        if (!updated?.meta.changes) return { ok: false, error: 'Discount not found', status: 404 };
+        return { ok: true };
       }
       case 'discount.toggle': {
         const f = parsedAction.data;
-        await db
-          .prepare('UPDATE discounts SET status = ? WHERE id = ?')
-          .bind(f.active ? 'active' : 'inactive', f.discountId)
-          .run();
-        await audit(db, actor.id, 'discount.toggle', 'discount', f.discountId, {
-          active: Boolean(f.active),
-        });
+        await db.batch([
+          db
+            .prepare('UPDATE discounts SET status = ? WHERE id = ?')
+            .bind(f.active ? 'active' : 'inactive', f.discountId),
+          auditStmt(db, actor.id, 'discount.toggle', 'discount', f.discountId, {
+            active: Boolean(f.active),
+          }),
+        ]);
         return { ok: true };
       }
       case 'shipping.createZone': {
         const f = parsedAction.data;
         const zoneId = id();
-        await db
-          .prepare(
-            'INSERT INTO shipping_zones (id, name, countries_json, created_at) VALUES (?, ?, ?, ?)'
-          )
-          .bind(zoneId, f.name, JSON.stringify(f.countries ?? []), now())
-          .run();
-        await audit(db, actor.id, 'shipping.createZone', 'shipping_zone', zoneId);
+        await db.batch([
+          db
+            .prepare(
+              'INSERT INTO shipping_zones (id, name, countries_json, created_at) VALUES (?, ?, ?, ?)'
+            )
+            .bind(zoneId, f.name, JSON.stringify(f.countries ?? []), now()),
+          auditStmt(db, actor.id, 'shipping.createZone', 'shipping_zone', zoneId),
+        ]);
         return { ok: true, data: { zoneId } };
       }
       case 'shipping.addRate': {
         const f = parsedAction.data;
         const rateId = id();
         const freeOver = f.freeOverCents ?? null;
-        await db
-          .prepare(
-            'INSERT INTO shipping_rates (id, zone_id, name, kind, amount_cents, free_over_cents, per_kg_cents) VALUES (?, ?, ?, ?, ?, ?, ?)'
-          )
-          .bind(
-            rateId,
-            f.zoneId,
-            f.name,
-            f.kind ?? (freeOver != null ? 'free_over' : 'flat'),
-            f.rateCents,
-            freeOver,
-            f.perKgCents ?? null
-          )
-          .run();
-        await audit(db, actor.id, 'shipping.addRate', 'shipping_rate', rateId);
+        await db.batch([
+          db
+            .prepare(
+              'INSERT INTO shipping_rates (id, zone_id, name, kind, amount_cents, free_over_cents, per_kg_cents) VALUES (?, ?, ?, ?, ?, ?, ?)'
+            )
+            .bind(
+              rateId,
+              f.zoneId,
+              f.name,
+              f.kind ?? (freeOver != null ? 'free_over' : 'flat'),
+              f.rateCents,
+              freeOver,
+              f.perKgCents ?? null
+            ),
+          auditStmt(db, actor.id, 'shipping.addRate', 'shipping_rate', rateId),
+        ]);
         return { ok: true, data: { rateId } };
       }
       case 'order.ship': {
@@ -1073,11 +1109,10 @@ export async function runAdminAction(
       }
       case 'media.updateAlt': {
         const f = parsedAction.data;
-        await db
-          .prepare('UPDATE media SET alt_text = ? WHERE id = ?')
-          .bind(f.altText, f.mediaId)
-          .run();
-        await audit(db, actor.id, 'media.updateAlt', 'media', f.mediaId);
+        await db.batch([
+          db.prepare('UPDATE media SET alt_text = ? WHERE id = ?').bind(f.altText, f.mediaId),
+          auditStmt(db, actor.id, 'media.updateAlt', 'media', f.mediaId),
+        ]);
         return { ok: true };
       }
       case 'media.delete': {
@@ -1292,8 +1327,10 @@ export async function runAdminAction(
       }
       case 'discount.delete': {
         const f = parsedAction.data;
-        await db.prepare('DELETE FROM discounts WHERE id = ?').bind(f.discountId).run();
-        await audit(db, actor.id, 'discount.delete', 'discount', f.discountId);
+        await db.batch([
+          db.prepare('DELETE FROM discounts WHERE id = ?').bind(f.discountId),
+          auditStmt(db, actor.id, 'discount.delete', 'discount', f.discountId),
+        ]);
         return { ok: true };
       }
       case 'collection.create': {
@@ -1306,43 +1343,45 @@ export async function runAdminAction(
           .first();
         if (clash) return { ok: false, error: `A collection with slug ${slug} already exists` };
         const kind = f.kind === 'rule' ? 'rule' : 'manual';
-        await db
-          .prepare(
-            'INSERT INTO collections (id, slug, title, description, kind, rule_json, featured_rank, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-          )
-          .bind(
-            collectionId,
-            slug,
-            f.title,
-            f.description,
-            kind,
-            kind === 'rule' ? f.ruleJson || null : null,
-            f.featuredRank,
-            now()
-          )
-          .run();
-        await audit(db, actor.id, 'collection.create', 'collection', collectionId);
+        await db.batch([
+          db
+            .prepare(
+              'INSERT INTO collections (id, slug, title, description, kind, rule_json, featured_rank, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+            )
+            .bind(
+              collectionId,
+              slug,
+              f.title,
+              f.description,
+              kind,
+              kind === 'rule' ? f.ruleJson || null : null,
+              f.featuredRank,
+              now()
+            ),
+          auditStmt(db, actor.id, 'collection.create', 'collection', collectionId),
+        ]);
         return { ok: true, data: { collectionId } };
       }
       case 'collection.update': {
         const f = parsedAction.data;
         const kind = f.kind === 'rule' ? 'rule' : 'manual';
-        await db
-          .prepare(
-            'UPDATE collections SET title = ?, description = ?, seo_title = ?, seo_description = ?, kind = ?, rule_json = ?, featured_rank = ? WHERE id = ?'
-          )
-          .bind(
-            f.title,
-            f.description,
-            f.seoTitle || null,
-            f.seoDescription || null,
-            kind,
-            kind === 'rule' ? f.ruleJson || null : null,
-            f.featuredRank,
-            f.collectionId
-          )
-          .run();
-        await audit(db, actor.id, 'collection.update', 'collection', f.collectionId);
+        await db.batch([
+          db
+            .prepare(
+              'UPDATE collections SET title = ?, description = ?, seo_title = ?, seo_description = ?, kind = ?, rule_json = ?, featured_rank = ? WHERE id = ?'
+            )
+            .bind(
+              f.title,
+              f.description,
+              f.seoTitle || null,
+              f.seoDescription || null,
+              kind,
+              kind === 'rule' ? f.ruleJson || null : null,
+              f.featuredRank,
+              f.collectionId
+            ),
+          auditStmt(db, actor.id, 'collection.update', 'collection', f.collectionId),
+        ]);
         return { ok: true };
       }
       case 'collection.delete': {
@@ -1352,8 +1391,8 @@ export async function runAdminAction(
             .prepare('DELETE FROM product_collections WHERE collection_id = ?')
             .bind(f.collectionId),
           db.prepare('DELETE FROM collections WHERE id = ?').bind(f.collectionId),
+          auditStmt(db, actor.id, 'collection.delete', 'collection', f.collectionId),
         ]);
-        await audit(db, actor.id, 'collection.delete', 'collection', f.collectionId);
         return { ok: true };
       }
       case 'collection.setProducts': {
@@ -1368,31 +1407,30 @@ export async function runAdminAction(
               .prepare('INSERT INTO product_collections (product_id, collection_id) VALUES (?, ?)')
               .bind(pid, f.collectionId)
           ),
+          auditStmt(db, actor.id, 'collection.setProducts', 'collection', f.collectionId, {
+            count: productIds.length,
+          }),
         ]);
-        await audit(db, actor.id, 'collection.setProducts', 'collection', f.collectionId, {
-          count: productIds.length,
-        });
         return { ok: true };
       }
       case 'collection.toggleProduct': {
         const f = parsedAction.data;
-        if (f.included) {
-          await db
-            .prepare(
-              'INSERT INTO product_collections (product_id, collection_id) VALUES (?, ?) ON CONFLICT DO NOTHING'
-            )
-            .bind(f.productId, f.collectionId)
-            .run();
-        } else {
-          await db
-            .prepare('DELETE FROM product_collections WHERE product_id = ? AND collection_id = ?')
-            .bind(f.productId, f.collectionId)
-            .run();
-        }
-        await audit(db, actor.id, 'collection.toggleProduct', 'collection', f.collectionId, {
-          productId: f.productId,
-          included: Boolean(f.included),
-        });
+        const toggleStmt = f.included
+          ? db
+              .prepare(
+                'INSERT INTO product_collections (product_id, collection_id) VALUES (?, ?) ON CONFLICT DO NOTHING'
+              )
+              .bind(f.productId, f.collectionId)
+          : db
+              .prepare('DELETE FROM product_collections WHERE product_id = ? AND collection_id = ?')
+              .bind(f.productId, f.collectionId);
+        await db.batch([
+          toggleStmt,
+          auditStmt(db, actor.id, 'collection.toggleProduct', 'collection', f.collectionId, {
+            productId: f.productId,
+            included: Boolean(f.included),
+          }),
+        ]);
         return { ok: true };
       }
       case 'user.setRole': {

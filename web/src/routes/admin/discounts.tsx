@@ -3,6 +3,10 @@ import { staffMiddleware } from '../../server/staff-middleware';
 import { useStoreCurrency } from '../../lib/use-store-currency';
 import { formatDate } from '../../lib/format';
 import { createFileRoute, useRouter } from '@tanstack/react-router';
+import * as z from 'zod';
+import { validateServerInput } from '../../server/function-boundary';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { btnPrimary as primaryBtn } from '../../components/ui';
 import { createServerFn } from '@tanstack/react-start';
 import { useAdminAction, type AdminPayload } from '../../components/AdminNav';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -36,19 +40,31 @@ type DiscountRow = {
 
 const getData = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
-  .handler(async () => {
+  .validator(validateServerInput(z.object({ q: z.string().max(64).default('') })))
+  .handler(async ({ data }) => {
     const { env } = await import('cloudflare:workers');
+    const q = data.q.trim().toUpperCase();
     const [rows, count] = await Promise.all([
-      env.DB.prepare(
-        'SELECT id, code, type, value, status, usage_count, min_purchase_cents, usage_limit, expires_at FROM discounts ORDER BY created_at DESC LIMIT 100'
-      ).all<DiscountRow>(),
+      q
+        ? env.DB.prepare(
+            "SELECT id, code, type, value, status, usage_count, min_purchase_cents, usage_limit, expires_at FROM discounts WHERE code LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT 100"
+          )
+            .bind(`${q.replace(/[\\%_]/g, '\\$&')}%`)
+            .all<DiscountRow>()
+        : env.DB.prepare(
+            'SELECT id, code, type, value, status, usage_count, min_purchase_cents, usage_limit, expires_at FROM discounts ORDER BY created_at DESC LIMIT 100'
+          ).all<DiscountRow>(),
       env.DB.prepare('SELECT COUNT(*) AS n FROM discounts').first<{ n: number }>(),
     ]);
     return { discounts: rows.results, total: count?.n ?? rows.results.length };
   });
 
 export const Route = createFileRoute('/admin/discounts')({
-  loader: async () => getData(),
+  validateSearch: (search: Record<string, unknown>) => ({
+    q: typeof search.q === 'string' ? search.q.slice(0, 64) : '',
+  }),
+  loaderDeps: ({ search }) => search,
+  loader: async ({ deps }) => getData({ data: deps }),
   component: Page,
 });
 
@@ -61,6 +77,11 @@ function Page() {
 
   const currency = useStoreCurrency();
   const { discounts, total } = Route.useLoaderData();
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
+  const [codeQuery, setCodeQuery] = useState(search.q);
+  const [editingId, setEditingId] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<DiscountRow | null>(null);
   const router = useRouter();
   const [form, setForm] = useState({
     code: '',
@@ -73,14 +94,17 @@ function Page() {
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
 
-  async function run(action: string, payload: AdminPayload, ok: string) {
+  async function run(action: string, payload: AdminPayload, ok: string): Promise<boolean> {
     setBusy(true);
     const r = await adminAction(action, payload);
     setBusy(false);
     if (r.ok) {
       setMsg(ok);
       router.invalidate();
-    } else setMsg(r.error ?? 'Failed');
+      return true;
+    }
+    setMsg(r.error ?? 'Failed');
+    return false;
   }
 
   return (
@@ -93,6 +117,30 @@ function Page() {
           ? ` Showing the latest ${discounts.length} of ${total} codes.`
           : ''}
       </p>
+
+      <form
+        className={`${cardCls} mt-5 flex flex-wrap items-end gap-3 p-4`}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void navigate({ search: { q: codeQuery.trim() } });
+        }}
+      >
+        <div className="min-w-52 flex-1">
+          <label className={labelCls} htmlFor="discount-q">
+            Find a code
+          </label>
+          <input
+            id="discount-q"
+            className={inputCls}
+            value={codeQuery}
+            onChange={(event) => setCodeQuery(event.target.value)}
+            placeholder="SUMMER"
+          />
+        </div>
+        <button type="submit" className={primaryBtn}>
+          Search
+        </button>
+      </form>
 
       <section className={`${cardCls} mt-6 overflow-hidden`}>
         {discounts.length === 0 ? (
@@ -138,6 +186,32 @@ function Page() {
                     <td className="text-right">
                       <span className="inline-flex gap-1">
                         <button
+                          type="button"
+                          className={btnGhost}
+                          disabled={busy}
+                          onClick={() => {
+                            setEditingId(d.id);
+                            setForm({
+                              code: d.code,
+                              type: d.type,
+                              value:
+                                d.type === 'percentage'
+                                  ? String(d.value)
+                                  : (d.value / 100).toFixed(2),
+                              minPurchase: d.min_purchase_cents
+                                ? (d.min_purchase_cents / 100).toFixed(2)
+                                : '',
+                              usageLimit: d.usage_limit != null ? String(d.usage_limit) : '',
+                              expiresAt: d.expires_at ? d.expires_at.slice(0, 10) : '',
+                            });
+                            document
+                              .getElementById('discount-form')
+                              ?.scrollIntoView({ behavior: 'smooth' });
+                          }}
+                        >
+                          Edit
+                        </button>
+                        <button
                           className={btnGhost}
                           disabled={busy}
                           onClick={() =>
@@ -153,19 +227,7 @@ function Page() {
                         <button
                           className={btnDestructive}
                           disabled={busy}
-                          onClick={async () => {
-                            if (
-                              !window.confirm(
-                                `Delete discount code ${d.code}? Customers can no longer use it.`
-                              )
-                            )
-                              return;
-                            await run(
-                              'discount.delete',
-                              { discountId: d.id },
-                              `${d.code} deleted.`
-                            );
-                          }}
+                          onClick={() => setDeleteTarget(d)}
                         >
                           Delete
                         </button>
@@ -180,12 +242,14 @@ function Page() {
       </section>
 
       <form
+        id="discount-form"
         className={`${cardCls} mt-5 space-y-4 p-5 sm:p-6`}
         onSubmit={async (e) => {
           e.preventDefault();
-          await run(
-            'discount.create',
+          const succeeded = await run(
+            editingId ? 'discount.update' : 'discount.create',
             {
+              ...(editingId ? { discountId: editingId } : {}),
               code: form.code,
               type: form.type,
               value:
@@ -196,11 +260,18 @@ function Page() {
               usageLimit: form.usageLimit ? Number(form.usageLimit) : null,
               expiresAt: form.expiresAt || null,
             },
-            `Discount ${form.code.toUpperCase()} created.`
+            editingId
+              ? `Discount ${form.code.toUpperCase()} updated. Checkout validates the new terms on the next order.`
+              : `Discount ${form.code.toUpperCase()} created.`
           );
+          // FF-05: a failed update keeps the merchant in edit mode with
+          // their input intact. Only success leaves editing.
+          if (succeeded && editingId) setEditingId('');
         }}
       >
-        <h2 className="text-sm font-medium text-zinc-950">Create discount code</h2>
+        <h2 className="text-sm font-medium text-zinc-950">
+          {editingId ? `Edit discount ${form.code}` : 'Create discount code'}
+        </h2>
         <div className="grid gap-4 sm:grid-cols-3">
           <div>
             <label className={labelCls} htmlFor="d-code">
@@ -285,10 +356,50 @@ function Page() {
             />
           </div>
         </div>
-        <button className={btnPrimary} type="submit" disabled={busy || !form.code}>
-          {busy ? 'Creating…' : 'Create discount'}
-        </button>
+        <span className="flex flex-wrap gap-2">
+          <button className={btnPrimary} type="submit" disabled={busy || !form.code}>
+            {busy ? 'Saving…' : editingId ? 'Save discount' : 'Create discount'}
+          </button>
+          {editingId ? (
+            <button
+              type="button"
+              className={btnGhost}
+              disabled={busy}
+              onClick={() => {
+                setEditingId('');
+                setForm({
+                  code: '',
+                  type: 'percentage',
+                  value: '10',
+                  minPurchase: '',
+                  usageLimit: '',
+                  expiresAt: '',
+                });
+              }}
+            >
+              Cancel edit
+            </button>
+          ) : null}
+        </span>
       </form>
+      <ConfirmDialog
+        request={
+          deleteTarget
+            ? {
+                title: 'Delete this discount?',
+                body: `Delete discount code ${deleteTarget.code}? Customers can no longer use it. Orders already placed keep their recorded totals.`,
+                confirmLabel: 'Delete discount',
+              }
+            : null
+        }
+        busy={busy}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={async () => {
+          const d = deleteTarget;
+          setDeleteTarget(null);
+          if (d) await run('discount.delete', { discountId: d.id }, `${d.code} deleted.`);
+        }}
+      />
       {msg ? (
         <p className="mt-4 rounded-xl bg-green-50 px-4 py-3 text-sm text-green-700" role="status">
           {msg}
