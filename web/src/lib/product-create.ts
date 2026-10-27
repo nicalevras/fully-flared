@@ -1,4 +1,4 @@
-import { slugify } from './format';
+import { parseMoneyCents, slugify } from './format';
 
 export type ProductCreateDraft = {
   title: string;
@@ -62,10 +62,9 @@ export function validateProductCreateDraft(draft: ProductCreateDraft): ProductCr
   if (!draft.variantTitle.trim()) errors.variantTitle = 'Variant title is required.';
   else if (draft.variantTitle.length > 200)
     errors.variantTitle = 'Variant title must be 200 characters or fewer.';
-  const price = Number(draft.price);
-  if (draft.price.trim() === '' || !Number.isFinite(price) || price < 0)
-    errors.price = 'Price must be zero or more.';
-  else if (Math.round(price * 100) > 100_000_000) errors.price = 'Price is too large.';
+  if (!parseMoneyCents(draft.price).ok)
+    errors.price =
+      'Price must be a whole amount with at most two decimal places, up to 1,000,000.00.';
   const stock = Number(draft.stock);
   if (draft.stock.trim() === '' || !Number.isInteger(stock) || stock < 0 || stock > 1_000_000)
     errors.stock = 'Stock must be a whole number from 0 to 1,000,000.';
@@ -91,7 +90,10 @@ export function productCreatePayload(draft: ProductCreateDraft) {
       {
         sku: draft.sku.trim(),
         title: draft.variantTitle.trim(),
-        priceCents: Math.round(Number(draft.price) * 100),
+        priceCents: (() => {
+          const parsed = parseMoneyCents(draft.price);
+          return parsed.ok ? parsed.cents : 0;
+        })(),
         stock: Number(draft.stock),
         weightGrams: draft.weightGrams.trim() === '' ? null : Number(draft.weightGrams),
         continueSelling: draft.continueSelling,

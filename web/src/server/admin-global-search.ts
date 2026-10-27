@@ -51,21 +51,33 @@ export async function globalSearch(
 
   const customers: GlobalSearchResult['customers'] = [];
   if (allowed.customers && query.includes('@')) {
-    const escaped = query.toLowerCase().replace(/[\\%_]/g, '\\$&');
-    const emails = (
-      await db
+    const prefix = query.toLowerCase();
+    const prefixEnd = `${prefix}\ufffd`;
+    const [orderEmails, userEmails] = await Promise.all([
+      db
         .prepare(
-          `SELECT email FROM (
-             SELECT lower(customer_email) AS email FROM orders
-             UNION
-             SELECT lower(email) AS email FROM user
-           ) WHERE email LIKE ? ESCAPE '\\' ORDER BY email LIMIT 5`
+          `SELECT lower(customer_email) AS email FROM orders
+           WHERE customer_email >= ? AND customer_email < ?
+           GROUP BY email ORDER BY email LIMIT 5`
         )
-        .bind(`${escaped}%`)
-        .all<{ email: string }>()
-    ).results;
-    for (const row of emails) {
-      const contact = await lookupContact(db, row.email);
+        .bind(prefix, prefixEnd)
+        .all<{ email: string }>(),
+      db
+        .prepare(
+          `SELECT lower(email) AS email FROM user
+           WHERE email >= ? AND email < ?
+           GROUP BY email ORDER BY email LIMIT 5`
+        )
+        .bind(prefix, prefixEnd)
+        .all<{ email: string }>(),
+    ]);
+    const emails = [
+      ...new Set([...orderEmails.results, ...userEmails.results].map((row) => row.email)),
+    ]
+      .sort()
+      .slice(0, 5);
+    for (const email of emails) {
+      const contact = await lookupContact(db, email);
       if (contact && (contact.account || contact.guestOrderCount > 0)) {
         customers.push({
           email: contact.email,

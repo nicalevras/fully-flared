@@ -4,7 +4,7 @@ import type { ComponentType, ReactElement } from 'react';
 import type { z } from 'zod';
 import { Link, linkOptions, useLocation } from '@tanstack/react-router';
 import { MenuIcon } from 'lucide-react';
-import { GlobalSearchDialog, GlobalSearchTrigger } from './GlobalSearch';
+import { GlobalSearchDialog, GlobalSearchMobileTrigger, GlobalSearchTrigger } from './GlobalSearch';
 import { adminActionFn } from '../lib/adminFns';
 import { roleCan, type statement } from '../lib/permissions';
 import { Button } from './ui/button';
@@ -251,6 +251,7 @@ export function AdminNav({
           </SheetContent>
         </Sheet>
         <span className="min-w-0 truncate text-sm font-medium text-zinc-950">{storeName}</span>
+        <GlobalSearchMobileTrigger />
       </div>
       <GlobalSearchDialog />
     </>
@@ -277,7 +278,11 @@ export function useAdminAction() {
       if (result.ok) requests.current.delete(key);
       return result;
     } catch {
-      return { ok: false as const, error: 'Action could not reach the server. Try again.' };
+      return {
+        ok: false as const,
+        uncertain: true as const,
+        error: 'The connection was lost before the result came back.',
+      };
     }
   };
 }

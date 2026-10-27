@@ -18,3 +18,17 @@ describe('Phase 8A order workspace contract', () => {
     expect(source).toContain('Payment ${order.payment_status');
   });
 });
+
+describe('FF-10: packing slip print isolation', () => {
+  it('print styles hide everything except the packing slip', async () => {
+    const { readFileSync } = await import('node:fs');
+    const css = readFileSync('web/src/styles.css', 'utf8');
+    expect(css).toContain('@media print');
+    expect(css).toContain('body:has(#packing-slip)');
+    expect(css).toContain('main:has(> #packing-slip) > *:not(#packing-slip)');
+    const page = readFileSync('web/src/routes/admin/orders/$id.tsx', 'utf8');
+    const slip = page.slice(page.indexOf('id="packing-slip"'));
+    expect(slip).not.toContain('total_cents');
+    expect(slip).not.toContain('customer_email');
+  });
+});

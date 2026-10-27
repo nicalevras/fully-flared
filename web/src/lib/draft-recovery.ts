@@ -166,3 +166,14 @@ export function indexedDbDraftStore(): DraftStore {
     },
   };
 }
+
+/** FF-06 guard: the clean-fields cleanup may delete a stored draft only
+ * after the recovery read for that entity has settled and no recovery
+ * offer is on screen. Before that point a deletion could destroy the
+ * very draft the merchant is about to be offered. */
+export function shouldRemoveDraftOnClean(state: {
+  readSettled: boolean;
+  recoveryShown: boolean;
+}): boolean {
+  return state.readSettled && !state.recoveryShown;
+}
