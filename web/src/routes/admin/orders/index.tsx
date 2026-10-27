@@ -16,7 +16,18 @@ import { orderDiscoveryInputSchema } from '../../../server/admin-order-discovery
 import { normalizeOrderSearch, type OrderView } from '../../../lib/order-search';
 import { validateServerInput } from '../../../server/function-boundary';
 import { roles, type StaffRole } from '../../../lib/permissions';
-import { refundActionMessage } from '../../../lib/order-actions';
+import { canShipOrder, refundActionMessage } from '../../../lib/order-actions';
+import { ConfirmDialog } from '../../../components/ConfirmDialog';
+import {
+  applyBulkOutcome,
+  bulkTrackingErrors,
+  createBulkItems,
+  retryableBulkItems,
+  setBulkTracking,
+  summarizeBulk,
+  MAX_BULK_FULFILLMENT,
+  type BulkFulfillmentItem,
+} from '../../../lib/bulk-fulfillment';
 import {
   btnPrimary,
   btnSmall,
@@ -75,6 +86,45 @@ function AdminOrders() {
   const requested = returns;
   const [busyId, setBusyId] = useState('');
   const [msg, setMsg] = useState<AdminActionFeedbackState>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [bulkItems, setBulkItems] = useState<BulkFulfillmentItem[] | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [refundTarget, setRefundTarget] = useState<(typeof orders)[number] | null>(null);
+
+  async function runBulk(itemsToRun: BulkFulfillmentItem[]) {
+    const errors = bulkTrackingErrors(itemsToRun);
+    if (errors.length > 0) {
+      setMsg({ kind: 'error', message: errors.join(' ') });
+      return;
+    }
+    setBulkBusy(true);
+    let current = bulkItems ?? itemsToRun;
+    for (const item of itemsToRun) {
+      const result = await adminAction('order.ship', {
+        orderId: item.orderId,
+        trackingNumber: item.tracking.trim(),
+      });
+      current = applyBulkOutcome(current, item.orderId, {
+        ok: result.ok,
+        message: result.ok ? 'Shipped. The customer was emailed.' : result.error,
+      });
+      setBulkItems(current);
+    }
+    setBulkBusy(false);
+    const summary = summarizeBulk(current);
+    if (summary.complete) {
+      setMsg({ kind: 'status', message: `All ${summary.total} orders shipped.` });
+      setSelected([]);
+    } else if (summary.partial) {
+      setMsg({
+        kind: 'error',
+        message: `${summary.applied} of ${summary.total} orders shipped. Retry only the failed orders. Shipped orders are not sent again.`,
+      });
+    } else {
+      setMsg({ kind: 'error', message: 'No orders were shipped. Review the results below.' });
+    }
+    router.invalidate();
+  }
 
   return (
     <main>
@@ -228,6 +278,11 @@ function AdminOrders() {
               <caption className="sr-only">Orders</caption>
               <thead>
                 <tr>
+                  {search.view === 'queue' ? (
+                    <th scope="col">
+                      <span className="sr-only">Select for bulk shipping</span>
+                    </th>
+                  ) : null}
                   <th scope="col">Order</th>
                   <th scope="col">Customer</th>
                   <th scope="col">Fulfillment</th>
@@ -244,6 +299,27 @@ function AdminOrders() {
               <tbody>
                 {orders.map((o) => (
                   <tr key={o.id}>
+                    {search.view === 'queue' ? (
+                      <td>
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${o.number} for bulk shipping`}
+                          checked={selected.includes(o.id)}
+                          disabled={
+                            !canShipOrder(o) ||
+                            (!selected.includes(o.id) && selected.length >= MAX_BULK_FULFILLMENT)
+                          }
+                          onChange={(event) => {
+                            setBulkItems(null);
+                            setSelected((prev) =>
+                              event.target.checked
+                                ? [...prev, o.id]
+                                : prev.filter((id) => id !== o.id)
+                            );
+                          }}
+                        />
+                      </td>
+                    ) : null}
                     <td className="font-medium">
                       <Link
                         to="/admin/orders/$id"
@@ -285,28 +361,7 @@ function AdminOrders() {
                             !['paid', 'partially_refunded'].includes(o.payment_status) ||
                             o.refundable_cents <= 0
                           }
-                          onClick={async () => {
-                            if (
-                              !window.confirm(
-                                `Refund ${o.number} remaining balance (${o.currency} ${formatMoney(o.refundable_cents, o.currency)})? This cannot be undone.`
-                              )
-                            )
-                              return;
-                            setMsg(null);
-                            setBusyId(o.id);
-                            const r = await adminAction('order.refund', {
-                              orderId: o.id,
-                              amountCents: o.refundable_cents,
-                            });
-                            setBusyId('');
-                            if (r.ok) {
-                              setMsg({
-                                kind: 'status',
-                                message: refundActionMessage(r.data, o.currency),
-                              });
-                              router.invalidate();
-                            } else setMsg({ kind: 'error', message: r.error ?? 'Refund failed' });
-                          }}
+                          onClick={() => setRefundTarget(o)}
                         >
                           {busyId === o.id ? 'Refunding…' : 'Refund'}
                         </button>
@@ -324,6 +379,150 @@ function AdminOrders() {
           </div>
         )}
       </section>
+
+      {search.view === 'queue' && (selected.length > 0 || bulkItems) ? (
+        <div className="sticky bottom-4 z-40 mt-5">
+          <section className={`${cardCls} p-4 shadow-lg`}>
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="text-sm font-medium text-zinc-950">
+                {bulkItems
+                  ? `${summarizeBulk(bulkItems).applied} of ${bulkItems.length} shipped`
+                  : `${selected.length} selected for shipping`}
+              </p>
+              {!bulkItems ? (
+                <button
+                  type="button"
+                  className={btnPrimary}
+                  onClick={() => {
+                    const rows = orders.filter((o) => selected.includes(o.id));
+                    const created = createBulkItems(rows, []);
+                    if (created.error) {
+                      setMsg({ kind: 'error', message: created.error });
+                      return;
+                    }
+                    setBulkItems(created.items);
+                  }}
+                >
+                  Review shipments
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className={btnSmall}
+                disabled={bulkBusy}
+                onClick={() => {
+                  setBulkItems(null);
+                  setSelected([]);
+                }}
+              >
+                Clear selection
+              </button>
+            </div>
+            {bulkItems ? (
+              <div className="mt-3">
+                <div className={tableWrap} tabIndex={0} role="region" aria-label="Bulk shipments">
+                  <table className={`${tableCls} min-w-[560px]`}>
+                    <thead>
+                      <tr>
+                        <th scope="col">Order</th>
+                        <th scope="col">Tracking number</th>
+                        <th scope="col">Result</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bulkItems.map((item) => (
+                        <tr key={item.orderId}>
+                          <td className="font-medium">{item.number}</td>
+                          <td>
+                            <input
+                              className={inputCls}
+                              aria-label={`Tracking number for ${item.number}`}
+                              value={item.tracking}
+                              disabled={item.status === 'applied' || bulkBusy}
+                              onChange={(event) =>
+                                setBulkItems((prev) =>
+                                  prev
+                                    ? setBulkTracking(prev, item.orderId, event.target.value)
+                                    : prev
+                                )
+                              }
+                            />
+                          </td>
+                          <td>
+                            {item.status === 'pending'
+                              ? 'Not shipped yet'
+                              : item.status === 'applied'
+                                ? item.message
+                                : `Failed. ${item.message}`}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {summarizeBulk(bulkItems).pending > 0 ? (
+                    <button
+                      type="button"
+                      className={btnPrimary}
+                      disabled={bulkBusy}
+                      onClick={() => void runBulk(retryableBulkItems(bulkItems))}
+                    >
+                      {bulkBusy ? 'Shipping...' : 'Ship reviewed orders'}
+                    </button>
+                  ) : null}
+                  {summarizeBulk(bulkItems).failed > 0 ? (
+                    <button
+                      type="button"
+                      className={btnPrimary}
+                      disabled={bulkBusy}
+                      onClick={() => void runBulk(retryableBulkItems(bulkItems))}
+                    >
+                      Retry failed orders only
+                    </button>
+                  ) : null}
+                </div>
+                {summarizeBulk(bulkItems).partial ? (
+                  <p className="mt-2 text-sm text-amber-700" role="status">
+                    Partial success. Shipped orders stay shipped and are never sent again. Only the
+                    failed orders are retried.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </section>
+        </div>
+      ) : null}
+
+      <ConfirmDialog
+        request={
+          refundTarget
+            ? {
+                title: 'Refund this order?',
+                body: `Refund ${refundTarget.number} remaining balance (${refundTarget.currency} ${formatMoney(refundTarget.refundable_cents, refundTarget.currency)})? This cannot be undone. Settlement is reported separately from submission.`,
+                confirmLabel: 'Refund order',
+              }
+            : null
+        }
+        busy={!!busyId}
+        onCancel={() => setRefundTarget(null)}
+        onConfirm={async () => {
+          const o = refundTarget;
+          setRefundTarget(null);
+          if (!o) return;
+          setMsg(null);
+          setBusyId(o.id);
+          const r = await adminAction('order.refund', {
+            orderId: o.id,
+            amountCents: o.refundable_cents,
+          });
+          setBusyId('');
+          if (r.ok) {
+            setMsg({ kind: 'status', message: refundActionMessage(r.data, o.currency) });
+            router.invalidate();
+          } else setMsg({ kind: 'error', message: r.error ?? 'Refund failed' });
+        }}
+      />
 
       {search.view === 'returns' && requested.length > 0 ? (
         <section className={`${cardCls} mt-5 overflow-hidden`}>
