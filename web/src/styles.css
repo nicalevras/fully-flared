@@ -232,3 +232,17 @@ a:focus-visible {
     @apply font-sans;
   }
 }
+
+/* FF-10: printing from the order workspace prints only the packing slip. */
+@media print {
+  body:has(#packing-slip) :is(header, nav, aside, footer) {
+    display: none !important;
+  }
+  main:has(> #packing-slip) > *:not(#packing-slip) {
+    display: none !important;
+  }
+  #packing-slip {
+    box-shadow: none !important;
+    border: none !important;
+  }
+}
