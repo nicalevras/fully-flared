@@ -179,6 +179,7 @@ export const adminActionSchema = z.discriminatedUnion('action', [
     perKgCents: nullableCents,
     freeOverCents: nullableCents,
   }),
+  z.object({ action: z.literal('shipping.deleteRate'), rateId: idString }),
   z.object({
     action: z.literal('order.ship'),
     orderId: idString,

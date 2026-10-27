@@ -86,3 +86,17 @@ describe('FF-05: discount edit mode survives a failed update', () => {
     expect(source).not.toContain("if (editingId) setEditingId('');");
   });
 });
+
+describe('FF-11: shipping sample quote checks permission server-side', () => {
+  it('requires the shipping permission in the server function, not just staff auth', async () => {
+    const { readFileSync } = await import('node:fs');
+    const source = readFileSync('web/src/routes/admin/shipping.tsx', 'utf8');
+    const fn = source.slice(source.indexOf('const previewQuoteFn'));
+    expect(fn).toContain("requireStaffPermission(context.staff, 'shipping', 'create-zone')");
+    const { roleCan } = await import('../web/src/lib/permissions');
+    expect(roleCan('support', 'shipping', 'create-zone')).toBe(false);
+    expect(roleCan('warehouse', 'shipping', 'create-zone')).toBe(false);
+    expect(roleCan('manager', 'shipping', 'create-zone')).toBe(true);
+    expect(roleCan('owner', 'shipping', 'create-zone')).toBe(true);
+  });
+});
