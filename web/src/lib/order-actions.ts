@@ -113,6 +113,13 @@ export function refundOutcomeMessage(status: string, amount: number, currency: s
       ? `Refund ${status}: ${money}. No refund completed; check the operation before retrying.`
       : `Refund ${status === 'uncertain' ? 'awaiting confirmation' : status.replace(/_/g, ' ')}: ${money}. Settlement has not completed.`;
 }
+export function refundStatusLabel(status: string) {
+  if (status === 'succeeded') return 'Settled';
+  if (status === 'failed') return 'Failed';
+  if (status === 'canceled') return 'Canceled';
+  if (status === 'uncertain') return 'Submitted, awaiting confirmation';
+  return 'Submitted, not settled yet';
+}
 export function refundActionMessage(data: unknown, currency: string) {
   return typeof data === 'object' &&
     data !== null &&
