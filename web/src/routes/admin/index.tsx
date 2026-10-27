@@ -103,7 +103,11 @@ const getData = createServerFn({ method: 'GET' })
 
 export const Route = createFileRoute('/admin/')({
   beforeLoad: ({ context }) => {
-    if (!roleCan(context.staff?.role, 'report', 'view')) throw redirect({ to: '/admin/orders' });
+    if (!roleCan(context.staff?.role, 'report', 'view'))
+      throw redirect({
+        to: '/admin/orders',
+        search: { q: '', view: 'queue', payment: 'all', from: '', to: '' },
+      });
   },
   loader: async () => getData(),
   component: AdminHome,
@@ -245,6 +249,7 @@ function AdminHome() {
           <h2 className="text-sm font-medium text-zinc-950">Recent orders</h2>
           <Link
             to="/admin/orders"
+            search={{ q: '', view: 'queue', payment: 'all', from: '', to: '' }}
             className="inline-flex items-center gap-1 text-[13px] font-medium text-zinc-950 hover:underline"
           >
             View all <ArrowRightIcon className="h-4 w-4" />
