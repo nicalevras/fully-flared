@@ -21,7 +21,13 @@ import {
   textareaCls,
 } from '../../../components/ui';
 
-type PageRow = { id: string; slug: string; title: string; content_html: string };
+type PageRow = {
+  id: string;
+  slug: string;
+  title: string;
+  content_html: string;
+  updated_at: string;
+};
 
 const getPage = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
@@ -29,7 +35,9 @@ const getPage = createServerFn({ method: 'GET' })
   .handler(async ({ data: pageId }): Promise<PageRow | null> => {
     if (pageId === 'new') return null;
     const { env } = await import('cloudflare:workers');
-    const row = await env.DB.prepare('SELECT id, slug, title, content_html FROM pages WHERE id = ?')
+    const row = await env.DB.prepare(
+      'SELECT id, slug, title, content_html, updated_at FROM pages WHERE id = ?'
+    )
       .bind(pageId)
       .first<PageRow>();
     return row ?? null;
@@ -53,6 +61,7 @@ function EditorForm({ page }: { page: PageRow | null }) {
     slug: page?.slug ?? '',
     title: page?.title ?? '',
     contentHtml: page?.content_html ?? '',
+    updatedAt: page?.updated_at ?? '',
   });
   const [feedback, setFeedback] = useState<AdminActionFeedbackState>(null);
   const [busy, setBusy] = useState(false);
@@ -113,7 +122,10 @@ function EditorForm({ page }: { page: PageRow | null }) {
             disabled={busy}
             onClick={async () => {
               setBusy(true);
-              const r = await adminAction('page.save', form);
+              const r = await adminAction('page.save', {
+                ...form,
+                ...(form.updatedAt ? { expectedUpdatedAt: form.updatedAt } : {}),
+              });
               setBusy(false);
               if (r.ok) {
                 setFeedback({
