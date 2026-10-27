@@ -129,6 +129,7 @@ export const ACTION_PERMISSIONS: Record<
   'product.updateStatus': { resource: 'product', action: 'update-status' },
   'product.attachMedia': { resource: 'product', action: 'attach-media' },
   'product.detachMedia': { resource: 'product', action: 'detach-media' },
+  'product.reorderMedia': { resource: 'product', action: 'attach-media' },
   'variant.save': { resource: 'variant', action: 'save' },
   'variant.delete': { resource: 'variant', action: 'delete' },
   'variant.bulkUpdate': { resource: 'variant', action: 'bulk-update' },

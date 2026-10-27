@@ -59,6 +59,11 @@ export const adminActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('product.attachMedia'), productId: idString, mediaId: idString }),
   z.object({ action: z.literal('product.detachMedia'), productId: idString, mediaId: idString }),
   z.object({
+    action: z.literal('product.reorderMedia'),
+    productId: idString,
+    mediaIds: z.array(idString).min(1).max(100),
+  }),
+  z.object({
     action: z.literal('variant.save'),
     variantId: z.string().max(100).optional().default(''),
     productId: idString,

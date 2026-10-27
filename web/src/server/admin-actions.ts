@@ -1386,8 +1386,45 @@ export async function runAdminAction(
         }
         return { ok: true };
       }
+      case 'product.reorderMedia': {
+        const f = parsedAction.data;
+        const attached = await db
+          .prepare('SELECT media_id FROM product_media WHERE product_id = ?')
+          .bind(f.productId)
+          .all<{ media_id: string }>();
+        const attachedIds = new Set(attached.results.map((row) => row.media_id));
+        if (
+          attachedIds.size !== f.mediaIds.length ||
+          f.mediaIds.some((mediaId) => !attachedIds.has(mediaId))
+        ) {
+          return {
+            ok: false,
+            error: 'The image order changed since this page loaded. Reload before reordering.',
+            conflict: true,
+          };
+        }
+        await db.batch(
+          f.mediaIds.map((mediaId, index) =>
+            db
+              .prepare(
+                'UPDATE product_media SET position = ? WHERE product_id = ? AND media_id = ?'
+              )
+              .bind(index, f.productId, mediaId)
+          )
+        );
+        await audit(db, actor.id, 'product.reorderMedia', 'product', f.productId, {
+          count: f.mediaIds.length,
+        });
+        return { ok: true };
+      }
       case 'product.attachMedia': {
         const f = parsedAction.data;
+        const existing = await db
+          .prepare('SELECT media_id FROM product_media WHERE product_id = ? AND media_id = ?')
+          .bind(f.productId, f.mediaId)
+          .first();
+        if (existing)
+          return { ok: false, error: 'That image is already attached to this product.' };
         const pos = await db
           .prepare(
             'SELECT COALESCE(MAX(position), -1) + 1 AS p FROM product_media WHERE product_id = ?'

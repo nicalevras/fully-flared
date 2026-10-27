@@ -38,7 +38,8 @@ type VariantRow = {
   on_hand: number;
   reserved: number;
 };
-type MediaRow = { media_id: string; r2_key: string; position: number };
+type MediaRow = { media_id: string; r2_key: string; position: number; alt_text: string };
+type LibraryMediaRow = { id: string; r2_key: string; alt_text: string };
 type Detail = {
   id: string;
   slug: string;
@@ -55,6 +56,7 @@ type Detail = {
   media: MediaRow[];
   collections: Array<{ id: string; title: string }>;
   allCollections: Array<{ id: string; title: string }>;
+  allMedia: LibraryMediaRow[];
 };
 
 const getData = createServerFn({ method: 'GET' })
@@ -68,9 +70,9 @@ const getData = createServerFn({ method: 'GET' })
         "SELECT id, slug, title, description, status, seo_title, seo_description, tax_code, (SELECT target_revision FROM catalog_work WHERE entity_type = 'product' AND entity_id = products.id) AS revision, (SELECT processed_revision FROM catalog_work WHERE entity_type = 'product' AND entity_id = products.id) AS processed_revision FROM products WHERE id = ?"
       )
       .bind(productId)
-      .first<Omit<Detail, 'variants' | 'media' | 'collections' | 'allCollections'>>();
+      .first<Omit<Detail, 'variants' | 'media' | 'collections' | 'allCollections' | 'allMedia'>>();
     if (!product) return null;
-    const [variants, media, cols, allCols] = await Promise.all([
+    const [variants, media, cols, allCols, allMedia] = await Promise.all([
       db
         .prepare(
           `SELECT v.id, v.sku, v.title, v.price_cents, v.compare_at_cents, v.status, v.weight_grams, v.continue_selling,
@@ -81,7 +83,7 @@ const getData = createServerFn({ method: 'GET' })
         .all<VariantRow>(),
       db
         .prepare(
-          `SELECT pm.media_id, m.r2_key, pm.position FROM product_media pm JOIN media m ON m.id = pm.media_id
+          `SELECT pm.media_id, m.r2_key, pm.position, m.alt_text FROM product_media pm JOIN media m ON m.id = pm.media_id
          WHERE pm.product_id = ? ORDER BY pm.position`
         )
         .bind(productId)
@@ -95,6 +97,11 @@ const getData = createServerFn({ method: 'GET' })
       db
         .prepare('SELECT id, title FROM collections ORDER BY title')
         .all<{ id: string; title: string }>(),
+      db
+        .prepare(
+          'SELECT id, r2_key, alt_text FROM media WHERE ready = 1 AND deletion_pending = 0 ORDER BY created_at DESC LIMIT 60'
+        )
+        .all<LibraryMediaRow>(),
     ]);
     return {
       ...product,
@@ -102,6 +109,7 @@ const getData = createServerFn({ method: 'GET' })
       media: media.results,
       collections: cols.results,
       allCollections: allCols.results,
+      allMedia: allMedia.results,
     };
   });
 
@@ -213,6 +221,7 @@ function EditForm({
     product.collections.map((c) => c.id)
   );
   const [uploading, setUploading] = useState(false);
+  const [altDrafts, setAltDrafts] = useState<Record<string, string>>({});
 
   const search = Route.useSearch();
 
@@ -526,35 +535,164 @@ function EditForm({
             No images yet. The storefront shows a letter tile until you add one.
           </p>
         ) : (
-          <ul className="mt-4 grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-6">
-            {product.media.map((m, i) => (
-              <li key={m.media_id} className="group relative">
-                <img
-                  src={`/media/${m.r2_key}`}
-                  alt={i === 0 ? `${product.title} cover image` : `${product.title} image ${i + 1}`}
-                  className="aspect-square w-full rounded-xl object-cover"
-                />
-                {i === 0 ? (
-                  <span className="absolute top-2 left-2 rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-950 shadow-sm">
-                    Cover
-                  </span>
-                ) : null}
-                <button
-                  className="absolute top-2 right-2 rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-red-600 shadow-sm opacity-0 transition-opacity group-hover:opacity-100"
-                  aria-label={`Remove image ${i + 1}`}
-                  onClick={() =>
-                    act(
-                      'product.detachMedia',
-                      { productId: product.id, mediaId: m.media_id },
-                      'Image removed.'
-                    )
-                  }
-                >
-                  Remove
-                </button>
-              </li>
-            ))}
-          </ul>
+          <>
+            <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {product.media.map((m, i) => (
+                <li key={m.media_id} className="rounded-xl border border-zinc-200 p-2">
+                  <div className="relative">
+                    <img
+                      src={`/media/${m.r2_key}`}
+                      alt={m.alt_text || `${product.title} image ${i + 1}`}
+                      className="aspect-square w-full rounded-lg object-cover"
+                    />
+                    {i === 0 ? (
+                      <span className="absolute top-2 left-2 rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-950 shadow-sm">
+                        Cover
+                      </span>
+                    ) : null}
+                  </div>
+                  <label className={labelCls} htmlFor={`alt-${m.media_id}`}>
+                    Alt text
+                  </label>
+                  <input
+                    id={`alt-${m.media_id}`}
+                    className={inputCls}
+                    value={altDrafts[m.media_id] ?? m.alt_text}
+                    onChange={(e) => setAltDrafts({ ...altDrafts, [m.media_id]: e.target.value })}
+                  />
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    <button
+                      type="button"
+                      className={btnSmall}
+                      disabled={(altDrafts[m.media_id] ?? m.alt_text) === m.alt_text}
+                      onClick={() =>
+                        act(
+                          'media.updateAlt',
+                          { mediaId: m.media_id, altText: altDrafts[m.media_id] ?? m.alt_text },
+                          'Alt text saved. This image is shared, so the new text applies everywhere it is used.'
+                        )
+                      }
+                    >
+                      Save alt
+                    </button>
+                    {i > 0 ? (
+                      <button
+                        type="button"
+                        className={btnSmall}
+                        onClick={() => {
+                          const ids = product.media.map((row) => row.media_id);
+                          const next = [m.media_id, ...ids.filter((id) => id !== m.media_id)];
+                          void act(
+                            'product.reorderMedia',
+                            { productId: product.id, mediaIds: next },
+                            'Cover image updated.'
+                          );
+                        }}
+                      >
+                        Make cover
+                      </button>
+                    ) : null}
+                    {i > 0 ? (
+                      <button
+                        type="button"
+                        className={btnSmall}
+                        aria-label={`Move image ${i + 1} earlier`}
+                        onClick={() => {
+                          const ids = product.media.map((row) => row.media_id);
+                          const next = [...ids];
+                          const held = next[i - 1];
+                          const current = next[i];
+                          if (held !== undefined && current !== undefined) {
+                            next[i - 1] = current;
+                            next[i] = held;
+                          }
+                          void act(
+                            'product.reorderMedia',
+                            { productId: product.id, mediaIds: next },
+                            'Image order updated.'
+                          );
+                        }}
+                      >
+                        Earlier
+                      </button>
+                    ) : null}
+                    {i < product.media.length - 1 ? (
+                      <button
+                        type="button"
+                        className={btnSmall}
+                        aria-label={`Move image ${i + 1} later`}
+                        onClick={() => {
+                          const ids = product.media.map((row) => row.media_id);
+                          const next = [...ids];
+                          const held = next[i];
+                          const following = next[i + 1];
+                          if (held !== undefined && following !== undefined) {
+                            next[i] = following;
+                            next[i + 1] = held;
+                          }
+                          void act(
+                            'product.reorderMedia',
+                            { productId: product.id, mediaIds: next },
+                            'Image order updated.'
+                          );
+                        }}
+                      >
+                        Later
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className={btnSmall}
+                      aria-label={`Remove image ${i + 1}`}
+                      onClick={() =>
+                        act(
+                          'product.detachMedia',
+                          { productId: product.id, mediaId: m.media_id },
+                          'Image removed.'
+                        )
+                      }
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {(() => {
+              const attached = new Set(product.media.map((row) => row.media_id));
+              const available = product.allMedia.filter((row) => !attached.has(row.id));
+              if (available.length === 0) return null;
+              return (
+                <div className="mt-5">
+                  <h3 className="text-sm font-medium text-zinc-950">Add an existing image</h3>
+                  <ul className="mt-2 grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-6">
+                    {available.map((row) => (
+                      <li key={row.id} className="rounded-xl border border-zinc-200 p-2">
+                        <img
+                          src={`/media/${row.r2_key}`}
+                          alt={row.alt_text || 'Library image'}
+                          className="aspect-square w-full rounded-lg object-cover"
+                        />
+                        <button
+                          type="button"
+                          className={`${btnSmall} mt-2 w-full`}
+                          onClick={() =>
+                            act(
+                              'product.attachMedia',
+                              { productId: product.id, mediaId: row.id },
+                              'Image added.'
+                            )
+                          }
+                        >
+                          Attach
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })()}
+          </>
         )}
       </section>
 
