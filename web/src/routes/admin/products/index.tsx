@@ -43,7 +43,6 @@ import {
   pageTitle,
   tableCls,
   tableWrap,
-  textareaCls,
 } from '../../../components/ui';
 
 const getData = createServerFn({ method: 'GET' })
@@ -96,7 +95,6 @@ function AdminProducts() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
-  const [csv, setCsv] = useState('title,slug,sku,price_cents,stock\n');
   const [adjust, setAdjust] = useState({ sku: '', delta: '10' });
   const [msg, setMsg] = useState<AdminActionFeedbackState>(null);
   const [query, setQuery] = useState(search.q);
@@ -115,15 +113,20 @@ function AdminProducts() {
             Find a product by title or SKU. Click a product to edit its variants, stock, and images.
           </p>
         </div>
-        {canCreate ? (
-          <Link
-            to="/admin/products/new"
-            search={{ q: search.q, mode: search.mode, status: search.status, sort: search.sort }}
-            className={btnPrimary}
-          >
-            Add product
+        <span className="flex gap-2">
+          <Link to="/admin/products/import" className={btnSmall}>
+            Import CSV
           </Link>
-        ) : null}
+          {canCreate ? (
+            <Link
+              to="/admin/products/new"
+              search={{ q: search.q, mode: search.mode, status: search.status, sort: search.sort }}
+              className={btnPrimary}
+            >
+              Add product
+            </Link>
+          ) : null}
+        </span>
       </div>
       <AdminActionFeedback value={msg} />
 
@@ -460,35 +463,6 @@ function AdminProducts() {
               }}
             >
               Adjust stock
-            </button>
-          </section>
-
-          <section className={`${cardCls} space-y-4 p-5 sm:p-6`}>
-            <div>
-              <h2 className="text-sm font-medium text-zinc-950">Import products</h2>
-              <p className={hintCls}>
-                CSV with columns: title, slug, sku, price_cents, stock. Bad rows are reported, good
-                rows still import.
-              </p>
-            </div>
-            <textarea
-              aria-label="Products CSV"
-              className={`${textareaCls} font-mono text-xs`}
-              value={csv}
-              onChange={(e) => setCsv(e.target.value)}
-              rows={5}
-            />
-            <button
-              className={btnSmall}
-              onClick={async () => {
-                const r = await adminAction('import.productsCsv', { csv });
-                if (r.ok) {
-                  setMsg({ kind: 'status', message: `Import finished: ${JSON.stringify(r.data)}` });
-                  router.invalidate();
-                } else setMsg({ kind: 'error', message: r.error ?? 'Import failed' });
-              }}
-            >
-              Import CSV
             </button>
           </section>
         </div>
