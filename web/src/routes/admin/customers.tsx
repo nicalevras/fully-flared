@@ -69,7 +69,6 @@ function AdminCustomers() {
   const { customers, total, myRole, page, lookup, history } = Route.useLoaderData();
   const search = Route.useSearch();
   const [emailQuery, setEmailQuery] = useState(search.q);
-  const [guestEraseTarget, setGuestEraseTarget] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<(typeof customers)[number] | null>(null);
   const [guestBusy, setGuestBusy] = useState(false);
   const navigate = Route.useNavigate();
@@ -202,14 +201,13 @@ function AdminCustomers() {
               Guest data for {history.email}
             </h3>
             {history.guest.length === 0 ? (
-              <p className="text-sm text-zinc-500">No guest purchases to export or erase.</p>
+              <p className="text-sm text-zinc-500">No guest purchases to export.</p>
             ) : (
               <>
                 <p className="mt-1 text-sm text-zinc-600">
-                  Erasing affects exactly these guest orders:{' '}
-                  {history.guest.map((o) => o.number).join(', ')}. It removes the email, name,
-                  address, and IP address. Order totals, tax, and refund records stay retained as
-                  financial facts. Account orders with the same email are never touched.
+                  Guest orders for this email: {history.guest.map((o) => o.number).join(', ')}.
+                  Guest data erasure is withheld from this release, so these records can be exported
+                  but not erased here. Account orders with the same email are never touched.
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <button
@@ -235,14 +233,6 @@ function AdminCustomers() {
                     }}
                   >
                     Export guest purchases
-                  </button>
-                  <button
-                    type="button"
-                    className={btnPrimary}
-                    disabled={guestBusy}
-                    onClick={() => setGuestEraseTarget(history.email)}
-                  >
-                    Erase guest data
                   </button>
                 </div>
               </>
@@ -404,31 +394,6 @@ function AdminCustomers() {
         </p>
       ) : null}
 
-      <ConfirmDialog
-        request={
-          guestEraseTarget
-            ? {
-                title: 'Erase guest data?',
-                body: `Erase identifying details from guest purchases for ${guestEraseTarget}? Financial facts stay retained. Account orders with the same email are not touched.`,
-                confirmLabel: 'Erase guest data',
-              }
-            : null
-        }
-        busy={guestBusy}
-        onCancel={() => setGuestEraseTarget(null)}
-        onConfirm={async () => {
-          const email = guestEraseTarget;
-          setGuestEraseTarget(null);
-          if (!email) return;
-          setGuestBusy(true);
-          const r = await adminAction('guest.erase', { email });
-          setGuestBusy(false);
-          if (r.ok) {
-            setMsg(`Guest data erased for ${email}. Financial facts were retained.`);
-            router.invalidate();
-          } else setMsg(r.error ?? 'Guest erasure failed');
-        }}
-      />
       <ConfirmDialog
         request={
           deleteTarget

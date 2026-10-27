@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb } from './helpers/d1';
 import { runAdminAction } from '../web/src/server/admin-actions';
-import { erasedEmailFor, previewGuestData } from '../web/src/server/guest-data';
+import { previewGuestData } from '../web/src/server/guest-data';
 
 let db: D1Database, dispose: () => Promise<void>;
 const owner = { id: 'owner', role: 'owner' };
@@ -50,11 +50,12 @@ describe('Phase 10C guest export and erasure', () => {
     }
   });
 
-  it('erases identifying guest details, retains financial facts, and never touches the account order', async () => {
+  it('FF-02: guest erasure is disabled server-side, even for the owner', async () => {
     const result = await runAdminAction(db, env, owner, 'guest.erase', {
       email: 'ada@example.com',
     });
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
+    // Zero rows changed: the guest order is byte-identical afterwards.
     const guest = await db
       .prepare(
         'SELECT customer_email, shipping_name, shipping_address_json, customer_ip, total_cents FROM orders WHERE id = ?'
@@ -67,19 +68,14 @@ describe('Phase 10C guest export and erasure', () => {
         customer_ip: string | null;
         total_cents: number;
       }>();
-    expect(guest?.customer_email).toBe(await erasedEmailFor('ada@example.com'));
-    expect(guest?.shipping_name).toBeNull();
-    expect(guest?.shipping_address_json).toBeNull();
-    expect(guest?.customer_ip).toBeNull();
+    expect(guest?.customer_email).toBe('Ada@Example.com');
+    expect(guest?.shipping_name).toBe('Guest Ada');
+    expect(guest?.shipping_address_json).toBe('{"line1":"1 Main St"}');
+    expect(guest?.customer_ip).toBe('203.0.113.9');
     expect(guest?.total_cents).toBe(1000);
-    const account = await db
-      .prepare('SELECT customer_email FROM orders WHERE id = ?')
-      .bind('a1')
-      .first<{ customer_email: string }>();
-    expect(account?.customer_email).toBe('ada@example.com');
-    const again = await runAdminAction(db, env, owner, 'guest.erase', {
-      email: 'ada@example.com',
-    });
-    expect(again.ok).toBe(false);
+    const audits = await db
+      .prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'guest.erase'")
+      .first<{ n: number }>();
+    expect(audits?.n).toBe(0);
   });
 });

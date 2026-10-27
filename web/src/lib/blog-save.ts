@@ -7,6 +7,7 @@ export type BlogAction = (
 ) => Promise<BlogActionResult>;
 
 export type BlogPostForm = {
+  updatedAt?: string;
   id: string;
   slug: string;
   title: string;
@@ -32,6 +33,7 @@ export async function saveBlogPost(
   const scheduled = resolveScheduledIso(form.status, form.publishedAt, loaded);
   if (!scheduled.ok) return { ok: false, error: scheduled.error };
   const result = await action('post.save', {
+    ...(form.updatedAt ? { expectedUpdatedAt: form.updatedAt } : {}),
     id: form.id,
     slug: form.slug || slugify(form.title),
     title: form.title,

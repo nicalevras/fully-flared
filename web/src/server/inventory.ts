@@ -323,7 +323,8 @@ export async function adjustStock(
   db: D1Database,
   sku: string,
   delta: number,
-  reason: 'restock' | 'correction' | 'damaged' | 'return'
+  reason: 'restock' | 'correction' | 'damaged' | 'return',
+  extraStatements: D1PreparedStatement[] = []
 ) {
   // No clamp: a correction that would drive on_hand negative (without
   // backorder) aborts via the guard trigger and surfaces as an error.
@@ -340,10 +341,12 @@ export async function adjustStock(
     db
       .prepare('INSERT INTO batch_guard SELECT 1 WHERE NOT EXISTS(SELECT 1 FROM stock WHERE sku=?)')
       .bind(sku),
+    ...extraStatements,
   ]);
 }
 
 export type StockAdjustmentOperation = {
+  extraStatements?: D1PreparedStatement[];
   operationId: string;
   actorId: string;
   sku: string;
@@ -405,6 +408,7 @@ export async function adjustStockIdempotent(
           'INSERT INTO batch_guard SELECT 1 WHERE NOT EXISTS(SELECT 1 FROM stock WHERE sku = ?)'
         )
         .bind(op.sku),
+      ...(op.extraStatements ?? []),
     ]);
   } catch {
     const existing = await db
