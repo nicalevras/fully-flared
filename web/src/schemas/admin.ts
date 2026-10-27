@@ -221,7 +221,6 @@ export const adminActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('customer.export'), userId: idString }),
   z.object({ action: z.literal('customer.delete'), userId: idString }),
   z.object({ action: z.literal('guest.export'), email: z.string().min(3).max(320) }),
-  z.object({ action: z.literal('guest.erase'), email: z.string().min(3).max(320) }),
   z.object({
     action: z.literal('user.setRole'),
     userId: idString,
