@@ -52,7 +52,11 @@ describe('FF-16 Tier A: audit commits atomically with the change', () => {
       )?.n
     ).toBe(0);
     expect(
-      (await db.prepare('SELECT COUNT(*) AS n FROM shipping_rates WHERE name = 'Std'').first<{ n: number }>())?.n
+      (
+        await db
+          .prepare("SELECT COUNT(*) AS n FROM shipping_rates WHERE name = 'Std'")
+          .first<{ n: number }>()
+      )?.n
     ).toBe(0);
     expect(
       (await db.prepare('SELECT COUNT(*) AS n FROM collections').first<{ n: number }>())?.n
