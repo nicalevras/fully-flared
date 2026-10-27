@@ -94,14 +94,17 @@ function Page() {
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
 
-  async function run(action: string, payload: AdminPayload, ok: string) {
+  async function run(action: string, payload: AdminPayload, ok: string): Promise<boolean> {
     setBusy(true);
     const r = await adminAction(action, payload);
     setBusy(false);
     if (r.ok) {
       setMsg(ok);
       router.invalidate();
-    } else setMsg(r.error ?? 'Failed');
+      return true;
+    }
+    setMsg(r.error ?? 'Failed');
+    return false;
   }
 
   return (
@@ -243,7 +246,7 @@ function Page() {
         className={`${cardCls} mt-5 space-y-4 p-5 sm:p-6`}
         onSubmit={async (e) => {
           e.preventDefault();
-          await run(
+          const succeeded = await run(
             editingId ? 'discount.update' : 'discount.create',
             {
               ...(editingId ? { discountId: editingId } : {}),
@@ -261,7 +264,9 @@ function Page() {
               ? `Discount ${form.code.toUpperCase()} updated. Checkout validates the new terms on the next order.`
               : `Discount ${form.code.toUpperCase()} created.`
           );
-          if (editingId) setEditingId('');
+          // FF-05: a failed update keeps the merchant in edit mode with
+          // their input intact. Only success leaves editing.
+          if (succeeded && editingId) setEditingId('');
         }}
       >
         <h2 className="text-sm font-medium text-zinc-950">

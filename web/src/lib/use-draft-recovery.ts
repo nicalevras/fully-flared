@@ -6,6 +6,7 @@ import {
   indexedDbDraftStore,
   parseDraft,
   serializeDraft,
+  shouldRemoveDraftOnClean,
   DRAFT_FORMAT_VERSION,
   type DraftEntityType,
   type DraftRecord,
@@ -25,6 +26,10 @@ export function useDraftRecovery(args: {
   const store = storeRef.current;
   const key = draftKey(args.staffId, args.entityType, args.entityId);
   const [recovery, setRecovery] = useState<{ draft: DraftRecord; stale: boolean } | null>(null);
+  // FF-06: the cleanup effect below must never remove a draft before the
+  // recovery read for this entity has settled, nor while an offer is shown.
+  const readSettledRef = useRef(false);
+  const recoveryShownRef = useRef(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const serverSignature = fieldsSignature(args.serverFields);
   const currentSignature = fieldsSignature(args.currentFields);
@@ -33,17 +38,25 @@ export function useDraftRecovery(args: {
 
   useEffect(() => {
     let live = true;
-    void store.get(key).then((raw) => {
-      if (!live) return;
-      const draft = parseDraft(raw, args.staffId, args.entityType, args.entityId);
-      if (!draft) return;
-      const decision = evaluateRecovery(draft, args.baseUpdatedAt, args.serverFields);
-      if (decision.action === 'offer') {
-        setRecovery({ draft, stale: decision.stale });
-      } else {
-        void store.remove(key);
-      }
-    });
+    readSettledRef.current = false;
+    recoveryShownRef.current = false;
+    void store
+      .get(key)
+      .then((raw) => {
+        if (!live) return;
+        const draft = parseDraft(raw, args.staffId, args.entityType, args.entityId);
+        if (!draft) return;
+        const decision = evaluateRecovery(draft, args.baseUpdatedAt, args.serverFields);
+        if (decision.action === 'offer') {
+          recoveryShownRef.current = true;
+          setRecovery({ draft, stale: decision.stale });
+        } else {
+          void store.remove(key);
+        }
+      })
+      .finally(() => {
+        readSettledRef.current = true;
+      });
     return () => {
       live = false;
     };
@@ -52,6 +65,15 @@ export function useDraftRecovery(args: {
 
   useEffect(() => {
     if (currentSignature === serverSignature) {
+      // Wait for the recovery read, and never delete a draft whose
+      // recovery offer is on screen.
+      if (
+        !shouldRemoveDraftOnClean({
+          readSettled: readSettledRef.current,
+          recoveryShown: recoveryShownRef.current,
+        })
+      )
+        return;
       void store.remove(key);
       return;
     }
@@ -81,14 +103,19 @@ export function useDraftRecovery(args: {
     recovery,
     savedAt,
     discardRecovery: () => {
+      recoveryShownRef.current = false;
       setRecovery(null);
       void store.remove(key);
     },
     clearDraft: () => {
+      recoveryShownRef.current = false;
       setRecovery(null);
       setSavedAt(null);
       void store.remove(key);
     },
-    markRecovered: () => setRecovery(null),
+    markRecovered: () => {
+      recoveryShownRef.current = false;
+      setRecovery(null);
+    },
   };
 }

@@ -21,7 +21,43 @@ export type OrderSearch = {
   from: string;
   to: string;
   cursor?: string | undefined;
+  returnsCursor?: string | undefined;
 };
+
+export type ReturnSearchCursor = {
+  failed: 0 | 1;
+  key: string;
+  id: string;
+  direction: 'next' | 'previous';
+};
+
+export function decodeReturnSearchCursor(
+  cursor: string | undefined,
+  search: Omit<OrderSearch, 'cursor' | 'returnsCursor'>
+): ReturnSearchCursor | null {
+  if (!cursor) return null;
+  try {
+    const bytes = Uint8Array.from(atob(cursor), (character) => character.charCodeAt(0));
+    const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+    const record = value as Record<string, unknown>;
+    if (record.v !== 1 || record.kind !== 'returns') return null;
+    if (record.direction !== 'next' && record.direction !== 'previous') return null;
+    if (
+      record.q !== search.q ||
+      record.view !== search.view ||
+      record.payment !== search.payment ||
+      record.from !== search.from ||
+      record.to !== search.to
+    )
+      return null;
+    if (record.failed !== 0 && record.failed !== 1) return null;
+    if (typeof record.key !== 'string' || typeof record.id !== 'string') return null;
+    return { failed: record.failed, key: record.key, id: record.id, direction: record.direction };
+  } catch {
+    return null;
+  }
+}
 
 export type OrderSearchCursor = {
   key: string;
@@ -87,5 +123,11 @@ export function normalizeOrderSearch(value: unknown): OrderSearch {
     decodeOrderSearchCursor(raw.cursor, base)
       ? raw.cursor
       : undefined;
-  return { ...base, cursor };
+  const returnsCursor =
+    typeof raw.returnsCursor === 'string' &&
+    raw.returnsCursor.length <= 2000 &&
+    decodeReturnSearchCursor(raw.returnsCursor, base)
+      ? raw.returnsCursor
+      : undefined;
+  return { ...base, cursor, returnsCursor };
 }

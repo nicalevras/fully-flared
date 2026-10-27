@@ -4,6 +4,20 @@ export function formatMoney(cents: number, currency: string): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(cents / 100);
 }
 
+export const MAX_PRICE_CENTS = 100_000_000;
+
+/** Strict merchant-entered money: whole units with at most two decimal
+ * places, converted to cents with string arithmetic so no value is ever
+ * rounded or accepted in scientific notation. */
+export function parseMoneyCents(raw: string): { ok: true; cents: number } | { ok: false } {
+  const text = raw.trim();
+  if (!/^\d+(\.\d{1,2})?$/.test(text)) return { ok: false };
+  const [whole, fraction = ''] = text.split('.');
+  const cents = Number(whole) * 100 + Number((fraction + '00').slice(0, 2));
+  if (!Number.isSafeInteger(cents) || cents > MAX_PRICE_CENTS) return { ok: false };
+  return { ok: true, cents };
+}
+
 function storedDate(value: string | number | Date): Date {
   // SQLite's zone-less datetime strings are UTC, just like stored ISO instants.
   return new Date(
