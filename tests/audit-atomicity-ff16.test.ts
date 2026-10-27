@@ -100,3 +100,71 @@ describe('FF-11: shipping sample quote checks permission server-side', () => {
     expect(roleCan('owner', 'shipping', 'create-zone')).toBe(true);
   });
 });
+
+describe('FF-16 Tier A remainder: catalog, variant, media, and settings writes', () => {
+  it('a forced audit failure leaves every converted change uncommitted', async () => {
+    await db
+      .prepare(
+        "INSERT INTO media (id, r2_key, filename, content_type, alt_text, created_at) VALUES ('m9', 'k9', 'b.jpg', 'image/jpeg', '', '2026')"
+      )
+      .run();
+    await db
+      .prepare(
+        "CREATE TRIGGER audit_fail BEFORE INSERT ON audit_log BEGIN SELECT RAISE(ABORT, 'forced audit failure'); END"
+      )
+      .run();
+    const attempts: Array<[string, Record<string, unknown>]> = [
+      [
+        'product.update',
+        {
+          productId: 'p1',
+          title: 'Should not stick',
+          slug: 'tee',
+          description: '',
+          status: 'active',
+        },
+      ],
+      ['product.updateStatus', { productId: 'p1', status: 'archived' }],
+      [
+        'variant.save',
+        { variantId: 'v1', productId: 'p1', sku: 'TEE-1', title: 'Default', priceCents: 9999 },
+      ],
+      ['variant.bulkUpdate', { variantIds: ['v1'], priceCents: 1234 }],
+      ['product.attachMedia', { productId: 'p1', mediaId: 'm9' }],
+      ['settings.set', { key: 'store_name', value: 'Should not stick' }],
+    ];
+    for (const [action, payload] of attempts) {
+      const result = await runAdminAction(db, env, owner, action, payload);
+      expect(result.ok, action).toBe(false);
+    }
+    const product = await db
+      .prepare('SELECT title, status FROM products WHERE id = ?')
+      .bind('p1')
+      .first<{ title: string; status: string }>();
+    expect(product).toEqual({ title: 'Tee', status: 'active' });
+    const variant = await db
+      .prepare('SELECT price_cents FROM variants WHERE id = ?')
+      .bind('v1')
+      .first<{ price_cents: number }>();
+    expect(variant?.price_cents).toBe(2000);
+    expect(
+      (
+        await db
+          .prepare('SELECT COUNT(*) AS n FROM product_media WHERE product_id = ?')
+          .bind('p1')
+          .first<{ n: number }>()
+      )?.n
+    ).toBe(0);
+    const setting = await db
+      .prepare('SELECT value FROM settings WHERE key = ?')
+      .bind('store_name')
+      .first<{ value: string }>();
+    expect(setting?.value).not.toBe('Should not stick');
+    await db.prepare('DROP TRIGGER audit_fail').run();
+    const ok = await runAdminAction(db, env, owner, 'product.updateStatus', {
+      productId: 'p1',
+      status: 'archived',
+    });
+    expect(ok.ok).toBe(true);
+  });
+});
