@@ -407,8 +407,20 @@ export async function runAdminAction(
               )
               .bind(id(), v.sku, v.stock ?? 0, productId, now()),
           ]),
+          db
+            .prepare(
+              'INSERT INTO audit_log (id, actor_user_id, action, entity_type, entity_id, details_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+            )
+            .bind(
+              id(),
+              actor.id,
+              'product.create',
+              'product',
+              productId,
+              JSON.stringify({ slug: f.slug }),
+              now()
+            ),
         ]);
-        await audit(db, actor.id, 'product.create', 'product', productId, { slug: f.slug });
         return { ok: true, data: { productId } };
       }
       case 'stock.adjust': {
