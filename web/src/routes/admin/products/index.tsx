@@ -36,7 +36,6 @@ import {
   pageTitle,
   tableCls,
   tableWrap,
-  textareaCls,
 } from '../../../components/ui';
 
 const getData = createServerFn({ method: 'GET' })
@@ -86,7 +85,6 @@ function AdminProducts() {
   const navigate = Route.useNavigate();
   const router = useRouter();
   const [form, setForm] = useState({ title: '', slug: '', sku: '', price: '29.99', stock: '10' });
-  const [csv, setCsv] = useState('title,slug,sku,price_cents,stock\n');
   const [adjust, setAdjust] = useState({ sku: '', delta: '10' });
   const [msg, setMsg] = useState<AdminActionFeedbackState>(null);
   const [busy, setBusy] = useState(false);
@@ -106,9 +104,14 @@ function AdminProducts() {
             Find a product by title or SKU. Click a product to edit its variants, stock, and images.
           </p>
         </div>
-        <Link to="/admin/products/new" className={btnPrimary}>
-          Add product
-        </Link>
+        <span className="flex gap-2">
+          <Link to="/admin/products/import" className={btnSmall}>
+            Import CSV
+          </Link>
+          <Link to="/admin/products/new" className={btnPrimary}>
+            Add product
+          </Link>
+        </span>
       </div>
       <AdminActionFeedback value={msg} />
 
@@ -554,35 +557,6 @@ function AdminProducts() {
               }}
             >
               Adjust stock
-            </button>
-          </section>
-
-          <section className={`${cardCls} space-y-4 p-5 sm:p-6`}>
-            <div>
-              <h2 className="text-sm font-medium text-zinc-950">Import products</h2>
-              <p className={hintCls}>
-                CSV with columns: title, slug, sku, price_cents, stock. Bad rows are reported, good
-                rows still import.
-              </p>
-            </div>
-            <textarea
-              aria-label="Products CSV"
-              className={`${textareaCls} font-mono text-xs`}
-              value={csv}
-              onChange={(e) => setCsv(e.target.value)}
-              rows={5}
-            />
-            <button
-              className={btnSmall}
-              onClick={async () => {
-                const r = await adminAction('import.productsCsv', { csv });
-                if (r.ok) {
-                  setMsg({ kind: 'status', message: `Import finished: ${JSON.stringify(r.data)}` });
-                  router.invalidate();
-                } else setMsg({ kind: 'error', message: r.error ?? 'Import failed' });
-              }}
-            >
-              Import CSV
             </button>
           </section>
         </div>
