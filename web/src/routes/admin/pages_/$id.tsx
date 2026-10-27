@@ -65,6 +65,7 @@ function EditorForm({ page, staffId }: { page: PageRow | null; staffId: string }
     slug: page?.slug ?? '',
     title: page?.title ?? '',
     contentHtml: page?.content_html ?? '',
+    updatedAt: page?.updated_at ?? '',
   });
   const [feedback, setFeedback] = useState<AdminActionFeedbackState>(null);
   const [busy, setBusy] = useState(false);
@@ -170,7 +171,10 @@ function EditorForm({ page, staffId }: { page: PageRow | null; staffId: string }
             disabled={busy}
             onClick={async () => {
               setBusy(true);
-              const r = await adminAction('page.save', form);
+              const r = await adminAction('page.save', {
+                ...form,
+                ...(form.updatedAt ? { expectedUpdatedAt: form.updatedAt } : {}),
+              });
               setBusy(false);
               if (r.ok) {
                 draft.clearDraft();
