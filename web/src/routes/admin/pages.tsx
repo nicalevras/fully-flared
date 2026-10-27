@@ -14,14 +14,20 @@ import {
   textareaCls,
 } from '../../components/ui';
 
-type PageRow = { id: string; slug: string; title: string; content_html: string };
+type PageRow = {
+  id: string;
+  slug: string;
+  title: string;
+  content_html: string;
+  updated_at: string;
+};
 
 const getData = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
   .handler(async () => {
     const { env } = await import('cloudflare:workers');
     const rows = await env.DB.prepare(
-      'SELECT id, slug, title, content_html FROM pages ORDER BY slug'
+      'SELECT id, slug, title, content_html, updated_at FROM pages ORDER BY slug'
     ).all<PageRow>();
     return rows.results;
   });
@@ -36,7 +42,7 @@ function Page() {
 
   const pages = Route.useLoaderData();
   const router = useRouter();
-  const [form, setForm] = useState({ id: '', slug: '', title: '', contentHtml: '' });
+  const [form, setForm] = useState({ id: '', slug: '', title: '', contentHtml: '', updatedAt: '' });
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -54,7 +60,13 @@ function Page() {
             key={p.id}
             className="flex w-full items-center gap-3 px-5 py-3.5 text-left transition-colors hover:bg-zinc-50"
             onClick={() =>
-              setForm({ id: p.id, slug: p.slug, title: p.title, contentHtml: p.content_html })
+              setForm({
+                id: p.id,
+                slug: p.slug,
+                title: p.title,
+                contentHtml: p.content_html,
+                updatedAt: p.updated_at,
+              })
             }
           >
             <span className="text-sm font-medium text-zinc-950">{p.title}</span>
@@ -115,7 +127,10 @@ function Page() {
             disabled={busy}
             onClick={async () => {
               setBusy(true);
-              const r = await adminAction('page.save', form);
+              const r = await adminAction('page.save', {
+                ...form,
+                ...(form.updatedAt ? { expectedUpdatedAt: form.updatedAt } : {}),
+              });
               setBusy(false);
               if (r.ok) {
                 setMsg('Page saved. It is live on the storefront now.');
@@ -128,7 +143,9 @@ function Page() {
           {form.id ? (
             <button
               className={btnGhost}
-              onClick={() => setForm({ id: '', slug: '', title: '', contentHtml: '' })}
+              onClick={() =>
+                setForm({ id: '', slug: '', title: '', contentHtml: '', updatedAt: '' })
+              }
             >
               Start a new page instead
             </button>

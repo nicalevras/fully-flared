@@ -36,6 +36,7 @@ type PostRow = {
   seo_description: string | null;
   published_at: string | null;
   cover_media_id: string | null;
+  updated_at: string;
   tags: string;
 };
 
@@ -47,7 +48,7 @@ const getPost = createServerFn({ method: 'GET' })
     const { env } = await import('cloudflare:workers');
     const row = await env.DB.prepare(
       `SELECT p.id, p.slug, p.title, p.status, p.excerpt, p.content_html,
-              p.seo_title, p.seo_description, p.published_at, p.cover_media_id,
+              p.seo_title, p.seo_description, p.published_at, p.cover_media_id, p.updated_at,
               COALESCE(GROUP_CONCAT(t.name, ', '), '') AS tags
        FROM posts p
        LEFT JOIN post_tags pt ON pt.post_id = p.id
@@ -91,6 +92,7 @@ function EditorForm({ post }: { post: PostRow | null }) {
   const [form, setForm] = useState(() =>
     post
       ? {
+          updatedAt: post.updated_at,
           id: post.id,
           slug: post.slug,
           title: post.title,
