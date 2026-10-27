@@ -693,6 +693,21 @@ export const stockLedger = sqliteTable(
   (t) => [index('ledger_sku_idx').on(t.sku, t.createdAt)]
 );
 
+export const stockOperations = sqliteTable(
+  'stock_operations',
+  {
+    id: text('id').primaryKey(),
+    actorId: text('actor_id').notNull(),
+    sku: text('sku').notNull(),
+    delta: integer('delta').notNull(),
+    reason: text('reason', { enum: ['restock', 'correction', 'damaged', 'return'] }).notNull(),
+    note: text('note'),
+    payloadHash: text('payload_hash').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [index('stock_operations_sku_idx').on(t.sku, t.createdAt)]
+);
+
 // ---------- Carts, reservations, orders ----------
 export const carts = sqliteTable(
   'carts',

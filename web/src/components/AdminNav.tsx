@@ -34,6 +34,7 @@ type IconType = ComponentType<{ className?: string }>;
 type AdminPath =
   | '/admin'
   | '/admin/products'
+  | '/admin/inventory'
   | '/admin/collections'
   | '/admin/discounts'
   | '/admin/orders'
@@ -68,6 +69,7 @@ const sections: readonly NavSection[] = [
     label: 'Catalog',
     items: [
       { link: nav('/admin/products'), label: 'Products', Icon: BoxIcon },
+      { link: nav('/admin/inventory'), label: 'Inventory', Icon: BoxIcon },
       { link: nav('/admin/collections'), label: 'Collections', Icon: TagIcon },
       { link: nav('/admin/discounts'), label: 'Discounts', Icon: PercentIcon },
     ],

@@ -86,6 +86,8 @@ export const adminActionSchema = z.discriminatedUnion('action', [
     sku: nonEmptyString(100),
     delta: z.number().int().min(-1_000_000).max(1_000_000),
     reason: z.enum(['restock', 'correction', 'damaged', 'return']).optional().default('restock'),
+    operationId: idString.optional(),
+    note: text(500).optional(),
   }),
   z.object({ action: z.literal('media.updateAlt'), mediaId: idString, altText: text(500) }),
   z.object({ action: z.literal('media.delete'), mediaId: idString }),
