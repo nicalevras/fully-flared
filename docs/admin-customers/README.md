@@ -35,6 +35,13 @@ mailbox.
 
 - Account export and deletion keep their existing scope. Deleting an account
   never expands silently to guest purchases made with the same email.
+- Guest export is an owner authorized operation. Guest erasure is withheld
+  from this release and disabled server-side: no role, including owner, can
+  invoke it. The erasure implemented earlier did not cover every store of a
+  guest email (notably notification outbox payloads), and no retention
+  contract for those stores has been approved. Erasure returns only after a
+  written retention contract covers outbox payloads, checkout and
+  reservation records, exports, stored files, and external systems.
 - Guest export and erasure are separate, owner authorized operations with a
   preview of the exact affected records before anything runs.
 - Financial facts that the store must retain, such as order totals, tax, and
