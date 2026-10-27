@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { ConfirmDialog } from '../../../components/ConfirmDialog';
 import { staffMiddleware } from '../../../server/staff-middleware';
 import { useStoreCurrency } from '../../../lib/use-store-currency';
 import {
