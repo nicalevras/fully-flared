@@ -195,6 +195,7 @@ export const adminActionSchema = z.discriminatedUnion('action', [
   }),
   z.object({
     action: z.literal('page.save'),
+    expectedUpdatedAt: z.string().max(40).optional(),
     id: z.string().max(100).optional().default(''),
     slug: slugString,
     title: nonEmptyString(300),
@@ -204,6 +205,7 @@ export const adminActionSchema = z.discriminatedUnion('action', [
   }),
   z.object({
     action: z.literal('post.save'),
+    expectedUpdatedAt: z.string().max(40).optional(),
     id: z.string().max(100).optional().default(''),
     slug: slugString,
     title: nonEmptyString(300),

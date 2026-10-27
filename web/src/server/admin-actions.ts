@@ -849,17 +849,30 @@ export async function runAdminAction(
         const cleanHtml = canonicalizeMediaUrls(sanitizeHtml(f.contentHtml), origins);
         const submittedKeys = new Set(mediaKeysInContent(cleanHtml, origins));
         const storedPage = await db
-          .prepare('SELECT content_html FROM pages WHERE id = ?')
+          .prepare('SELECT content_html, updated_at FROM pages WHERE id = ?')
           .bind(pageId)
-          .first<{ content_html: string | null }>();
+          .first<{ content_html: string | null; updated_at: string }>();
         const target: MediaSaveTarget = {
           table: 'pages',
           rowId: pageId,
           keys: [...submittedKeys],
           spellings: mediaRawSpellings(storedPage?.content_html, submittedKeys, origins),
         };
+        // FF-07: when the editor sends the version it loaded, the batch
+        // aborts atomically if the page changed underneath it.
+        const pageGuard =
+          storedPage && f.expectedUpdatedAt
+            ? [
+                db
+                  .prepare(
+                    "INSERT INTO batch_guard (id) SELECT 'stale-save' WHERE NOT EXISTS (SELECT 1 FROM pages WHERE id = ? AND updated_at = ?)"
+                  )
+                  .bind(pageId, f.expectedUpdatedAt),
+              ]
+            : [];
         try {
           await db.batch([
+            ...pageGuard,
             ...mediaSaveGuards(db, target),
             db
               .prepare(
@@ -878,13 +891,27 @@ export async function runAdminAction(
                 now(),
                 now()
               ),
+            auditStmt(db, actor.id, 'page.save', 'page', pageId),
           ]);
         } catch (error) {
+          if (storedPage && f.expectedUpdatedAt) {
+            const current = await db
+              .prepare('SELECT updated_at FROM pages WHERE id = ?')
+              .bind(pageId)
+              .first<{ updated_at: string }>();
+            if (current && current.updated_at !== f.expectedUpdatedAt) {
+              return {
+                ok: false,
+                error:
+                  'This page changed since you opened it. Reload to see the latest version before saving.',
+                conflict: true,
+              };
+            }
+          }
           const failure = await mediaSaveFailure(db, target, origins);
           if (failure) return failure;
           throw error;
         }
-        await audit(db, actor.id, 'page.save', 'page', pageId);
         return { ok: true, data: { pageId } };
       }
       case 'product.update': {
@@ -1557,13 +1584,16 @@ export async function runAdminAction(
               ? new Date(scheduledFor).toISOString()
               : null;
         const existing = await db
-          .prepare('SELECT slug, published_at, content_html, content_json FROM posts WHERE id = ?')
+          .prepare(
+            'SELECT slug, published_at, content_html, content_json, updated_at FROM posts WHERE id = ?'
+          )
           .bind(postId)
           .first<{
             slug: string;
             published_at: string | null;
             content_html: string | null;
             content_json: string | null;
+            updated_at: string;
           }>();
         if (existing && status === 'published' && existing.published_at) {
           // Keep the original publish date on re-publish/edits.
@@ -1596,8 +1626,60 @@ export async function runAdminAction(
             return merged;
           })(),
         };
+        // Tags: free-form names, synced wholesale on each save.
+        const tagNames = [
+          ...new Set(
+            f.tags
+              .split(',')
+              .map((t) => t.trim().toLowerCase())
+              .filter(Boolean)
+          ),
+        ].slice(0, 10);
+        const tagOps: D1PreparedStatement[] = [
+          db.prepare('DELETE FROM post_tags WHERE post_id = ?').bind(postId),
+        ];
+        for (const name of tagNames) {
+          const tagSlug = name.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+          tagOps.push(
+            db
+              .prepare(
+                `INSERT INTO tags (id, slug, name) VALUES (?, ?, ?) ON CONFLICT(slug) DO NOTHING`
+              )
+              .bind(id(), tagSlug, name),
+            db
+              .prepare(
+                `INSERT INTO post_tags (post_id, tag_id) SELECT ?, id FROM tags WHERE slug = ? ON CONFLICT DO NOTHING`
+              )
+              .bind(postId, tagSlug)
+          );
+        }
+        const redirectOps: D1PreparedStatement[] =
+          existing && existing.slug !== f.slug
+            ? [
+                db
+                  .prepare(
+                    `INSERT INTO redirects (id, from_path, to_path, created_at) VALUES (?, ?, ?, ?)
+             ON CONFLICT(from_path) DO UPDATE SET to_path = excluded.to_path`
+                  )
+                  .bind(id(), `/blog/${existing.slug}`, `/blog/${f.slug}`, now()),
+              ]
+            : [];
+        // FF-07 and FF-16: one atomic batch. The guard aborts the whole
+        // save if the post changed since the editor loaded it, and the
+        // audit row commits with the content, redirect, and tags.
+        const postGuard =
+          existing && f.expectedUpdatedAt
+            ? [
+                db
+                  .prepare(
+                    "INSERT INTO batch_guard (id) SELECT 'stale-save' WHERE NOT EXISTS (SELECT 1 FROM posts WHERE id = ? AND updated_at = ?)"
+                  )
+                  .bind(postId, f.expectedUpdatedAt),
+              ]
+            : [];
         try {
           await db.batch([
+            ...postGuard,
             ...mediaSaveGuards(db, target),
             db
               .prepare(
@@ -1627,50 +1709,29 @@ export async function runAdminAction(
                 now(),
                 now()
               ),
+            ...redirectOps,
+            ...tagOps,
+            auditStmt(db, actor.id, 'post.save', 'post', postId, { status }),
           ]);
         } catch (error) {
+          if (existing && f.expectedUpdatedAt) {
+            const current = await db
+              .prepare('SELECT updated_at FROM posts WHERE id = ?')
+              .bind(postId)
+              .first<{ updated_at: string }>();
+            if (current && current.updated_at !== f.expectedUpdatedAt) {
+              return {
+                ok: false,
+                error:
+                  'This post changed since you opened it. Reload to see the latest version before saving.',
+                conflict: true,
+              };
+            }
+          }
           const failure = await mediaSaveFailure(db, target, origins);
           if (failure) return failure;
           throw error;
         }
-        if (existing && existing.slug !== f.slug) {
-          await db
-            .prepare(
-              `INSERT INTO redirects (id, from_path, to_path, created_at) VALUES (?, ?, ?, ?)
-             ON CONFLICT(from_path) DO UPDATE SET to_path = excluded.to_path`
-            )
-            .bind(id(), `/blog/${existing.slug}`, `/blog/${f.slug}`, now())
-            .run();
-        }
-        // Tags: free-form names, synced wholesale on each save.
-        const tagNames = [
-          ...new Set(
-            f.tags
-              .split(',')
-              .map((t) => t.trim().toLowerCase())
-              .filter(Boolean)
-          ),
-        ].slice(0, 10);
-        const tagOps: D1PreparedStatement[] = [
-          db.prepare('DELETE FROM post_tags WHERE post_id = ?').bind(postId),
-        ];
-        for (const name of tagNames) {
-          const tagSlug = name.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-          tagOps.push(
-            db
-              .prepare(
-                `INSERT INTO tags (id, slug, name) VALUES (?, ?, ?) ON CONFLICT(slug) DO NOTHING`
-              )
-              .bind(id(), tagSlug, name),
-            db
-              .prepare(
-                `INSERT INTO post_tags (post_id, tag_id) SELECT ?, id FROM tags WHERE slug = ? ON CONFLICT DO NOTHING`
-              )
-              .bind(postId, tagSlug)
-          );
-        }
-        await db.batch(tagOps);
-        await audit(db, actor.id, 'post.save', 'post', postId, { status });
         return { ok: true, data: { postId } };
       }
       case 'import.productsCsv': {
