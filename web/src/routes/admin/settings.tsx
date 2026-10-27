@@ -1,7 +1,12 @@
 import { useState } from 'react';
 import { staffMiddleware } from '../../server/staff-middleware';
 import { requireStaffPermission } from '../../server/session';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, Link } from '@tanstack/react-router';
+import { buildSetupChecklist } from '../../lib/setup-checklist';
+import {
+  AdminActionFeedback,
+  type AdminActionFeedbackState,
+} from '../../components/AdminActionFeedback';
 import { createServerFn } from '@tanstack/react-start';
 import {
   LIMIT_KEYS,
@@ -28,7 +33,18 @@ const getData = createServerFn({ method: 'GET' })
   .handler(async ({ context }) => {
     requireStaffPermission(context.staff, 'settings', 'view');
     const { env } = await import('cloudflare:workers');
-    return getSettings(env.DB);
+    const settings = await getSettings(env.DB);
+    const counts = await env.DB.prepare(
+      'SELECT (SELECT COUNT(*) FROM products) AS products, (SELECT COUNT(*) FROM shipping_zones) AS zones, (SELECT COUNT(*) FROM shipping_rates) AS rates'
+    ).first<{ products: number; zones: number; rates: number }>();
+    const checklist = buildSetupChecklist({
+      productCount: counts?.products ?? 0,
+      shippingZoneCount: counts?.zones ?? 0,
+      shippingRateCount: counts?.rates ?? 0,
+      storeName: settings.storeName,
+      currency: settings.currency,
+    });
+    return { settings, checklist };
   });
 
 export const Route = createFileRoute('/admin/settings')({
@@ -39,7 +55,9 @@ export const Route = createFileRoute('/admin/settings')({
 function AdminSettings() {
   const adminAction = useAdminAction();
 
-  const initial = Route.useLoaderData();
+  const data = Route.useLoaderData();
+  const initial = data.settings;
+  const checklist = data.checklist;
   const [limits, setLimits] = useState(initial.limits);
   const [admission, setAdmission] = useState(initial.admission);
   const [form, setForm] = useState({
@@ -59,17 +77,21 @@ function AdminSettings() {
     enabled: initial.stripeTaxEnabled,
     confirmed: initial.stripeTaxConfirmed,
   });
-  const [msg, setMsg] = useState('');
+  const [feedback, setFeedback] = useState<AdminActionFeedbackState>(null);
   const [saving, setSaving] = useState(false);
 
   async function save() {
     setSaving(true);
     const result = await saveSettings(adminAction, { limits, admission, form, tax });
     setSaving(false);
-    setMsg(
+    setFeedback(
       result.ok
-        ? 'Settings saved. Storefront name, announcement, currency, and email sender update everywhere immediately.'
-        : result.error
+        ? {
+            kind: 'status',
+            message:
+              'Settings saved. Storefront name, announcement, currency, and email sender update everywhere immediately.',
+          }
+        : { kind: 'error', message: result.error }
     );
   }
 
@@ -95,77 +117,25 @@ function AdminSettings() {
       <p className={pageSub}>
         These settings are stored in your store database. Nothing about your store is hardcoded.
       </p>
+      <AdminActionFeedback value={feedback} />
+
+      <section className={`${cardCls} mt-6 space-y-3 p-5 sm:p-6`}>
+        <h2 className="text-sm font-medium text-zinc-950">Set up your store</h2>
+        <ul className="space-y-2">
+          {checklist.map((item) => (
+            <li key={item.key} className="flex items-center gap-2 text-sm">
+              <span aria-hidden="true">{item.done ? '✓' : '○'}</span>
+              <Link to={item.href} className="text-zinc-900 underline">
+                {item.label}
+              </Link>
+              <span className="text-zinc-500">{item.done ? 'Done' : 'Not yet'}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
 
       <section className={`${cardCls} mt-6 space-y-4 p-5 sm:p-6`}>
-        <h2 className="text-sm font-medium text-zinc-950">Store limits</h2>
-        {LIMIT_KEYS.map((key) => {
-          const spec = LIMIT_DEFINITIONS[key];
-          return (
-            <div key={key}>
-              <label className={labelCls} htmlFor={`s-${key}`}>
-                {spec.label}
-              </label>
-              <input
-                id={`s-${key}`}
-                className={inputCls}
-                type="number"
-                min={spec.min}
-                max={spec.max}
-                step={1}
-                required
-                value={limits[key]}
-                onChange={(event) => setLimits({ ...limits, [key]: event.target.valueAsNumber })}
-              />
-              <p className={hintCls}>
-                Range {spec.min}–{spec.max}; default {spec.default}. Existing holds keep their
-                expiry.
-              </p>
-            </div>
-          );
-        })}
-      </section>
-      <section className={`${cardCls} mt-6 space-y-4 p-5 sm:p-6`}>
-        <h2 className="text-sm font-medium text-zinc-950">Checkout admission</h2>
-        <p className={hintCls}>
-          Bounds how many new checkouts can start at once. Shoppers over the budget get a retryable
-          “busy” response; in-progress and duplicate checkouts are never blocked. Changes apply
-          within a minute.
-        </p>
-        {ADMISSION_KEYS.map((key) => {
-          const spec = ADMISSION_DEFINITIONS[key];
-          return (
-            <div key={key}>
-              <label className={labelCls} htmlFor={`s-${key}`}>
-                {spec.label}
-              </label>
-              <input
-                id={`s-${key}`}
-                className={inputCls}
-                type="number"
-                min={spec.min}
-                max={spec.max}
-                step={1}
-                required
-                value={admission[key]}
-                onChange={(event) =>
-                  setAdmission({ ...admission, [key]: event.target.valueAsNumber })
-                }
-              />
-              <p className={hintCls}>
-                Range {spec.min}–{spec.max}; default {spec.default}.
-              </p>
-            </div>
-          );
-        })}
-      </section>
-      <section className={`${cardCls} mt-6 space-y-4 p-5 sm:p-6`}>
         <h2 className="text-sm font-medium text-zinc-950">Store details</h2>
-        {field(
-          'media_public_base_url',
-          'Public media origin (optional)',
-          'Enable only after configuring PUBLIC_MEDIA, MEDIA_ZONE_ID and MEDIA_PURGE_TOKEN. Existing images keep their local delivery until republished.',
-          'https://images.yourstore.com'
-        )}
         {field('store_name', 'Store name', 'Shown in the header, footer, emails, and page titles.')}
         {field(
           'announcement_text',
@@ -280,15 +250,82 @@ function AdminSettings() {
         </label>
       </section>
 
+      <section className={`${cardCls} mt-6 space-y-4 p-5 sm:p-6`}>
+        <h2 className="text-sm font-medium text-zinc-950">Advanced: store limits</h2>
+        <p className={hintCls}>
+          Technical guardrails for catalog size and stock holds. Most stores never need to change
+          these.
+        </p>
+        {LIMIT_KEYS.map((key) => {
+          const spec = LIMIT_DEFINITIONS[key];
+          return (
+            <div key={key}>
+              <label className={labelCls} htmlFor={`s-${key}`}>
+                {spec.label}
+              </label>
+              <input
+                id={`s-${key}`}
+                className={inputCls}
+                type="number"
+                min={spec.min}
+                max={spec.max}
+                step={1}
+                required
+                value={limits[key]}
+                onChange={(event) => setLimits({ ...limits, [key]: event.target.valueAsNumber })}
+              />
+              <p className={hintCls}>
+                Range {spec.min}–{spec.max}; default {spec.default}. Existing holds keep their
+                expiry.
+              </p>
+            </div>
+          );
+        })}
+        {field(
+          'media_public_base_url',
+          'Public media origin (optional, advanced)',
+          'Enable only after configuring PUBLIC_MEDIA, MEDIA_ZONE_ID and MEDIA_PURGE_TOKEN. Existing images keep their local delivery until republished.',
+          'https://images.yourstore.com'
+        )}
+      </section>
+      <section className={`${cardCls} mt-6 space-y-4 p-5 sm:p-6`}>
+        <h2 className="text-sm font-medium text-zinc-950">Advanced: checkout admission</h2>
+        <p className={hintCls}>
+          Bounds how many new checkouts can start at once. Shoppers over the budget get a retryable
+          “busy” response; in-progress and duplicate checkouts are never blocked. Changes apply
+          within a minute.
+        </p>
+        {ADMISSION_KEYS.map((key) => {
+          const spec = ADMISSION_DEFINITIONS[key];
+          return (
+            <div key={key}>
+              <label className={labelCls} htmlFor={`s-${key}`}>
+                {spec.label}
+              </label>
+              <input
+                id={`s-${key}`}
+                className={inputCls}
+                type="number"
+                min={spec.min}
+                max={spec.max}
+                step={1}
+                required
+                value={admission[key]}
+                onChange={(event) =>
+                  setAdmission({ ...admission, [key]: event.target.valueAsNumber })
+                }
+              />
+              <p className={hintCls}>
+                Range {spec.min}–{spec.max}; default {spec.default}.
+              </p>
+            </div>
+          );
+        })}
+      </section>
       <div className="mt-6 flex items-center gap-3">
         <button className={btnPrimary} onClick={save} disabled={saving}>
           {saving ? 'Saving…' : 'Save settings'}
         </button>
-        {msg ? (
-          <span className="text-sm text-green-700" role="status">
-            {msg}
-          </span>
-        ) : null}
       </div>
     </main>
   );
