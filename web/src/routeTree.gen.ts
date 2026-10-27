@@ -53,6 +53,7 @@ import { Route as AdminBlogIdRouteImport } from './routes/admin/blog_/$id'
 import { Route as AdminCustomersIdRouteImport } from './routes/admin/customers_/$id'
 import { Route as AdminOrdersIndexRouteImport } from './routes/admin/orders/index'
 import { Route as AdminOrdersIdRouteImport } from './routes/admin/orders/$id'
+import { Route as AdminPagesIdRouteImport } from './routes/admin/pages_/$id'
 import { Route as AdminProductsIndexRouteImport } from './routes/admin/products/index'
 import { Route as AdminProductsIdRouteImport } from './routes/admin/products/$id'
 import { Route as AdminProductsImportRouteImport } from './routes/admin/products/import'
@@ -281,6 +282,11 @@ const AdminOrdersIdRoute = AdminOrdersIdRouteImport.update({
   path: '/orders/$id',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminPagesIdRoute = AdminPagesIdRouteImport.update({
+  id: '/pages_/$id',
+  path: '/pages/$id',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const AdminProductsIndexRoute = AdminProductsIndexRouteImport.update({
   id: '/products/',
   path: '/products/',
@@ -356,6 +362,7 @@ export interface FileRoutesByFullPath {
   '/admin/blog/$id': typeof AdminBlogIdRoute
   '/admin/customers/$id': typeof AdminCustomersIdRoute
   '/admin/orders/$id': typeof AdminOrdersIdRoute
+  '/admin/pages/$id': typeof AdminPagesIdRoute
   '/admin/products/$id': typeof AdminProductsIdRoute
   '/admin/products/import': typeof AdminProductsImportRoute
   '/admin/products/new': typeof AdminProductsNewRoute
@@ -406,6 +413,7 @@ export interface FileRoutesByTo {
   '/admin/blog/$id': typeof AdminBlogIdRoute
   '/admin/customers/$id': typeof AdminCustomersIdRoute
   '/admin/orders/$id': typeof AdminOrdersIdRoute
+  '/admin/pages/$id': typeof AdminPagesIdRoute
   '/admin/products/$id': typeof AdminProductsIdRoute
   '/admin/products/import': typeof AdminProductsImportRoute
   '/admin/products/new': typeof AdminProductsNewRoute
@@ -460,6 +468,7 @@ export interface FileRoutesById {
   '/admin/blog_/$id': typeof AdminBlogIdRoute
   '/admin/customers_/$id': typeof AdminCustomersIdRoute
   '/admin/orders/$id': typeof AdminOrdersIdRoute
+  '/admin/pages_/$id': typeof AdminPagesIdRoute
   '/admin/products/$id': typeof AdminProductsIdRoute
   '/admin/products/import': typeof AdminProductsImportRoute
   '/admin/products/new': typeof AdminProductsNewRoute
@@ -514,6 +523,7 @@ export interface FileRouteTypes {
     | '/admin/blog/$id'
     | '/admin/customers/$id'
     | '/admin/orders/$id'
+    | '/admin/pages/$id'
     | '/admin/products/$id'
     | '/admin/products/import'
     | '/admin/products/new'
@@ -564,6 +574,7 @@ export interface FileRouteTypes {
     | '/admin/blog/$id'
     | '/admin/customers/$id'
     | '/admin/orders/$id'
+    | '/admin/pages/$id'
     | '/admin/products/$id'
     | '/admin/products/import'
     | '/admin/products/new'
@@ -617,6 +628,7 @@ export interface FileRouteTypes {
     | '/admin/blog_/$id'
     | '/admin/customers_/$id'
     | '/admin/orders/$id'
+    | '/admin/pages_/$id'
     | '/admin/products/$id'
     | '/admin/products/import'
     | '/admin/products/new'
@@ -957,6 +969,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminOrdersIdRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/pages_/$id': {
+      id: '/admin/pages_/$id'
+      path: '/pages/$id'
+      fullPath: '/admin/pages/$id'
+      preLoaderRoute: typeof AdminPagesIdRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/products/': {
       id: '/admin/products/'
       path: '/products'
@@ -1024,6 +1043,7 @@ interface AdminRouteRouteChildren {
   AdminBlogIdRoute: typeof AdminBlogIdRoute
   AdminCustomersIdRoute: typeof AdminCustomersIdRoute
   AdminOrdersIdRoute: typeof AdminOrdersIdRoute
+  AdminPagesIdRoute: typeof AdminPagesIdRoute
   AdminProductsIdRoute: typeof AdminProductsIdRoute
   AdminProductsImportRoute: typeof AdminProductsImportRoute
   AdminProductsNewRoute: typeof AdminProductsNewRoute
@@ -1046,6 +1066,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminBlogIdRoute: AdminBlogIdRoute,
   AdminCustomersIdRoute: AdminCustomersIdRoute,
   AdminOrdersIdRoute: AdminOrdersIdRoute,
+  AdminPagesIdRoute: AdminPagesIdRoute,
   AdminProductsIdRoute: AdminProductsIdRoute,
   AdminProductsImportRoute: AdminProductsImportRoute,
   AdminProductsNewRoute: AdminProductsNewRoute,
