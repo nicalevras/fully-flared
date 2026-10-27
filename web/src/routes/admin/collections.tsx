@@ -5,6 +5,10 @@ import { createServerFn } from '@tanstack/react-start';
 import { useAdminAction, type AdminPayload } from '../../components/AdminNav';
 import { slugify } from '../../lib/format';
 import { MAX_RAILS } from '../../lib/catalog-limits';
+import * as z from 'zod';
+import { validateServerInput } from '../../server/function-boundary';
+import { adminProductDiscovery } from '../../server/admin-product-discovery';
+import { normalizeProductSearch } from '../../lib/product-search';
 import {
   btnDestructive,
   btnPrimary,
@@ -45,19 +49,27 @@ const featuredRankOf = (value: string) => (value.trim() ? Number(value) : null);
 
 const getData = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
-  .handler(async () => {
+  .validator(validateServerInput(z.object({ q: z.string().max(200).default('') })))
+  .handler(async ({ data }) => {
     const { env } = await import('cloudflare:workers');
     const db = env.DB;
-    const [cols, products] = await Promise.all([
-      db
-        .prepare(
-          'SELECT id, slug, title, description, seo_title, seo_description, kind, rule_json, featured_rank FROM collections ORDER BY title'
-        )
-        .all<Omit<CollectionRow, 'productIds'>>(),
-      db
-        .prepare('SELECT id, title, status FROM products ORDER BY title LIMIT 200')
-        .all<ProductOption>(),
-    ]);
+    const cols = await db
+      .prepare(
+        'SELECT id, slug, title, description, seo_title, seo_description, kind, rule_json, featured_rank FROM collections ORDER BY title'
+      )
+      .all<Omit<CollectionRow, 'productIds'>>();
+    const discovery = await adminProductDiscovery(
+      db,
+      normalizeProductSearch({ q: data.q, mode: data.q ? 'title' : null })
+    );
+    const products: ProductOption[] =
+      discovery.state === 'refine'
+        ? []
+        : discovery.products.map((product) => ({
+            id: product.id,
+            title: product.title,
+            status: product.status,
+          }));
     const out: CollectionRow[] = [];
     for (const c of cols.results) {
       const members = await db
@@ -66,18 +78,25 @@ const getData = createServerFn({ method: 'GET' })
         .all<{ product_id: string }>();
       out.push({ ...c, productIds: members.results.map((m) => m.product_id) });
     }
-    return { collections: out, products: products.results };
+    return { collections: out, products, refineSearch: discovery.state === 'refine' };
   });
 
 export const Route = createFileRoute('/admin/collections')({
-  loader: async () => getData(),
+  validateSearch: (search: Record<string, unknown>) => ({
+    q: typeof search.q === 'string' ? search.q.slice(0, 200) : '',
+  }),
+  loaderDeps: ({ search }) => search,
+  loader: async ({ deps }) => getData({ data: deps }),
   component: AdminCollections,
 });
 
 function AdminCollections() {
   const adminAction = useAdminAction();
 
-  const { collections, products } = Route.useLoaderData();
+  const { collections, products, refineSearch } = Route.useLoaderData();
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
+  const [productQuery, setProductQuery] = useState(search.q);
   const router = useRouter();
   const [form, setForm] = useState({
     title: '',
@@ -149,6 +168,35 @@ function AdminCollections() {
       <p className={pageSub}>
         Group products into collections that appear in the store header and on their own pages, like
         /collections/your-slug.
+      </p>
+
+      <form
+        className={`${cardCls} mt-5 flex flex-wrap items-end gap-3 p-4`}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void navigate({ search: { q: productQuery.trim() } });
+        }}
+      >
+        <div className="min-w-52 flex-1">
+          <label className={labelCls} htmlFor="collection-product-q">
+            Find products to add
+          </label>
+          <input
+            id="collection-product-q"
+            className={inputCls}
+            value={productQuery}
+            onChange={(event) => setProductQuery(event.target.value)}
+            placeholder="Search product titles"
+          />
+        </div>
+        <button type="submit" className={btnPrimary}>
+          Search products
+        </button>
+      </form>
+      <p className="mt-2 text-[13px] text-zinc-500">
+        Product choices come from the catalog search, one page of 50 at a time, so collections can
+        include products beyond the first 200.
+        {refineSearch ? ' This search is too broad. Add more of the title to narrow it down.' : ''}
       </p>
 
       <div className="mt-6 space-y-5">
@@ -351,8 +399,12 @@ function AdminCollections() {
                 ) : (
                   <fieldset className="mt-5 border-t border-zinc-100 pt-4">
                     <legend className="text-sm font-medium text-zinc-950">
-                      Products in this collection
+                      Products in this collection ({selected.length} selected)
                     </legend>
+                    <p className={hintCls}>
+                      Selected products stay selected even when a search does not show them on this
+                      page.
+                    </p>
                     {products.length === 0 ? (
                       <p className={hintCls}>No products exist yet.</p>
                     ) : (
