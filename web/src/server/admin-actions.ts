@@ -6,7 +6,7 @@ import { getStripeProvider } from './payments';
 import { getSettings, setSetting } from './settings';
 import { emailStatement, commitWithEmails, enqueueJob } from './email';
 import { broadcastAdminRealtime } from './realtime';
-import { escapeHtml, sanitizeHtml } from './sanitize';
+import { escapeHtml, plainTextFromHtml, sanitizeHtml } from './sanitize';
 import { adminActionSchema, csvProductRowSchema } from '../schemas/admin';
 import { z } from 'zod';
 import { settingKeySchema, validateSetting } from '../schemas/settings';
@@ -863,12 +863,20 @@ export async function runAdminAction(
             conflict: true,
           };
         }
-        const updateSql = `UPDATE products SET title = ?, slug = ?, description = ?, status = ?, seo_title = ?, seo_description = ?, tax_code = ?, updated_at = ?
+        let storedDescription = f.description;
+        let storedHtml: string | null | undefined;
+        if (f.descriptionHtml !== undefined) {
+          const clean = sanitizeHtml(f.descriptionHtml);
+          storedHtml = clean.trim() ? clean : null;
+          if (storedHtml) storedDescription = plainTextFromHtml(clean).slice(0, 20_000);
+        }
+        const updateSql = `UPDATE products SET title = ?, slug = ?, description = ?, ${storedHtml !== undefined ? 'description_html = ?, ' : ''}status = ?, seo_title = ?, seo_description = ?, tax_code = ?, updated_at = ?
            WHERE id = ?`;
         const updateValues = [
           f.title,
           slug,
-          f.description,
+          storedDescription,
+          ...(storedHtml !== undefined ? [storedHtml] : []),
           f.status || 'draft',
           f.seoTitle || null,
           f.seoDescription || null,

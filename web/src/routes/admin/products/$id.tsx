@@ -17,6 +17,7 @@ import { useAdminAction, type AdminPayload } from '../../../components/AdminNav'
 import { formatMoney } from '../../../lib/format';
 import { uploadMedia } from '../../../lib/upload';
 import { applyVariantEdits, type VariantEdits } from '../../../lib/variant-edits';
+import { BlogEditor } from '../../../components/BlogEditor';
 import {
   btnDestructive,
   btnPrimary,
@@ -53,6 +54,7 @@ type Detail = {
   seo_title: string | null;
   seo_description: string | null;
   tax_code: string | null;
+  description_html: string | null;
   revision: number | null;
   processed_revision: number | null;
   variants: VariantRow[];
@@ -170,6 +172,7 @@ function EditForm({
     title: product.title,
     slug: product.slug,
     description: product.description,
+    descriptionHtml: product.description_html ?? '',
     taxCode: product.tax_code ?? '',
     status: product.status,
     seoTitle: product.seo_title ?? '',
@@ -177,11 +180,13 @@ function EditForm({
   };
   const [form, setForm] = useState(initialForm);
   const [conflict, setConflict] = useState(false);
+  const [richMode, setRichMode] = useState(Boolean(product.description_html));
   const [reviewOpen, setReviewOpen] = useState(false);
   const fieldLabels: Record<string, string> = {
     title: 'Title',
     slug: 'Slug',
     description: 'Description',
+    descriptionHtml: 'Rich description',
     taxCode: 'Tax code',
     status: 'Status',
     seoTitle: 'SEO title',
@@ -347,16 +352,52 @@ function EditForm({
           </div>
         </div>
         <div>
-          <label className={labelCls} htmlFor="e-desc">
-            Description
-          </label>
-          <textarea
-            id="e-desc"
-            className={textareaCls}
-            rows={5}
-            value={form.description}
-            onChange={(e) => setForm({ ...form, description: e.target.value })}
-          />
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label className={labelCls} htmlFor="e-desc">
+              Description
+            </label>
+            <button
+              type="button"
+              className={btnSmall}
+              onClick={() => {
+                if (!richMode && !form.descriptionHtml && form.description) {
+                  setForm({
+                    ...form,
+                    descriptionHtml: form.description
+                      .split(/\n{2,}/)
+                      .map((paragraph) => `<p>${paragraph.replace(/\n/g, '<br>')}</p>`)
+                      .join(''),
+                  });
+                }
+                if (richMode) setForm({ ...form, descriptionHtml: '' });
+                setRichMode(!richMode);
+              }}
+            >
+              {richMode ? 'Use plain text instead' : 'Use rich text'}
+            </button>
+          </div>
+          {richMode ? (
+            <div className="mt-1">
+              <BlogEditor
+                key={product.id}
+                initialHtml={form.descriptionHtml || '<p></p>'}
+                onSave={async () => {}}
+                onChange={(html) => setForm((current) => ({ ...current, descriptionHtml: html }))}
+              />
+              <p className={hintCls}>
+                Rich text is sanitized on save. Shoppers see the formatted version. Search uses a
+                plain text version derived from it.
+              </p>
+            </div>
+          ) : (
+            <textarea
+              id="e-desc"
+              className={textareaCls}
+              rows={5}
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+            />
+          )}
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div>

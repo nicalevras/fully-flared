@@ -45,6 +45,7 @@ export const adminActionSchema = z.discriminatedUnion('action', [
     title: nonEmptyString(300),
     slug: slugString,
     description: text(20_000),
+    descriptionHtml: text(50_000).optional(),
     status: z.enum(['draft', 'active']),
     seoTitle: optText(300),
     seoDescription: optText(500),

@@ -37,6 +37,7 @@ export const productDocumentSchema = z.object({
   slug: z.string(),
   title: z.string(),
   description: z.string(),
+  descriptionHtml: z.string().nullable().default(null),
   status: z.enum(['active', 'archived', 'draft']),
   seoTitle: z.string().nullable(),
   seoDescription: z.string().nullable(),

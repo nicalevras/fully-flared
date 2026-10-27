@@ -2261,6 +2261,7 @@ async function buildProductDocuments(
       slug: string;
       title: string;
       description: string;
+      description_html: string | null;
       status: ProductDocument['status'];
       seo_title: string | null;
       seo_description: string | null;
@@ -2273,7 +2274,7 @@ async function buildProductDocuments(
       const ph = placeholders(chunk.length);
       const products = await db
         .prepare(
-          `SELECT id, slug, title, description, status, seo_title, seo_description FROM products WHERE status = 'active' AND id IN (${ph})`
+          `SELECT id, slug, title, description, description_html, status, seo_title, seo_description FROM products WHERE status = 'active' AND id IN (${ph})`
         )
         .bind(...chunk)
         .all<P>();
@@ -2348,6 +2349,7 @@ async function buildProductDocuments(
         slug: p.slug,
         title: p.title,
         description: p.description,
+        descriptionHtml: p.description_html,
         status: p.status,
         seoTitle: p.seo_title,
         seoDescription: p.seo_description,
