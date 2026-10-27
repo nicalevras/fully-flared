@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, createFileRoute, useRouter } from '@tanstack/react-router';
+import { Link, createFileRoute, getRouteApi, useRouter } from '@tanstack/react-router';
 import {
   AdminActionFeedback,
   type AdminActionFeedbackState,
@@ -16,14 +16,20 @@ import {
 } from '../../../lib/product-create';
 import {
   MAX_OPTION_GROUPS,
-  MAX_VALUES_PER_GROUP,
   MAX_VARIANT_COMBINATIONS,
   countCombinations,
+  droppedEditedCombinations,
   generateVariantCombinations,
+  validateOptionGroups,
   validateVariantCombinations,
   type VariantCombination,
   type VariantOptionGroup,
 } from '../../../lib/product-variant-options';
+import { useStoreCurrency } from '../../../lib/use-store-currency';
+import { ConfirmDialog, type ConfirmRequest } from '../../../components/ConfirmDialog';
+import { roleCan } from '../../../lib/permissions';
+import { parseMoneyCents } from '../../../lib/format';
+import { normalizeProductSearch } from '../../../lib/product-search';
 import {
   btnPrimary,
   btnSmall,
@@ -37,8 +43,11 @@ import {
 } from '../../../components/ui';
 
 export const Route = createFileRoute('/admin/products/new')({
+  validateSearch: (search: Record<string, unknown>) => normalizeProductSearch(search),
   component: AdminProductNew,
 });
+
+const adminApi = getRouteApi('/admin');
 
 function FieldError({ id, message }: { id: string; message: string | undefined }) {
   if (!message) return null;
@@ -51,6 +60,10 @@ function FieldError({ id, message }: { id: string; message: string | undefined }
 
 function AdminProductNew() {
   const adminAction = useAdminAction();
+  const { staff } = adminApi.useRouteContext();
+  const canCreate = roleCan(staff?.role, 'product', 'create');
+  const currency = useStoreCurrency();
+  const listSearch = Route.useSearch();
   const router = useRouter();
   const [draft, setDraft] = useState<ProductCreateDraft>(emptyProductCreateDraft);
   const [slugTouched, setSlugTouched] = useState(false);
@@ -59,12 +72,42 @@ function AdminProductNew() {
   const [busy, setBusy] = useState(false);
   const [useOptions, setUseOptions] = useState(false);
   const [groups, setGroups] = useState<VariantOptionGroup[]>([
-    { name: 'Size', values: ['Small', 'Medium', 'Large'] },
-    { name: 'Color', values: ['Black', 'White'] },
+    { name: 'Size', valuesText: 'Small, Medium, Large' },
+    { name: 'Color', valuesText: 'Black, White' },
   ]);
+  const [editedKeys, setEditedKeys] = useState<ReadonlySet<string>>(new Set());
   const [combinations, setCombinations] = useState<VariantCombination[]>([]);
   const [optionErrors, setOptionErrors] = useState<string[]>([]);
   const [resetArmed, setResetArmed] = useState(false);
+
+  const combinationCount = countCombinations(groups);
+
+  const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
+  const [pendingGroups, setPendingGroups] = useState<VariantOptionGroup[] | null>(null);
+
+  const requestOptionChange = (nextGroups: VariantOptionGroup[]): void => {
+    const dropped = droppedEditedCombinations(
+      combinations,
+      editedKeys,
+      generateVariantCombinations(
+        nextGroups,
+        draft.slug || suggestedProductSlug(draft.title),
+        { price: draft.price, stock: draft.stock },
+        combinations
+      )
+    );
+    if (dropped.length === 0) {
+      setGroups(nextGroups);
+      regenerate(nextGroups, combinations);
+      return;
+    }
+    setPendingGroups(nextGroups);
+    setConfirmRequest({
+      title: 'Remove edited variants?',
+      body: `This removes ${dropped.length} edited variant(s): ${dropped.map((combo) => combo.title).join(', ')}. Their SKU, price, and stock edits will be lost.`,
+      confirmLabel: 'Remove variants',
+    });
+  };
 
   const regenerate = (nextGroups: VariantOptionGroup[], previous: VariantCombination[]) => {
     setCombinations(
@@ -86,25 +129,57 @@ function AdminProductNew() {
     setErrors((current) => ({ ...current, [key]: undefined }));
   };
 
+  if (!canCreate) {
+    return (
+      <main>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className={pageTitle}>Add product</h1>
+          </div>
+          <Link to="/admin/products" search={listSearch} className={btnSmall}>
+            Back to products
+          </Link>
+        </div>
+        <div className={`${cardCls} mt-5 p-5 sm:p-6`}>
+          <p className="text-sm text-zinc-950">Your role cannot create products.</p>
+          <p className={hintCls}>Ask an owner or manager to create products for you.</p>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className={pageTitle}>Add product</h1>
           <p className={pageSub}>
-            Create the product record and its first variant in one step. You can add more variants,
-            images, and options on the product page next.
+            {useOptions
+              ? `Create the product and ${combinationCount} variants in one step.`
+              : 'Create the product record and its first variant in one step. You can add more variants, images, and options on the product page next.'}
           </p>
         </div>
-        <Link
-          to="/admin/products"
-          search={{ q: '', mode: null, status: 'all', sort: 'newest' }}
-          className={btnSmall}
-        >
+        <Link to="/admin/products" search={listSearch} className={btnSmall}>
           Back to products
         </Link>
       </div>
       <AdminActionFeedback value={feedback} />
+      <ConfirmDialog
+        request={confirmRequest}
+        busy={busy}
+        onConfirm={() => {
+          if (pendingGroups) {
+            setGroups(pendingGroups);
+            regenerate(pendingGroups, combinations);
+          }
+          setPendingGroups(null);
+          setConfirmRequest(null);
+        }}
+        onCancel={() => {
+          setPendingGroups(null);
+          setConfirmRequest(null);
+        }}
+      />
 
       <form
         className={`${cardCls} mt-5 space-y-6 p-5 sm:p-6`}
@@ -122,7 +197,12 @@ function AdminProductNew() {
               }
             : baseErrors;
           setErrors(nextErrors);
-          const nextOptionErrors = useOptions ? validateVariantCombinations(combinations) : [];
+          const nextOptionErrors = useOptions
+            ? [
+                ...validateOptionGroups(groups),
+                ...validateVariantCombinations(combinations, combinationCount),
+              ]
+            : [];
           setOptionErrors(nextOptionErrors);
           if (Object.values(nextErrors).some(Boolean) || nextOptionErrors.length > 0) {
             setFeedback({ kind: 'error', message: 'Fix the highlighted fields and try again.' });
@@ -134,7 +214,10 @@ function AdminProductNew() {
             payload.variants = combinations.map((combo) => ({
               sku: combo.sku.trim(),
               title: combo.title,
-              priceCents: Math.round(Number(combo.price) * 100),
+              priceCents: (() => {
+                const parsed = parseMoneyCents(combo.price);
+                return parsed.ok ? parsed.cents : 0;
+              })(),
               stock: Number(combo.stock),
               weightGrams: draft.weightGrams.trim() === '' ? null : Number(draft.weightGrams),
               continueSelling: draft.continueSelling,
@@ -149,14 +232,21 @@ function AdminProductNew() {
               return;
             }
             setFeedback({ kind: 'status', message: 'Product created.' });
-            void router.navigate({
-              to: '/admin/products',
-              search: { q: '', mode: null, status: 'all', sort: 'newest' },
+            void router.navigate({ to: '/admin/products', search: listSearch });
+            return;
+          }
+          if ('uncertain' in result && result.uncertain) {
+            setFeedback({
+              kind: 'error',
+              message:
+                'This may have been created. Check the product list for the title or slug before submitting again.',
             });
             return;
           }
           const field = productCreateServerField(result.error);
-          if (field) setErrors({ [field]: result.error });
+          if (field === 'sku' && useOptions)
+            setOptionErrors([`${result.error} Check the SKU column in the table.`]);
+          else if (field) setErrors({ [field]: result.error });
           setFeedback({
             kind: 'error',
             message: result.error ?? 'Product could not be created. Your entries are still here.',
@@ -243,41 +333,55 @@ function AdminProductNew() {
         </section>
 
         <section className="space-y-4">
-          <h2 className="text-sm font-medium text-zinc-950">First variant</h2>
+          {useOptions ? (
+            <h2 className="text-sm font-medium text-zinc-950">Defaults for new combinations</h2>
+          ) : (
+            <h2 className="text-sm font-medium text-zinc-950">First variant</h2>
+          )}
+          {useOptions ? (
+            <p className={hintCls}>
+              Price and stock below apply only when a combination is first generated. Weight and
+              continue selling apply to every variant.
+            </p>
+          ) : null}
           <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className={labelCls} htmlFor="new-sku">
-                SKU
-              </label>
-              <input
-                id="new-sku"
-                className={inputCls}
-                value={draft.sku}
-                maxLength={100}
-                aria-invalid={Boolean(errors.sku)}
-                aria-describedby={errors.sku ? 'new-sku-error' : undefined}
-                onChange={(event) => set('sku', event.target.value)}
-              />
-              <FieldError id="new-sku-error" message={errors.sku} />
-            </div>
-            <div>
-              <label className={labelCls} htmlFor="new-variant-title">
-                Variant title
-              </label>
-              <input
-                id="new-variant-title"
-                className={inputCls}
-                value={draft.variantTitle}
-                maxLength={200}
-                aria-invalid={Boolean(errors.variantTitle)}
-                aria-describedby={errors.variantTitle ? 'new-variant-title-error' : undefined}
-                onChange={(event) => set('variantTitle', event.target.value)}
-              />
-              <FieldError id="new-variant-title-error" message={errors.variantTitle} />
-            </div>
+            {useOptions ? null : (
+              <>
+                <div>
+                  <label className={labelCls} htmlFor="new-sku">
+                    SKU
+                  </label>
+                  <input
+                    id="new-sku"
+                    className={inputCls}
+                    value={draft.sku}
+                    maxLength={100}
+                    aria-invalid={Boolean(errors.sku)}
+                    aria-describedby={errors.sku ? 'new-sku-error' : undefined}
+                    onChange={(event) => set('sku', event.target.value)}
+                  />
+                  <FieldError id="new-sku-error" message={errors.sku} />
+                </div>
+                <div>
+                  <label className={labelCls} htmlFor="new-variant-title">
+                    Variant title
+                  </label>
+                  <input
+                    id="new-variant-title"
+                    className={inputCls}
+                    value={draft.variantTitle}
+                    maxLength={200}
+                    aria-invalid={Boolean(errors.variantTitle)}
+                    aria-describedby={errors.variantTitle ? 'new-variant-title-error' : undefined}
+                    onChange={(event) => set('variantTitle', event.target.value)}
+                  />
+                  <FieldError id="new-variant-title-error" message={errors.variantTitle} />
+                </div>
+              </>
+            )}
             <div>
               <label className={labelCls} htmlFor="new-price">
-                Price ($)
+                Price ({currency})
               </label>
               <input
                 id="new-price"
@@ -339,6 +443,7 @@ function AdminProductNew() {
                 type="checkbox"
                 checked={useOptions}
                 onChange={(event) => {
+                  setResetArmed(false);
                   setUseOptions(event.target.checked);
                   if (event.target.checked && combinations.length === 0) regenerate(groups, []);
                 }}
@@ -353,6 +458,12 @@ function AdminProductNew() {
                 most {MAX_VARIANT_COMBINATIONS} variants can be created at once. This product
                 currently makes {countCombinations(groups)} combinations.
               </p>
+              {combinationCount > MAX_VARIANT_COMBINATIONS ? (
+                <p role="alert" className="text-xs text-red-700">
+                  {combinationCount} combinations exceed the limit of {MAX_VARIANT_COMBINATIONS}{' '}
+                  variants. Reduce option values.
+                </p>
+              ) : null}
               {groups.map((group, groupIndex) => (
                 <div key={groupIndex} className="grid gap-3 sm:grid-cols-2">
                   <div>
@@ -364,6 +475,7 @@ function AdminProductNew() {
                       className={inputCls}
                       value={group.name}
                       onChange={(event) => {
+                        setResetArmed(false);
                         const next = groups.map((item, index) =>
                           index === groupIndex ? { ...item, name: event.target.value } : item
                         );
@@ -378,29 +490,42 @@ function AdminProductNew() {
                     <input
                       id={`group-values-${groupIndex}`}
                       className={inputCls}
-                      value={group.values.join(', ')}
+                      value={group.valuesText}
                       onChange={(event) => {
-                        const values = event.target.value
-                          .split(',')
-                          .map((value) => value.trim())
-                          .filter(Boolean)
-                          .slice(0, MAX_VALUES_PER_GROUP);
+                        setResetArmed(false);
                         const next = groups.map((item, index) =>
-                          index === groupIndex ? { ...item, values } : item
+                          index === groupIndex ? { ...item, valuesText: event.target.value } : item
                         );
-                        setGroups(next);
-                        regenerate(next, combinations);
+                        requestOptionChange(next);
                       }}
                     />
                   </div>
                 </div>
               ))}
               <div className="flex flex-wrap gap-2">
+                {groups.map((group, groupIndex) => (
+                  <button
+                    key={groupIndex}
+                    type="button"
+                    className={btnSmall}
+                    disabled={groups.length <= 1}
+                    onClick={() => {
+                      setResetArmed(false);
+                      const next = groups.filter((_, index) => index !== groupIndex);
+                      requestOptionChange(next);
+                    }}
+                  >
+                    Remove {group.name.trim() || `option ${groupIndex + 1}`}
+                  </button>
+                ))}
                 <button
                   type="button"
                   className={btnSmall}
                   disabled={groups.length >= MAX_OPTION_GROUPS}
-                  onClick={() => setGroups([...groups, { name: '', values: [] }])}
+                  onClick={() => {
+                    setResetArmed(false);
+                    setGroups([...groups, { name: '', valuesText: '' }]);
+                  }}
                 >
                   Add option group
                 </button>
@@ -450,7 +575,7 @@ function AdminProductNew() {
                       <tr className="text-xs text-zinc-500">
                         <th className="py-1 pr-2">Variant</th>
                         <th className="py-1 pr-2">SKU</th>
-                        <th className="py-1 pr-2">Price ($)</th>
+                        <th className="py-1 pr-2">Price ({currency})</th>
                         <th className="py-1">Stock</th>
                       </tr>
                     </thead>
@@ -463,15 +588,17 @@ function AdminProductNew() {
                               aria-label={`SKU for ${combo.title}`}
                               className={inputCls}
                               value={combo.sku}
-                              onChange={(event) =>
+                              onChange={(event) => {
+                                setResetArmed(false);
+                                setEditedKeys((current) => new Set(current).add(combo.key));
                                 setCombinations((current) =>
                                   current.map((item, itemIndex) =>
                                     itemIndex === index
                                       ? { ...item, sku: event.target.value }
                                       : item
                                   )
-                                )
-                              }
+                                );
+                              }}
                             />
                           </td>
                           <td className="py-1 pr-2">
@@ -480,15 +607,17 @@ function AdminProductNew() {
                               className={inputCls}
                               inputMode="decimal"
                               value={combo.price}
-                              onChange={(event) =>
+                              onChange={(event) => {
+                                setResetArmed(false);
+                                setEditedKeys((current) => new Set(current).add(combo.key));
                                 setCombinations((current) =>
                                   current.map((item, itemIndex) =>
                                     itemIndex === index
                                       ? { ...item, price: event.target.value }
                                       : item
                                   )
-                                )
-                              }
+                                );
+                              }}
                             />
                           </td>
                           <td className="py-1">
@@ -497,15 +626,17 @@ function AdminProductNew() {
                               className={inputCls}
                               inputMode="numeric"
                               value={combo.stock}
-                              onChange={(event) =>
+                              onChange={(event) => {
+                                setResetArmed(false);
+                                setEditedKeys((current) => new Set(current).add(combo.key));
                                 setCombinations((current) =>
                                   current.map((item, itemIndex) =>
                                     itemIndex === index
                                       ? { ...item, stock: event.target.value }
                                       : item
                                   )
-                                )
-                              }
+                                );
+                              }}
                             />
                           </td>
                         </tr>
@@ -574,15 +705,31 @@ function AdminProductNew() {
             />
             <FieldError id="new-seo-description-error" message={errors.seoDescription} />
           </div>
+          <div className="rounded-md border border-zinc-200 p-4">
+            <h3 className="text-sm font-medium text-zinc-950">Search result preview</h3>
+            <p className="mt-2 text-sm font-medium text-blue-800">
+              {draft.seoTitle.trim() || draft.title.trim() || 'Product title'}
+            </p>
+            <p className="mt-1 text-sm text-zinc-600">
+              {draft.seoDescription.trim() ||
+                draft.description.trim() ||
+                'No description yet. Search engines will use the product page content.'}
+            </p>
+          </div>
         </section>
 
         <div className="flex flex-wrap items-center gap-3">
           <button type="submit" disabled={busy} className={btnPrimary}>
-            {busy ? 'Creating...' : 'Create product'}
+            {busy
+              ? 'Creating...'
+              : useOptions
+                ? `Create product with ${combinationCount} variants`
+                : 'Create product'}
           </button>
           <p className={hintCls}>
-            One submission creates the product and first variant together. If it fails, your entries
-            stay on this page.
+            {useOptions
+              ? `One submission creates the product and ${combinationCount} variants together. If it fails, your entries stay on this page.`
+              : 'One submission creates the product and first variant together. If it fails, your entries stay on this page.'}
           </p>
         </div>
       </form>
