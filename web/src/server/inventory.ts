@@ -323,7 +323,8 @@ export async function adjustStock(
   db: D1Database,
   sku: string,
   delta: number,
-  reason: 'restock' | 'correction' | 'damaged' | 'return'
+  reason: 'restock' | 'correction' | 'damaged' | 'return',
+  extraStatements: D1PreparedStatement[] = []
 ) {
   // No clamp: a correction that would drive on_hand negative (without
   // backorder) aborts via the guard trigger and surfaces as an error.
@@ -340,7 +341,103 @@ export async function adjustStock(
     db
       .prepare('INSERT INTO batch_guard SELECT 1 WHERE NOT EXISTS(SELECT 1 FROM stock WHERE sku=?)')
       .bind(sku),
+    ...extraStatements,
   ]);
+}
+
+export type StockAdjustmentOperation = {
+  extraStatements?: D1PreparedStatement[];
+  operationId: string;
+  actorId: string;
+  sku: string;
+  delta: number;
+  reason: 'restock' | 'correction' | 'damaged' | 'return';
+  note?: string;
+};
+
+export type StockAdjustmentOutcome =
+  | { status: 'applied'; replayed: boolean; onHand: number; reserved: number }
+  | { status: 'conflict'; error: string }
+  | { status: 'missing-sku'; error: string };
+
+async function payloadHash(op: StockAdjustmentOperation): Promise<string> {
+  const canonical = JSON.stringify([op.actorId, op.sku, op.delta, op.reason, op.note ?? '']);
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Replay-safe stock adjustment. The operation row, the counter update, and
+ *  the ledger entry commit in one batch keyed by the client-supplied
+ *  operation ID. A replay with the same payload returns the recorded outcome
+ *  without adjusting twice; the same ID with a changed payload conflicts. */
+export async function adjustStockIdempotent(
+  db: D1Database,
+  op: StockAdjustmentOperation
+): Promise<StockAdjustmentOutcome> {
+  const stockRow = await getStock(db, op.sku);
+  if (!stockRow) return { status: 'missing-sku', error: `No stock record for SKU ${op.sku}` };
+  const hash = await payloadHash(op);
+  const timestamp = now();
+  try {
+    await db.batch([
+      db
+        .prepare(
+          'INSERT INTO stock_operations (id, actor_id, sku, delta, reason, note, payload_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        )
+        .bind(
+          op.operationId,
+          op.actorId,
+          op.sku,
+          op.delta,
+          op.reason,
+          op.note ?? null,
+          hash,
+          timestamp
+        ),
+      db
+        .prepare('UPDATE stock SET on_hand = on_hand + ?, updated_at = ? WHERE sku = ?')
+        .bind(op.delta, timestamp, op.sku),
+      db
+        .prepare(
+          `INSERT INTO stock_ledger (id, sku, delta_on_hand, delta_reserved, reason, ref_type, ref_id, created_at)
+           SELECT ?, ?, ?, 0, ?, 'stock_operation', ?, ? WHERE changes() > 0`
+        )
+        .bind(id(), op.sku, op.delta, op.reason, op.operationId, timestamp),
+      db
+        .prepare(
+          'INSERT INTO batch_guard SELECT 1 WHERE NOT EXISTS(SELECT 1 FROM stock WHERE sku = ?)'
+        )
+        .bind(op.sku),
+      ...(op.extraStatements ?? []),
+    ]);
+  } catch {
+    const existing = await db
+      .prepare('SELECT payload_hash FROM stock_operations WHERE id = ?')
+      .bind(op.operationId)
+      .first<{ payload_hash: string }>();
+    if (!existing) throw new Error('Stock adjustment failed');
+    if (existing.payload_hash !== hash) {
+      return {
+        status: 'conflict',
+        error:
+          'This adjustment ID was already used with different details. Reload before retrying.',
+      };
+    }
+    const current = await getStock(db, op.sku);
+    return {
+      status: 'applied',
+      replayed: true,
+      onHand: current?.on_hand ?? 0,
+      reserved: current?.reserved ?? 0,
+    };
+  }
+  const current = await getStock(db, op.sku);
+  return {
+    status: 'applied',
+    replayed: false,
+    onHand: current?.on_hand ?? 0,
+    reserved: current?.reserved ?? 0,
+  };
 }
 
 export async function getStock(db: D1Database, sku: string) {

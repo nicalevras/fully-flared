@@ -1,5 +1,5 @@
 ﻿import { requestRefund } from './refunds';
-import { adjustStock } from './inventory';
+import { adjustStock, adjustStockIdempotent } from './inventory';
 import { canonicalizeMediaUrls, mediaKeysInContent, mediaRawSpellings } from './media';
 import { parseCsv } from './csv';
 import { getStripeProvider } from './payments';
@@ -435,8 +435,41 @@ export async function runAdminAction(
       }
       case 'stock.adjust': {
         const f = parsedAction.data;
-        await adjustStock(db, f.sku, f.delta, (f.reason as 'restock') || 'restock');
-        await audit(db, actor.id, 'stock.adjust', 'stock', f.sku, { delta: f.delta });
+        if (f.operationId) {
+          // FF-08: the audit row commits inside the same batch as stock,
+          // ledger, and receipt. A replay never re-runs the batch, so it
+          // can never add a second audit row.
+          const outcome = await adjustStockIdempotent(db, {
+            operationId: f.operationId,
+            actorId: actor.id,
+            sku: f.sku,
+            delta: f.delta,
+            reason: (f.reason as 'restock') || 'restock',
+            ...(f.note !== undefined ? { note: f.note } : {}),
+            extraStatements: [
+              auditStmt(db, actor.id, 'stock.adjust', 'stock', f.sku, {
+                delta: f.delta,
+                operationId: f.operationId,
+                replayed: false,
+              }),
+            ],
+          });
+          if (outcome.status === 'conflict')
+            return { ok: false, error: outcome.error, conflict: true };
+          if (outcome.status === 'missing-sku') return { ok: false, error: outcome.error };
+          await broadcastAdminRealtime('inventory.updated', { sku: f.sku as string });
+          return {
+            ok: true,
+            data: {
+              replayed: outcome.replayed,
+              onHand: outcome.onHand,
+              reserved: outcome.reserved,
+            },
+          };
+        }
+        await adjustStock(db, f.sku, f.delta, (f.reason as 'restock') || 'restock', [
+          auditStmt(db, actor.id, 'stock.adjust', 'stock', f.sku, { delta: f.delta }),
+        ]);
         await broadcastAdminRealtime('inventory.updated', { sku: f.sku as string });
         return { ok: true };
       }

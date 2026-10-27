@@ -23,6 +23,7 @@ import { Route as AdminBlogRouteImport } from './routes/admin/blog'
 import { Route as AdminCollectionsRouteImport } from './routes/admin/collections'
 import { Route as AdminCustomersRouteImport } from './routes/admin/customers'
 import { Route as AdminDiscountsRouteImport } from './routes/admin/discounts'
+import { Route as AdminInventoryRouteImport } from './routes/admin/inventory'
 import { Route as AdminMediaRouteImport } from './routes/admin/media'
 import { Route as AdminPagesRouteImport } from './routes/admin/pages'
 import { Route as AdminReportsRouteImport } from './routes/admin/reports'
@@ -125,6 +126,11 @@ const AdminCustomersRoute = AdminCustomersRouteImport.update({
 const AdminDiscountsRoute = AdminDiscountsRouteImport.update({
   id: '/discounts',
   path: '/discounts',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminInventoryRoute = AdminInventoryRouteImport.update({
+  id: '/inventory',
+  path: '/inventory',
   getParentRoute: () => AdminRouteRoute,
 } as any)
 const AdminMediaRoute = AdminMediaRouteImport.update({
@@ -312,6 +318,7 @@ export interface FileRoutesByFullPath {
   '/admin/collections': typeof AdminCollectionsRoute
   '/admin/customers': typeof AdminCustomersRoute
   '/admin/discounts': typeof AdminDiscountsRoute
+  '/admin/inventory': typeof AdminInventoryRoute
   '/admin/media': typeof AdminMediaRoute
   '/admin/pages': typeof AdminPagesRoute
   '/admin/reports': typeof AdminReportsRoute
@@ -358,6 +365,7 @@ export interface FileRoutesByTo {
   '/admin/collections': typeof AdminCollectionsRoute
   '/admin/customers': typeof AdminCustomersRoute
   '/admin/discounts': typeof AdminDiscountsRoute
+  '/admin/inventory': typeof AdminInventoryRoute
   '/admin/media': typeof AdminMediaRoute
   '/admin/pages': typeof AdminPagesRoute
   '/admin/reports': typeof AdminReportsRoute
@@ -409,6 +417,7 @@ export interface FileRoutesById {
   '/admin/collections': typeof AdminCollectionsRoute
   '/admin/customers': typeof AdminCustomersRoute
   '/admin/discounts': typeof AdminDiscountsRoute
+  '/admin/inventory': typeof AdminInventoryRoute
   '/admin/media': typeof AdminMediaRoute
   '/admin/pages': typeof AdminPagesRoute
   '/admin/reports': typeof AdminReportsRoute
@@ -461,6 +470,7 @@ export interface FileRouteTypes {
     | '/admin/collections'
     | '/admin/customers'
     | '/admin/discounts'
+    | '/admin/inventory'
     | '/admin/media'
     | '/admin/pages'
     | '/admin/reports'
@@ -507,6 +517,7 @@ export interface FileRouteTypes {
     | '/admin/collections'
     | '/admin/customers'
     | '/admin/discounts'
+    | '/admin/inventory'
     | '/admin/media'
     | '/admin/pages'
     | '/admin/reports'
@@ -557,6 +568,7 @@ export interface FileRouteTypes {
     | '/admin/collections'
     | '/admin/customers'
     | '/admin/discounts'
+    | '/admin/inventory'
     | '/admin/media'
     | '/admin/pages'
     | '/admin/reports'
@@ -709,6 +721,13 @@ declare module '@tanstack/react-router' {
       path: '/discounts'
       fullPath: '/admin/discounts'
       preLoaderRoute: typeof AdminDiscountsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/inventory': {
+      id: '/admin/inventory'
+      path: '/inventory'
+      fullPath: '/admin/inventory'
+      preLoaderRoute: typeof AdminInventoryRouteImport
       parentRoute: typeof AdminRouteRoute
     }
     '/admin/media': {
@@ -957,6 +976,7 @@ interface AdminRouteRouteChildren {
   AdminCollectionsRoute: typeof AdminCollectionsRoute
   AdminCustomersRoute: typeof AdminCustomersRoute
   AdminDiscountsRoute: typeof AdminDiscountsRoute
+  AdminInventoryRoute: typeof AdminInventoryRoute
   AdminMediaRoute: typeof AdminMediaRoute
   AdminPagesRoute: typeof AdminPagesRoute
   AdminReportsRoute: typeof AdminReportsRoute
@@ -976,6 +996,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminCollectionsRoute: AdminCollectionsRoute,
   AdminCustomersRoute: AdminCustomersRoute,
   AdminDiscountsRoute: AdminDiscountsRoute,
+  AdminInventoryRoute: AdminInventoryRoute,
   AdminMediaRoute: AdminMediaRoute,
   AdminPagesRoute: AdminPagesRoute,
   AdminReportsRoute: AdminReportsRoute,
