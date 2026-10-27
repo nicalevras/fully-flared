@@ -5,8 +5,6 @@ import { createServerFn } from '@tanstack/react-start';
 import { validateServerInput } from '../../../server/function-boundary';
 import { idString } from '../../../schemas/common';
 import { useAdminAction } from '../../../components/AdminNav';
-import { useDraftRecovery } from '../../../lib/use-draft-recovery';
-import { btnPrimary as primaryBtn } from '../../../components/ui';
 import {
   AdminActionFeedback,
   type AdminActionFeedbackState,
@@ -53,11 +51,11 @@ export const Route = createFileRoute('/admin/pages_/$id')({
 });
 
 function PageEditor() {
-  const { page, staffId } = Route.useLoaderData();
-  return <EditorForm key={page?.id ?? 'new'} page={page} staffId={staffId} />;
+  const { page } = Route.useLoaderData();
+  return <EditorForm key={page?.id ?? 'new'} page={page} />;
 }
 
-function EditorForm({ page, staffId }: { page: PageRow | null; staffId: string }) {
+function EditorForm({ page }: { page: PageRow | null }) {
   const adminAction = useAdminAction();
   const router = useRouter();
   const [form, setForm] = useState({
@@ -69,19 +67,6 @@ function EditorForm({ page, staffId }: { page: PageRow | null; staffId: string }
   });
   const [feedback, setFeedback] = useState<AdminActionFeedbackState>(null);
   const [busy, setBusy] = useState(false);
-  const draft = useDraftRecovery({
-    staffId,
-    entityType: 'page',
-    entityId: page?.id ?? 'new',
-    baseUpdatedAt: page?.updated_at ?? null,
-    serverFields: {
-      slug: page?.slug ?? '',
-      title: page?.title ?? '',
-      contentHtml: page?.content_html ?? '',
-    },
-    currentFields: { slug: form.slug, title: form.title, contentHtml: form.contentHtml },
-  });
-
   return (
     <main>
       <Link to="/admin/pages" className="text-[13px] font-medium text-zinc-500 hover:text-zinc-950">
@@ -94,39 +79,6 @@ function EditorForm({ page, staffId }: { page: PageRow | null; staffId: string }
         saved HTML before it can render.
       </p>
       <AdminActionFeedback value={feedback} />
-      {draft.recovery ? (
-        <section className={`${cardCls} mt-4 p-4`} aria-label="Recovered draft">
-          <p className="text-sm text-zinc-600">
-            You have unsaved work for this page, saved on this device{' '}
-            {new Date(draft.recovery.draft.savedAt).toLocaleString()}.
-            {draft.recovery.stale
-              ? ' The page changed on the server after that. The server version stays authoritative until you save over it.'
-              : ''}
-          </p>
-          <div className="mt-2 flex gap-2">
-            <button
-              type="button"
-              className={primaryBtn}
-              onClick={() => {
-                const fields = draft.recovery?.draft.fields;
-                if (!fields) return;
-                setForm((current) => ({ ...current, ...fields }));
-                draft.markRecovered();
-              }}
-            >
-              Recover this work
-            </button>
-            <button type="button" className={btnSecondary} onClick={draft.discardRecovery}>
-              Discard it
-            </button>
-          </div>
-        </section>
-      ) : draft.savedAt ? (
-        <p className="mt-3 text-[13px] text-zinc-500" role="status">
-          Draft saved on this device {new Date(draft.savedAt).toLocaleTimeString()}. It is only on
-          this device and is removed when you save.
-        </p>
-      ) : null}
       <section className={`${cardCls} mt-5 space-y-4 p-5 sm:p-6`}>
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
@@ -177,7 +129,6 @@ function EditorForm({ page, staffId }: { page: PageRow | null; staffId: string }
               });
               setBusy(false);
               if (r.ok) {
-                draft.clearDraft();
                 setFeedback({
                   kind: 'status',
                   message: 'Page saved. It is live on the storefront now.',
