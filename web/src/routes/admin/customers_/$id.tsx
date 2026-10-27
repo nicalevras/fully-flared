@@ -100,9 +100,7 @@ function CustomerWorkspacePage() {
         <p className="mt-2 text-sm text-zinc-600">{ws.profile.email}</p>
         {addressLines.length > 0 ? (
           <address className="mt-2 text-sm leading-6 text-zinc-600 not-italic">
-            {ws.latestAddress?.name ? (
-              <span className="block">{ws.latestAddress.name}</span>
-            ) : null}
+            {ws.latestAddress?.name ? <span className="block">{ws.latestAddress.name}</span> : null}
             {addressLines.map((line) => (
               <span key={line} className="block">
                 {line}

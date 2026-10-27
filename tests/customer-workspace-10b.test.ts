@@ -4,13 +4,28 @@ import { getCustomerWorkspace } from '../web/src/server/admin-customer-workspace
 
 let db: D1Database, dispose: () => Promise<void>;
 
-async function insertOrder(id: string, userId: string | null, currency: string, total: number, status = 'paid') {
+async function insertOrder(
+  id: string,
+  userId: string | null,
+  currency: string,
+  total: number,
+  status = 'paid'
+) {
   await db
     .prepare(
       `INSERT INTO orders (id, number, status, payment_status, customer_email, user_id, currency, subtotal_cents, total_cents, created_at, updated_at)
        VALUES (?, ?, ?, ?, 'ada@example.com', ?, ?, ?, ?, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`
     )
-    .bind(id, `FF-${id}`, status, status === 'pending_payment' ? 'unpaid' : 'paid', userId, currency, total, total)
+    .bind(
+      id,
+      `FF-${id}`,
+      status,
+      status === 'pending_payment' ? 'unpaid' : 'paid',
+      userId,
+      currency,
+      total,
+      total
+    )
     .run();
 }
 
