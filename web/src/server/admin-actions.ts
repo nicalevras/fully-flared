@@ -23,7 +23,7 @@ import { SHIPPABLE_ORDER_STATUSES, SHIPPABLE_PAYMENT_STATUSES } from '../lib/ord
 const now = () => new Date().toISOString();
 const id = () => crypto.randomUUID();
 
-async function audit(
+function auditStmt(
   db: D1Database,
   actorId: string,
   action: string,
@@ -31,7 +31,7 @@ async function audit(
   entityId: string,
   details?: unknown
 ) {
-  await db
+  return db
     .prepare(
       'INSERT INTO audit_log (id, actor_user_id, action, entity_type, entity_id, details_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
     )
@@ -43,8 +43,18 @@ async function audit(
       entityId,
       details ? JSON.stringify(details) : null,
       now()
-    )
-    .run();
+    );
+}
+
+async function audit(
+  db: D1Database,
+  actorId: string,
+  action: string,
+  entityType: string,
+  entityId: string,
+  details?: unknown
+) {
+  await auditStmt(db, actorId, action, entityType, entityId, details).run();
 }
 
 export type AdminActionResult =
@@ -1407,7 +1417,9 @@ export async function runAdminAction(
         const attachedIds = new Set(attached.results.map((row) => row.media_id));
         if (
           attachedIds.size !== f.mediaIds.length ||
-          f.mediaIds.some((mediaId) => !attachedIds.has(mediaId))
+          f.mediaIds.some((mediaId) => !attachedIds.has(mediaId)) ||
+          attachedIds.size !== f.expectedMediaIds.length ||
+          f.expectedMediaIds.some((mediaId) => !attachedIds.has(mediaId))
         ) {
           return {
             ok: false,
@@ -1415,18 +1427,43 @@ export async function runAdminAction(
             conflict: true,
           };
         }
-        await db.batch(
-          f.mediaIds.map((mediaId, index) =>
+        // Atomic guard (FF-04): the batch aborts unless the stored order is
+        // still exactly the order this editor loaded. The audit row commits
+        // in the same batch (FF-16 Tier A), so neither can land alone.
+        const expectedSignature = f.expectedMediaIds.join(',');
+        const caseSql = f.mediaIds.map((_, index) => `WHEN ? THEN ${index}`).join(' ');
+        try {
+          await db.batch([
             db
               .prepare(
-                'UPDATE product_media SET position = ? WHERE product_id = ? AND media_id = ?'
+                `INSERT INTO batch_guard (id) SELECT 'media-order' WHERE (SELECT group_concat(media_id, ',') FROM (SELECT media_id FROM product_media WHERE product_id = ? ORDER BY position, media_id)) IS NOT ?`
               )
-              .bind(index, f.productId, mediaId)
-          )
-        );
-        await audit(db, actor.id, 'product.reorderMedia', 'product', f.productId, {
-          count: f.mediaIds.length,
-        });
+              .bind(f.productId, expectedSignature),
+            db
+              .prepare(
+                `UPDATE product_media SET position = CASE media_id ${caseSql} ELSE position END WHERE product_id = ?`
+              )
+              .bind(...f.mediaIds, f.productId),
+            auditStmt(db, actor.id, 'product.reorderMedia', 'product', f.productId, {
+              count: f.mediaIds.length,
+            }),
+          ]);
+        } catch (error) {
+          const current = await db
+            .prepare(
+              "SELECT group_concat(media_id, ',') AS signature FROM (SELECT media_id FROM product_media WHERE product_id = ? ORDER BY position, media_id)"
+            )
+            .bind(f.productId)
+            .first<{ signature: string | null }>();
+          if (current?.signature !== expectedSignature) {
+            return {
+              ok: false,
+              error: 'The image order changed since this page loaded. Reload before reordering.',
+              conflict: true,
+            };
+          }
+          throw error;
+        }
         return { ok: true };
       }
       case 'product.attachMedia': {

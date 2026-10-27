@@ -610,7 +610,7 @@ function EditForm({
                           const next = [m.media_id, ...ids.filter((id) => id !== m.media_id)];
                           void act(
                             'product.reorderMedia',
-                            { productId: product.id, mediaIds: next },
+                            { productId: product.id, mediaIds: next, expectedMediaIds: ids },
                             'Cover image updated.'
                           );
                         }}
@@ -634,7 +634,7 @@ function EditForm({
                           }
                           void act(
                             'product.reorderMedia',
-                            { productId: product.id, mediaIds: next },
+                            { productId: product.id, mediaIds: next, expectedMediaIds: ids },
                             'Image order updated.'
                           );
                         }}
@@ -658,7 +658,7 @@ function EditForm({
                           }
                           void act(
                             'product.reorderMedia',
-                            { productId: product.id, mediaIds: next },
+                            { productId: product.id, mediaIds: next, expectedMediaIds: ids },
                             'Image order updated.'
                           );
                         }}
