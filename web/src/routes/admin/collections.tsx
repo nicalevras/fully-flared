@@ -3,6 +3,11 @@ import { staffMiddleware } from '../../server/staff-middleware';
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import { useAdminAction, type AdminPayload } from '../../components/AdminNav';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
+import {
+  AdminActionFeedback,
+  type AdminActionFeedbackState,
+} from '../../components/AdminActionFeedback';
 import { slugify } from '../../lib/format';
 import { MAX_RAILS } from '../../lib/catalog-limits';
 import * as z from 'zod';
@@ -121,8 +126,14 @@ function AdminCollections() {
   >({});
   const [ruleDrafts, setRuleDrafts] = useState<Record<string, RuleDraft>>({});
   const [members, setMembers] = useState<Record<string, string[]>>({});
-  const [msg, setMsg] = useState('');
+  const [feedback, setFeedback] = useState<AdminActionFeedbackState>(null);
   const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState<{
+    title: string;
+    body: string;
+    confirmLabel: string;
+    action: () => void | Promise<void>;
+  } | null>(null);
 
   const memberOf = (c: CollectionRow) => members[c.id] ?? c.productIds;
   const editOf = (c: CollectionRow) =>
@@ -156,9 +167,9 @@ function AdminCollections() {
     const r = await adminAction(action, payload);
     setBusy(false);
     if (r.ok) {
-      setMsg(ok);
+      setFeedback({ kind: 'status', message: ok });
       router.invalidate();
-    } else setMsg(r.error ?? 'Failed');
+    } else setFeedback({ kind: 'error', message: r.error ?? 'Failed' });
     return r.ok;
   }
 
@@ -169,6 +180,7 @@ function AdminCollections() {
         Group products into collections that appear in the store header and on their own pages, like
         /collections/your-slug.
       </p>
+      <AdminActionFeedback value={feedback} />
 
       <form
         className={`${cardCls} mt-5 flex flex-wrap items-end gap-3 p-4`}
@@ -225,19 +237,20 @@ function AdminCollections() {
                     <button
                       className={btnDestructive}
                       disabled={busy}
-                      onClick={async () => {
-                        if (
-                          !window.confirm(
-                            `Delete collection “${c.title}”? Products stay, only the grouping is removed.`
-                          )
-                        )
-                          return;
-                        await run(
-                          'collection.delete',
-                          { collectionId: c.id },
-                          `Collection ${c.title} deleted.`
-                        );
-                      }}
+                      onClick={() =>
+                        setConfirm({
+                          title: `Delete collection ${c.title}?`,
+                          body: 'Products stay. Only the grouping is removed.',
+                          confirmLabel: 'Delete collection',
+                          action: async () => {
+                            await run(
+                              'collection.delete',
+                              { collectionId: c.id },
+                              `Collection ${c.title} deleted.`
+                            );
+                          },
+                        })
+                      }
                     >
                       Delete
                     </button>
@@ -594,11 +607,20 @@ function AdminCollections() {
           {busy ? 'Creating…' : 'Create collection'}
         </button>
       </form>
-      {msg ? (
-        <p className="mt-4 rounded-xl bg-green-50 px-4 py-3 text-sm text-green-700" role="status">
-          {msg}
-        </p>
-      ) : null}
+      <ConfirmDialog
+        request={
+          confirm
+            ? { title: confirm.title, body: confirm.body, confirmLabel: confirm.confirmLabel }
+            : null
+        }
+        busy={busy}
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => {
+          const current = confirm;
+          setConfirm(null);
+          if (current) void current.action();
+        }}
+      />
     </main>
   );
 }

@@ -225,6 +225,13 @@ function EditForm({
       Object.fromEntries(Object.entries(current).filter(([id]) => !ids.includes(id)))
     );
   const [selectedVariants, setSelectedVariants] = useState<string[]>([]);
+  const [confirm, setConfirm] = useState<{
+    title: string;
+    body: string;
+    confirmLabel: string;
+    action: () => void | Promise<void>;
+  } | null>(null);
+
   const [bulk, setBulk] = useState({ price: '' });
   const [bulkReviewOpen, setBulkReviewOpen] = useState(false);
   const [newVariant, setNewVariant] = useState({ sku: '', title: '', price: '29.99' });
@@ -1014,15 +1021,20 @@ function EditForm({
                     <button
                       className={btnDestructive}
                       disabled={busy || variants.length <= 1}
-                      onClick={async () => {
-                        if (!window.confirm(`Delete variant ${v.sku}? This cannot be undone.`))
-                          return;
-                        await act(
-                          'variant.delete',
-                          { variantId: v.id },
-                          `Variant ${v.sku} deleted.`
-                        );
-                      }}
+                      onClick={() =>
+                        setConfirm({
+                          title: `Delete variant ${v.sku}?`,
+                          body: 'This cannot be undone.',
+                          confirmLabel: 'Delete variant',
+                          action: async () => {
+                            await act(
+                              'variant.delete',
+                              { variantId: v.id },
+                              `Variant ${v.sku} deleted.`
+                            );
+                          },
+                        })
+                      }
                     >
                       Delete
                     </button>
@@ -1136,6 +1148,20 @@ function EditForm({
           {msg}
         </p>
       ) : null}
+      <ConfirmDialog
+        request={
+          confirm
+            ? { title: confirm.title, body: confirm.body, confirmLabel: confirm.confirmLabel }
+            : null
+        }
+        busy={busy}
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => {
+          const current = confirm;
+          setConfirm(null);
+          if (current) void current.action();
+        }}
+      />
     </main>
   );
 }

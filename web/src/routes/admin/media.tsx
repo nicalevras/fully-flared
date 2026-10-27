@@ -10,6 +10,11 @@ import { getRequest } from '@tanstack/react-start/server';
 import { mediaKeysInContent } from '../../server/media';
 import { getSettings } from '../../server/settings';
 import { useAdminAction, type AdminPayload } from '../../components/AdminNav';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
+import {
+  AdminActionFeedback,
+  type AdminActionFeedbackState,
+} from '../../components/AdminActionFeedback';
 import { uploadMedia } from '../../lib/upload';
 import {
   btnDestructive,
@@ -117,8 +122,14 @@ function AdminMedia() {
   const { media, total } = Route.useLoaderData();
   const router = useRouter();
   const [alts, setAlts] = useState<Record<string, string>>({});
-  const [msg, setMsg] = useState('');
+  const [feedback, setFeedback] = useState<AdminActionFeedbackState>(null);
   const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState<{
+    title: string;
+    body: string;
+    confirmLabel: string;
+    action: () => void | Promise<void>;
+  } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [publishing, setPublishing] = useState(false);
 
@@ -127,9 +138,9 @@ function AdminMedia() {
     const r = await adminAction(action, payload);
     setBusy(false);
     if (r.ok) {
-      setMsg(ok);
+      setFeedback({ kind: 'status', message: ok });
       router.invalidate();
-    } else setMsg(r.error ?? 'Failed');
+    } else setFeedback({ kind: 'error', message: r.error ?? 'Failed' });
   }
 
   return (
@@ -138,21 +149,32 @@ function AdminMedia() {
         type="button"
         className={btnSmall}
         disabled={publishing}
-        onClick={async () => {
-          if (!window.confirm('Publish existing images to the configured public media storage?'))
-            return;
-          setPublishing(true);
-          try {
-            await publishExisting({ data: {} });
-            setMsg(
-              'Public media publication queued. Use this action again to resume an unfinished run.'
-            );
-          } catch {
-            setMsg('Public media publication could not start. Check configuration and retry.');
-          } finally {
-            setPublishing(false);
-          }
-        }}
+        onClick={() =>
+          setConfirm({
+            title: 'Publish existing images?',
+            body: 'Existing images will be published to the configured public media storage.',
+            confirmLabel: 'Publish images',
+            action: async () => {
+              setPublishing(true);
+              try {
+                await publishExisting({ data: {} });
+                setFeedback({
+                  kind: 'status',
+                  message:
+                    'Public media publication queued. Use this action again to resume an unfinished run.',
+                });
+              } catch {
+                setFeedback({
+                  kind: 'error',
+                  message:
+                    'Public media publication could not start. Check configuration and retry.',
+                });
+              } finally {
+                setPublishing(false);
+              }
+            },
+          })
+        }
       >
         {publishing ? 'Queueing publication…' : 'Publish existing media'}
       </button>
@@ -178,12 +200,17 @@ function AdminMedia() {
               setUploading(true);
               try {
                 await uploadMedia(file);
-                setMsg(
-                  'Image uploaded. Add its alt text below, then attach it from a product or post.'
-                );
+                setFeedback({
+                  kind: 'status',
+                  message:
+                    'Image uploaded. Add its alt text below, then attach it from a product or post.',
+                });
                 router.invalidate();
               } catch (err) {
-                setMsg(err instanceof Error ? err.message : 'Upload failed');
+                setFeedback({
+                  kind: 'error',
+                  message: err instanceof Error ? err.message : 'Upload failed',
+                });
               } finally {
                 setUploading(false);
               }
@@ -191,6 +218,7 @@ function AdminMedia() {
           />
         </label>
       </div>
+      <AdminActionFeedback value={feedback} />
 
       {media.length === 0 ? (
         <p className={`${cardCls} mt-6 p-5 text-sm text-zinc-500`} role="status">
@@ -262,10 +290,16 @@ function AdminMedia() {
                         ? 'In use — remove it from its product or post first'
                         : 'Delete this image'
                     }
-                    onClick={async () => {
-                      if (!window.confirm(`Delete ${m.filename} permanently?`)) return;
-                      await run('media.delete', { mediaId: m.id }, `${m.filename} deleted.`);
-                    }}
+                    onClick={() =>
+                      setConfirm({
+                        title: `Delete ${m.filename}?`,
+                        body: 'This permanently deletes the image file.',
+                        confirmLabel: 'Delete image',
+                        action: async () => {
+                          await run('media.delete', { mediaId: m.id }, `${m.filename} deleted.`);
+                        },
+                      })
+                    }
                   >
                     {m.deletion_pending ? 'Retry deletion' : 'Delete'}
                   </button>
@@ -275,11 +309,20 @@ function AdminMedia() {
           ))}
         </ul>
       )}
-      {msg ? (
-        <p className="mt-4 rounded-xl bg-green-50 px-4 py-3 text-sm text-green-700" role="status">
-          {msg}
-        </p>
-      ) : null}
+      <ConfirmDialog
+        request={
+          confirm
+            ? { title: confirm.title, body: confirm.body, confirmLabel: confirm.confirmLabel }
+            : null
+        }
+        busy={busy}
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => {
+          const current = confirm;
+          setConfirm(null);
+          if (current) void current.action();
+        }}
+      />
     </main>
   );
 }
