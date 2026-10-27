@@ -43,11 +43,12 @@ type PostRow = {
 const getPost = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
   .validator(validateServerInput(idString))
-  .handler(async ({ data: postId }): Promise<PostRow | null> => {
-    if (postId === 'new') return null;
-    const { env } = await import('cloudflare:workers');
-    const row = await env.DB.prepare(
-      `SELECT p.id, p.slug, p.title, p.status, p.excerpt, p.content_html,
+  .handler(
+    async ({ data: postId, context }): Promise<{ post: PostRow | null; staffId: string }> => {
+      if (postId === 'new') return { post: null, staffId: context.staff.id };
+      const { env } = await import('cloudflare:workers');
+      const row = await env.DB.prepare(
+        `SELECT p.id, p.slug, p.title, p.status, p.excerpt, p.content_html,
               p.seo_title, p.seo_description, p.published_at, p.cover_media_id, p.updated_at,
               COALESCE(GROUP_CONCAT(t.name, ', '), '') AS tags
        FROM posts p
@@ -55,11 +56,12 @@ const getPost = createServerFn({ method: 'GET' })
        LEFT JOIN tags t ON t.id = pt.tag_id
        WHERE p.id = ?
        GROUP BY p.id`
-    )
-      .bind(postId)
-      .first<PostRow>();
-    return row ?? null;
-  });
+      )
+        .bind(postId)
+        .first<PostRow>();
+      return { post: row ?? null, staffId: context.staff.id };
+    }
+  );
 
 export const Route = createFileRoute('/admin/blog_/$id')({
   ssr: 'data-only',
@@ -82,7 +84,7 @@ const EMPTY = {
 };
 
 function BlogPostEditor() {
-  const post = Route.useLoaderData();
+  const { post } = Route.useLoaderData();
   return <EditorForm key={post?.id ?? 'new'} post={post} />;
 }
 
@@ -113,7 +115,7 @@ function EditorForm({ post }: { post: PostRow | null }) {
       : null
   );
   const [feedback, setFeedback] = useState<AdminActionFeedbackState>(null);
-
+  const [contentHtml, setContentHtml] = useState(form.contentHtml);
   return (
     <main>
       <Link to="/admin/blog" className="text-[13px] font-medium text-zinc-500 hover:text-zinc-950">
@@ -277,7 +279,9 @@ function EditorForm({ post }: { post: PostRow | null }) {
         </div>
         <BlogEditor
           key={form.id || 'new'}
-          initialHtml={form.contentHtml}
+          initialHtml={contentHtml}
+          showSave
+          onChange={(html) => setContentHtml(html)}
           onSave={async (html, json) => {
             const result = await saveBlogPost(
               adminAction,

@@ -32,16 +32,18 @@ type PageRow = {
 const getPage = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
   .validator(validateServerInput(idString))
-  .handler(async ({ data: pageId }): Promise<PageRow | null> => {
-    if (pageId === 'new') return null;
-    const { env } = await import('cloudflare:workers');
-    const row = await env.DB.prepare(
-      'SELECT id, slug, title, content_html, updated_at FROM pages WHERE id = ?'
-    )
-      .bind(pageId)
-      .first<PageRow>();
-    return row ?? null;
-  });
+  .handler(
+    async ({ data: pageId, context }): Promise<{ page: PageRow | null; staffId: string }> => {
+      if (pageId === 'new') return { page: null, staffId: context.staff.id };
+      const { env } = await import('cloudflare:workers');
+      const row = await env.DB.prepare(
+        'SELECT id, slug, title, content_html, updated_at FROM pages WHERE id = ?'
+      )
+        .bind(pageId)
+        .first<PageRow>();
+      return { page: row ?? null, staffId: context.staff.id };
+    }
+  );
 
 export const Route = createFileRoute('/admin/pages_/$id')({
   loader: async ({ params }) => getPage({ data: params.id }),
@@ -49,7 +51,7 @@ export const Route = createFileRoute('/admin/pages_/$id')({
 });
 
 function PageEditor() {
-  const page = Route.useLoaderData();
+  const { page } = Route.useLoaderData();
   return <EditorForm key={page?.id ?? 'new'} page={page} />;
 }
 
@@ -65,7 +67,6 @@ function EditorForm({ page }: { page: PageRow | null }) {
   });
   const [feedback, setFeedback] = useState<AdminActionFeedbackState>(null);
   const [busy, setBusy] = useState(false);
-
   return (
     <main>
       <Link to="/admin/pages" className="text-[13px] font-medium text-zinc-500 hover:text-zinc-950">
