@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { staffMiddleware } from '../../server/staff-middleware';
+import { requireStaffPermission } from '../../server/session';
 import { useStoreCurrency } from '../../lib/use-store-currency';
 import { createFileRoute, useRouter } from '@tanstack/react-router';
 import { createServerFn, useServerFn } from '@tanstack/react-start';
@@ -68,7 +69,10 @@ const previewQuoteFn = createServerFn({ method: 'POST' })
       })
     )
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    // FF-11: staff authentication alone is not enough; the sample quote
+    // requires the same shipping permission as rate management.
+    requireStaffPermission(context.staff, 'shipping', 'create-zone');
     const { env } = await import('cloudflare:workers');
     const { calculateShipping } = await import('../../server/checkout');
     try {
