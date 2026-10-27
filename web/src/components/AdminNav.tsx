@@ -277,7 +277,11 @@ export function useAdminAction() {
       if (result.ok) requests.current.delete(key);
       return result;
     } catch {
-      return { ok: false as const, error: 'Action could not reach the server. Try again.' };
+      return {
+        ok: false as const,
+        uncertain: true as const,
+        error: 'The connection was lost before the result came back.',
+      };
     }
   };
 }

@@ -62,6 +62,7 @@ export const adminActionSchema = z.discriminatedUnion('action', [
     action: z.literal('product.reorderMedia'),
     productId: idString,
     mediaIds: z.array(idString).min(1).max(100),
+    expectedMediaIds: z.array(idString).min(1).max(100),
   }),
   z.object({
     action: z.literal('variant.save'),
@@ -210,6 +211,7 @@ export const adminActionSchema = z.discriminatedUnion('action', [
   }),
   z.object({
     action: z.literal('page.save'),
+    expectedUpdatedAt: z.string().max(40).optional(),
     id: z.string().max(100).optional().default(''),
     slug: slugString,
     title: nonEmptyString(300),
@@ -219,6 +221,7 @@ export const adminActionSchema = z.discriminatedUnion('action', [
   }),
   z.object({
     action: z.literal('post.save'),
+    expectedUpdatedAt: z.string().max(40).optional(),
     id: z.string().max(100).optional().default(''),
     slug: slugString,
     title: nonEmptyString(300),
@@ -236,7 +239,6 @@ export const adminActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('customer.export'), userId: idString }),
   z.object({ action: z.literal('customer.delete'), userId: idString }),
   z.object({ action: z.literal('guest.export'), email: z.string().min(3).max(320) }),
-  z.object({ action: z.literal('guest.erase'), email: z.string().min(3).max(320) }),
   z.object({
     action: z.literal('user.setRole'),
     userId: idString,

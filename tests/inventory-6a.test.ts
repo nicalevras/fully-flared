@@ -70,3 +70,58 @@ describe('Phase 6A replay-protected stock adjustment', () => {
     expect(ledgerSum?.total).toBe(-2);
   });
 });
+
+describe('FF-08: audit commits with the stock batch', () => {
+  it('one adjustment writes exactly one audit row, and a replay writes none', async () => {
+    const payload = { sku: 'TEE-1', delta: 4, reason: 'restock', operationId: 'op-ff08-1' };
+    const first = await runAdminAction(db, env, owner, 'stock.adjust', payload);
+    expect(first.ok).toBe(true);
+    const second = await runAdminAction(db, env, owner, 'stock.adjust', payload);
+    expect(second.ok).toBe(true);
+    const audits = await db
+      .prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'stock.adjust'")
+      .first<{ n: number }>();
+    expect(audits?.n).toBe(1);
+    const ledger = await db
+      .prepare("SELECT COUNT(*) AS n FROM stock_ledger WHERE ref_id = 'op-ff08-1'")
+      .first<{ n: number }>();
+    expect(ledger?.n).toBe(1);
+  });
+
+  it('a forced audit failure leaves stock, ledger, and receipt uncommitted', async () => {
+    await db
+      .prepare(
+        "CREATE TRIGGER audit_fail BEFORE INSERT ON audit_log BEGIN SELECT RAISE(ABORT, 'forced audit failure'); END"
+      )
+      .run();
+    const before = await db
+      .prepare("SELECT on_hand FROM stock WHERE sku = 'TEE-1'")
+      .first<{ on_hand: number }>();
+    const failed = await runAdminAction(db, env, owner, 'stock.adjust', {
+      sku: 'TEE-1',
+      delta: 7,
+      reason: 'restock',
+      operationId: 'op-ff08-2',
+    });
+    expect(failed.ok).toBe(false);
+    const after = await db
+      .prepare("SELECT on_hand FROM stock WHERE sku = 'TEE-1'")
+      .first<{ on_hand: number }>();
+    expect(after?.on_hand).toBe(before?.on_hand);
+    expect(
+      (
+        await db
+          .prepare("SELECT COUNT(*) AS n FROM stock_operations WHERE id = 'op-ff08-2'")
+          .first<{ n: number }>()
+      )?.n
+    ).toBe(0);
+    expect(
+      (
+        await db
+          .prepare("SELECT COUNT(*) AS n FROM stock_ledger WHERE ref_id = 'op-ff08-2'")
+          .first<{ n: number }>()
+      )?.n
+    ).toBe(0);
+    await db.prepare('DROP TRIGGER audit_fail').run();
+  });
+});
