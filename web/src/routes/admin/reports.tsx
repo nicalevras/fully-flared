@@ -96,6 +96,12 @@ function Page() {
           </div>
         ))}
       </dl>
+      <p className="mt-4 text-[13px] text-zinc-500">
+        Definitions match the dashboard. Gross sales count paid orders by order date and include
+        refunded sales at their original amounts. The sales by day export sums to the same gross
+        total for the same days. Refunds appear on the dashboard by refund date, not in gross sales.
+        Currencies are never combined.
+      </p>
       <section className={`${cardCls} mt-5 divide-y divide-zinc-100 overflow-hidden`}>
         {exportsList.map(([title, desc, href]) => (
           <div key={href} className="flex flex-wrap items-center gap-3 px-5 py-4">
