@@ -54,8 +54,17 @@ export const Route = createFileRoute('/admin/orders/')({
 function AdminOrders() {
   const adminAction = useAdminAction();
 
-  const { orders, returns, nextCursor, previousCursor, canRefund, canApprove, canReject } =
-    Route.useLoaderData();
+  const {
+    orders,
+    returns,
+    nextCursor,
+    previousCursor,
+    returnsNextCursor,
+    returnsPreviousCursor,
+    canRefund,
+    canApprove,
+    canReject,
+  } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
@@ -422,6 +431,30 @@ function AdminOrders() {
               </tbody>
             </table>
           </div>
+          <nav className="flex gap-2 px-5 py-3" aria-label="Returns pagination">
+            <button
+              type="button"
+              className={btnSmall}
+              disabled={!returnsPreviousCursor}
+              onClick={() =>
+                returnsPreviousCursor &&
+                void navigate({ search: { ...search, returnsCursor: returnsPreviousCursor } })
+              }
+            >
+              Previous returns
+            </button>
+            <button
+              type="button"
+              className={btnSmall}
+              disabled={!returnsNextCursor}
+              onClick={() =>
+                returnsNextCursor &&
+                void navigate({ search: { ...search, returnsCursor: returnsNextCursor } })
+              }
+            >
+              More returns
+            </button>
+          </nav>
         </section>
       ) : null}
     </main>
