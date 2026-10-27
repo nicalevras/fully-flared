@@ -145,7 +145,7 @@ describe('product.create action', () => {
       };
       expect(result.ok).toBe(true);
     }
-    console.info(JSON.stringify({ event: 'product_create_perf', timings }));
+    console.warn(JSON.stringify({ event: 'product_create_perf', timings }));
     expect(timings['100'].statements).toBe(302);
   });
 });
