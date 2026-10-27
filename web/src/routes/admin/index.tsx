@@ -6,7 +6,14 @@ import { requireStaffPermission } from '../../server/session';
 import { useStoreCurrency } from '../../lib/use-store-currency';
 import { createServerFn } from '@tanstack/react-start';
 import { getSettings } from '../../server/settings';
-import { paidRevenueByCurrency, type CurrencyRevenue } from '../../server/reports';
+import {
+  dashboardStats,
+  paidRevenueByCurrency,
+  type CurrencyRevenue,
+  type DashboardPeriodStats,
+} from '../../server/reports';
+import * as z from 'zod';
+import { validateServerInput } from '../../server/function-boundary';
 import { failingCatalogWork, type FailingCatalogWork } from '../../server/catalog-operations';
 import { ArrowRightIcon } from '../../components/icons';
 import { formatMoney } from '../../components/ProductCard';
@@ -17,6 +24,8 @@ import { roleCan, roles, type StaffRole } from '../../lib/permissions';
 
 type Stats = {
   storeName: string;
+  periodDays: number;
+  periodStats: DashboardPeriodStats[];
   revenues: CurrencyRevenue[];
   paidOrders: number;
   pendingOrders: number;
@@ -41,7 +50,10 @@ type Stats = {
 
 const getData = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
-  .handler(async ({ context }): Promise<Stats> => {
+  .validator(
+    validateServerInput(z.object({ days: z.union([z.literal(7), z.literal(30), z.literal(90)]) }))
+  )
+  .handler(async ({ context, data }): Promise<Stats> => {
     requireStaffPermission(context.staff, 'report', 'view');
     const { env } = await import('cloudflare:workers');
     const db = env.DB;
@@ -85,8 +97,13 @@ const getData = createServerFn({ method: 'GET' })
         .first<{ n: number }>(),
       failingCatalogWork(db),
     ]);
+    const toIso = new Date().toISOString();
+    const fromIso = new Date(Date.now() - data.days * 86_400_000).toISOString();
+    const periodStats = await dashboardStats(db, fromIso, toIso);
     return {
       storeName: settings.storeName,
+      periodDays: data.days,
+      periodStats,
       revenues: revenue,
       paidOrders: revenue.reduce((sum, row) => sum + row.orders, 0),
       pendingOrders: pending?.n ?? 0,
@@ -109,7 +126,11 @@ export const Route = createFileRoute('/admin/')({
         search: { q: '', view: 'queue', payment: 'all', from: '', to: '' },
       });
   },
-  loader: async () => getData(),
+  validateSearch: (search: Record<string, unknown>): { days?: 7 | 30 | 90 } => ({
+    days: ([7, 30, 90].includes(Number(search.days)) ? Number(search.days) : 30) as 7 | 30 | 90,
+  }),
+  loaderDeps: ({ search }) => search,
+  loader: async ({ deps }) => getData({ data: { days: deps.days ?? 30 } }),
   component: AdminHome,
 });
 
@@ -182,6 +203,100 @@ function AdminHome() {
           </div>
         ))}
       </dl>
+
+      <section className={`${cardCls} mt-5 p-5`}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-sm font-medium text-zinc-950">Sales, last {s.periodDays} days</h2>
+          <div className="flex gap-2 text-[13px]">
+            {([7, 30, 90] as const).map((d) => (
+              <Link
+                key={d}
+                to="/admin"
+                search={{ days: d }}
+                className={
+                  d === s.periodDays ? 'font-medium text-zinc-950 underline' : 'text-zinc-500'
+                }
+              >
+                {d} days
+              </Link>
+            ))}
+          </div>
+        </div>
+        <p className="mt-1 text-[13px] text-zinc-500">
+          Period boundaries are UTC. Gross sales count paid orders by order date. Refunds count
+          settled refunds by refund date, so a refund can appear in a later period than its order.
+          Currencies are never combined.
+        </p>
+        {s.periodStats.length === 0 ? (
+          <p className="mt-3 text-sm text-zinc-500" role="status">
+            No paid sales in this period yet.
+          </p>
+        ) : (
+          <dl className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            {s.periodStats.flatMap((row) => [
+              <div key={`${row.currency}-gross`}>
+                <dt className="text-[13px] font-medium text-zinc-500">
+                  Gross sales ({row.currency})
+                </dt>
+                <dd className="mt-1 text-xl font-medium text-zinc-950">
+                  {formatMoney(row.grossCents, row.currency)}
+                </dd>
+              </div>,
+              <div key={`${row.currency}-refunds`}>
+                <dt className="text-[13px] font-medium text-zinc-500">Refunds ({row.currency})</dt>
+                <dd className="mt-1 text-xl font-medium text-zinc-950">
+                  {formatMoney(row.refundCents, row.currency)}
+                </dd>
+              </div>,
+              <div key={`${row.currency}-net`}>
+                <dt className="text-[13px] font-medium text-zinc-500">
+                  Net sales ({row.currency})
+                </dt>
+                <dd className="mt-1 text-xl font-medium text-zinc-950">
+                  {formatMoney(row.netCents, row.currency)}
+                </dd>
+              </div>,
+              <div key={`${row.currency}-orders`}>
+                <dt className="text-[13px] font-medium text-zinc-500">
+                  Paid orders ({row.currency})
+                </dt>
+                <dd className="mt-1 text-xl font-medium text-zinc-950">{row.paidOrders}</dd>
+              </div>,
+              <div key={`${row.currency}-aov`}>
+                <dt className="text-[13px] font-medium text-zinc-500">
+                  Average order ({row.currency})
+                </dt>
+                <dd className="mt-1 text-xl font-medium text-zinc-950">
+                  {formatMoney(row.aovCents, row.currency)}
+                </dd>
+              </div>,
+            ])}
+          </dl>
+        )}
+        <nav className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-[13px] font-medium text-zinc-950">
+          <Link
+            to="/admin/orders"
+            search={{ q: '', view: 'queue', payment: 'all', from: '', to: '' }}
+          >
+            Fulfillment queue
+          </Link>
+          <Link
+            to="/admin/orders"
+            search={{ q: '', view: 'returns', payment: 'all', from: '', to: '' }}
+          >
+            Returns to review
+          </Link>
+          <Link
+            to="/admin/orders"
+            search={{ q: '', view: 'payment-issues', payment: 'all', from: '', to: '' }}
+          >
+            Payment issues
+          </Link>
+          <Link to="/admin/inventory" search={{ q: '', sku: '' }}>
+            Inventory
+          </Link>
+        </nav>
+      </section>
 
       {s.deadWebhooks.length > 0 && (
         <section className={`${cardCls} mt-5 p-5`}>
