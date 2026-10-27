@@ -49,7 +49,7 @@ async function audit(
 
 export type AdminActionResult =
   | { ok: true; data?: z.infer<ReturnType<typeof z.json>> }
-  | { ok: false; error: string; status?: number };
+  | { ok: false; error: string; status?: number; conflict?: boolean };
 
 /** Refund an order (full remaining balance by default). Cumulative:
  *  refunds are tracked against the order total and can never exceed the
@@ -844,23 +844,47 @@ export async function runAdminAction(
           .prepare('SELECT slug FROM products WHERE id = ?')
           .bind(productId)
           .first<{ slug: string }>();
-        await db
-          .prepare(
-            `UPDATE products SET title = ?, slug = ?, description = ?, status = ?, seo_title = ?, seo_description = ?, tax_code = ?, updated_at = ?
-           WHERE id = ?`
-          )
-          .bind(
-            f.title,
-            slug,
-            f.description,
-            f.status || 'draft',
-            f.seoTitle || null,
-            f.seoDescription || null,
-            f.taxCode || null,
-            now(),
-            productId
-          )
-          .run();
+        if (!before) {
+          return {
+            ok: false,
+            error: 'This product no longer exists. Your edits have not been saved.',
+            conflict: true,
+          };
+        }
+        const updateSql = `UPDATE products SET title = ?, slug = ?, description = ?, status = ?, seo_title = ?, seo_description = ?, tax_code = ?, updated_at = ?
+           WHERE id = ?`;
+        const updateValues = [
+          f.title,
+          slug,
+          f.description,
+          f.status || 'draft',
+          f.seoTitle || null,
+          f.seoDescription || null,
+          f.taxCode || null,
+          now(),
+          productId,
+        ];
+        if (f.expectedRevision !== undefined) {
+          const guarded = await db
+            .prepare(
+              `${updateSql} AND (SELECT target_revision FROM catalog_work WHERE entity_type = 'product' AND entity_id = ?) = ?`
+            )
+            .bind(...updateValues, productId, f.expectedRevision)
+            .run();
+          if (!guarded.meta.changes) {
+            return {
+              ok: false,
+              error:
+                'This product changed since you opened it. Your edits are still here. Reload to review the current version before saving again.',
+              conflict: true,
+            };
+          }
+        } else {
+          await db
+            .prepare(updateSql)
+            .bind(...updateValues)
+            .run();
+        }
         if (before && before.slug !== slug) {
           // Renamed slugs keep resolving (plan Step 6: renamed slugs redirect).
           await db
@@ -872,7 +896,16 @@ export async function runAdminAction(
             .run();
         }
         await audit(db, actor.id, 'product.update', 'product', productId);
-        return { ok: true };
+        const revision = await db
+          .prepare(
+            "SELECT target_revision FROM catalog_work WHERE entity_type = 'product' AND entity_id = ?"
+          )
+          .bind(productId)
+          .first<{ target_revision: number }>();
+        return {
+          ok: true,
+          data: { revision: revision?.target_revision ?? null, publication: 'pending' },
+        };
       }
       case 'variant.bulkUpdate': {
         const f = parsedAction.data;

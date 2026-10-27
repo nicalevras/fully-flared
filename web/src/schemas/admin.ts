@@ -40,6 +40,7 @@ export const adminActionSchema = z.discriminatedUnion('action', [
   }),
   z.object({
     action: z.literal('product.update'),
+    expectedRevision: z.number().int().min(0).optional(),
     productId: idString,
     title: nonEmptyString(300),
     slug: slugString,

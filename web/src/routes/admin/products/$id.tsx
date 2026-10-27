@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { staffMiddleware } from '../../../server/staff-middleware';
 import { useStoreCurrency } from '../../../lib/use-store-currency';
 import { Link, createFileRoute, useRouter, type SearchSchemaInput } from '@tanstack/react-router';
@@ -46,6 +46,8 @@ type Detail = {
   seo_title: string | null;
   seo_description: string | null;
   tax_code: string | null;
+  revision: number | null;
+  processed_revision: number | null;
   variants: VariantRow[];
   media: MediaRow[];
   collections: Array<{ id: string; title: string }>;
@@ -60,7 +62,7 @@ const getData = createServerFn({ method: 'GET' })
     const db = env.DB;
     const product = await db
       .prepare(
-        'SELECT id, slug, title, description, status, seo_title, seo_description, tax_code FROM products WHERE id = ?'
+        "SELECT id, slug, title, description, status, seo_title, seo_description, tax_code, (SELECT target_revision FROM catalog_work WHERE entity_type = 'product' AND entity_id = products.id) AS revision, (SELECT processed_revision FROM catalog_work WHERE entity_type = 'product' AND entity_id = products.id) AS processed_revision FROM products WHERE id = ?"
       )
       .bind(productId)
       .first<Omit<Detail, 'variants' | 'media' | 'collections' | 'allCollections'>>();
@@ -157,7 +159,7 @@ function EditForm({
 }) {
   const adminAction = useAdminAction();
   const currency = useStoreCurrency();
-  const [form, setForm] = useState({
+  const initialForm = {
     title: product.title,
     slug: product.slug,
     description: product.description,
@@ -165,7 +167,29 @@ function EditForm({
     status: product.status,
     seoTitle: product.seo_title ?? '',
     seoDescription: product.seo_description ?? '',
-  });
+  };
+  const [form, setForm] = useState(initialForm);
+  const [conflict, setConflict] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const fieldLabels: Record<string, string> = {
+    title: 'Title',
+    slug: 'Slug',
+    description: 'Description',
+    taxCode: 'Tax code',
+    status: 'Status',
+    seoTitle: 'SEO title',
+    seoDescription: 'SEO description',
+  };
+  const changedFields = Object.keys(fieldLabels).filter(
+    (key) => form[key as keyof typeof form] !== initialForm[key as keyof typeof initialForm]
+  );
+  const dirty = changedFields.length > 0;
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
   const [edits, setEdits] = useState<VariantEdits<VariantRow>>({});
   const variants = applyVariantEdits(product.variants, edits);
   const editVariant = (id: string, patch: Partial<VariantRow>) =>
@@ -236,10 +260,26 @@ function EditForm({
 
       {/* Details */}
       <form
+        id="product-details-form"
         className={`${cardCls} mt-6 space-y-4 p-5 sm:p-6`}
         onSubmit={async (e) => {
           e.preventDefault();
-          await act('product.update', { productId: product.id, ...form }, 'Product saved.');
+          setBusy(true);
+          const r = await adminAction('product.update', {
+            productId: product.id,
+            ...form,
+            ...(product.revision !== null ? { expectedRevision: product.revision } : {}),
+          });
+          setBusy(false);
+          if (r.ok) {
+            setConflict(false);
+            setReviewOpen(false);
+            setMsg('Saved; publication pending.');
+            await refresh();
+          } else {
+            setConflict(Boolean((r as { conflict?: boolean }).conflict));
+            setMsg(r.error ?? 'Failed');
+          }
         }}
       >
         <h2 className="text-sm font-medium text-zinc-950">Details</h2>
@@ -332,10 +372,71 @@ function EditForm({
             />
           </div>
         </div>
-        <button type="submit" disabled={busy} className={btnPrimary}>
-          {busy ? 'Saving…' : 'Save product'}
-        </button>
+        <p className={hintCls}>
+          {product.revision !== null && (product.processed_revision ?? 0) < product.revision
+            ? 'Publication pending for the latest saved revision.'
+            : 'All saved changes have been published from the latest known revision.'}
+        </p>
       </form>
+
+      {dirty ? (
+        <div
+          className="fixed inset-x-3 bottom-3 z-40 mx-auto max-w-2xl rounded-2xl border border-zinc-200 bg-white p-3 shadow-lg sm:inset-x-6"
+          role="region"
+          aria-label="Unsaved product changes"
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-medium text-zinc-950">
+              {changedFields.length} unsaved change{changedFields.length === 1 ? '' : 's'}
+            </p>
+            <span className="flex-1" />
+            <button type="button" className={btnSmall} onClick={() => setReviewOpen(!reviewOpen)}>
+              {reviewOpen ? 'Hide review' : 'Review'}
+            </button>
+            <button
+              type="button"
+              className={btnSmall}
+              onClick={() => {
+                setForm(initialForm);
+                setReviewOpen(false);
+              }}
+            >
+              Discard
+            </button>
+            <button
+              type="submit"
+              form="product-details-form"
+              disabled={busy}
+              className={btnPrimary}
+            >
+              {busy
+                ? 'Saving...'
+                : form.status !== product.status
+                  ? form.status === 'active'
+                    ? 'Save and publish'
+                    : 'Save and move to draft'
+                  : 'Save changes'}
+            </button>
+          </div>
+          {reviewOpen ? (
+            <ul className="mt-2 list-disc pl-5 text-sm text-zinc-600">
+              {changedFields.map((key) => (
+                <li key={key}>{fieldLabels[key]} changed</li>
+              ))}
+            </ul>
+          ) : null}
+          {conflict ? (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <p className="text-sm text-red-700" role="alert">
+                The saved version changed. Your edits are still here.
+              </p>
+              <button type="button" className={btnSmall} onClick={() => void refresh()}>
+                Reload current version
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Images */}
       <section className={`${cardCls} mt-5 p-5 sm:p-6`}>
