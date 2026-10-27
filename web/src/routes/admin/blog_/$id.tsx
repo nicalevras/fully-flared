@@ -38,8 +38,8 @@ type PostRow = {
   seo_description: string | null;
   published_at: string | null;
   cover_media_id: string | null;
-  tags: string;
   updated_at: string;
+  tags: string;
 };
 
 const getPost = createServerFn({ method: 'GET' })
@@ -96,6 +96,7 @@ function EditorForm({ post, staffId }: { post: PostRow | null; staffId: string }
   const [form, setForm] = useState(() =>
     post
       ? {
+          updatedAt: post.updated_at,
           id: post.id,
           slug: post.slug,
           title: post.title,
