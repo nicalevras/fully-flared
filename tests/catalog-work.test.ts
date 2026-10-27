@@ -6,7 +6,28 @@ import { readListingPage, resolveDirectoryRevision } from '../web/src/server/cat
 import { getShopProductsPage, getStorefrontLayout } from '../web/src/server/catalog-read';
 import { getPublishedCollection, searchCatalog } from '../web/src/server/catalog-discovery';
 import { ALL_LISTING } from '../web/src/server/catalog-models';
-import { buildCatalogReadModels, catalogWork } from './helpers/catalog-driver';
+import { buildCatalogReadModels, catalogWork as drainCatalogWork } from './helpers/catalog-driver';
+
+/** Drain, then simulate the queue returning after the publisher's
+ *  per-key KV pacing window (about one second) and drain again. Run
+ *  fast, this file otherwise reads a listing reference whose newest
+ *  delivery is still pacing-deferred; run under full-suite load, the
+ *  window has already elapsed, which made these tests pass there and
+ *  fail alone. No production timing changes. */
+async function catalogWork(dbArg: D1Database, kvArg: FakeKv) {
+  const total = await drainCatalogWork(dbArg, kvArg);
+  await dbArg
+    .prepare(
+      "UPDATE catalog_ref_state SET last_write_at = '2000-01-01T00:00:00.000Z', delivery_retry_at = NULL WHERE pending_payload IS NOT NULL"
+    )
+    .run();
+  const second = await drainCatalogWork(dbArg, kvArg);
+  total.processed += second.processed;
+  total.productsPublished += second.productsPublished;
+  total.listingsRefreshed.push(...second.listingsRefreshed);
+  total.kvPuts += second.kvPuts;
+  return total;
+}
 
 class FakeKv {
   map = new Map<string, string>();
