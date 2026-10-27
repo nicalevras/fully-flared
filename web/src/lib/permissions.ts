@@ -158,5 +158,7 @@ export const ACTION_PERMISSIONS: Record<
   'import.productsCsv': { resource: 'import', action: 'products-csv' },
   'customer.export': { resource: 'customer', action: 'export' },
   'customer.delete': { resource: 'customer', action: 'delete' },
+  'guest.export': { resource: 'customer', action: 'export' },
+  'guest.erase': { resource: 'customer', action: 'delete' },
   'user.setRole': { resource: 'user', action: 'set-role' },
 };

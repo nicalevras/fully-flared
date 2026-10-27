@@ -6,6 +6,7 @@ import { pageInputSchema } from '../../schemas/pagination';
 import * as z from 'zod';
 import { contactHistory, lookupContact } from '../../server/admin-contacts';
 import { btnPrimary, labelCls } from '../../components/ui';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { validateServerInput } from '../../server/function-boundary';
 import { AdminPager } from '../../components/AdminPager';
 import { formatDate } from '../../lib/format';
@@ -68,6 +69,9 @@ function AdminCustomers() {
   const { customers, total, myRole, page, lookup, history } = Route.useLoaderData();
   const search = Route.useSearch();
   const [emailQuery, setEmailQuery] = useState(search.q);
+  const [guestEraseTarget, setGuestEraseTarget] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<(typeof customers)[number] | null>(null);
+  const [guestBusy, setGuestBusy] = useState(false);
   const navigate = Route.useNavigate();
   const router = useRouter();
   const [msg, setMsg] = useState('');
@@ -193,6 +197,57 @@ function AdminCustomers() {
             Guest purchases are not owned by the account with the same email and are never merged
             into account history.
           </p>
+          <div className="mt-4 border-t border-zinc-100 pt-4">
+            <h3 className="text-[13px] font-medium text-zinc-950">
+              Guest data for {history.email}
+            </h3>
+            {history.guest.length === 0 ? (
+              <p className="text-sm text-zinc-500">No guest purchases to export or erase.</p>
+            ) : (
+              <>
+                <p className="mt-1 text-sm text-zinc-600">
+                  Erasing affects exactly these guest orders:{' '}
+                  {history.guest.map((o) => o.number).join(', ')}. It removes the email, name,
+                  address, and IP address. Order totals, tax, and refund records stay retained as
+                  financial facts. Account orders with the same email are never touched.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className={btnPrimary}
+                    disabled={guestBusy}
+                    onClick={async () => {
+                      setGuestBusy(true);
+                      const r = await adminAction('guest.export', { email: history.email });
+                      setGuestBusy(false);
+                      if (r.ok) {
+                        const blob = new Blob([JSON.stringify(r.data, null, 2)], {
+                          type: 'application/json',
+                        });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `guest-${history.email}.json`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                        setMsg(`Exported guest purchases for ${history.email}.`);
+                      } else setMsg(r.error ?? 'Guest export failed');
+                    }}
+                  >
+                    Export guest purchases
+                  </button>
+                  <button
+                    type="button"
+                    className={btnPrimary}
+                    disabled={guestBusy}
+                    onClick={() => setGuestEraseTarget(history.email)}
+                  >
+                    Erase guest data
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </section>
       ) : null}
 
@@ -315,21 +370,7 @@ function AdminCustomers() {
                         <button
                           className="text-[13px] font-medium text-red-600 underline-offset-2 hover:underline"
                           disabled={busyId === c.id}
-                          onClick={async () => {
-                            if (
-                              !window.confirm(
-                                `Delete ${c.email} and anonymize their order history?`
-                              )
-                            )
-                              return;
-                            setBusyId(c.id);
-                            const r = await adminAction('customer.delete', { userId: c.id });
-                            setBusyId('');
-                            if (r.ok) {
-                              setMsg(`${c.email} deleted.`);
-                              router.invalidate();
-                            } else setMsg(r.error ?? 'Delete failed');
-                          }}
+                          onClick={() => setDeleteTarget(c)}
                         >
                           Delete
                         </button>
@@ -362,6 +403,57 @@ function AdminCustomers() {
           (everything).
         </p>
       ) : null}
+
+      <ConfirmDialog
+        request={
+          guestEraseTarget
+            ? {
+                title: 'Erase guest data?',
+                body: `Erase identifying details from guest purchases for ${guestEraseTarget}? Financial facts stay retained. Account orders with the same email are not touched.`,
+                confirmLabel: 'Erase guest data',
+              }
+            : null
+        }
+        busy={guestBusy}
+        onCancel={() => setGuestEraseTarget(null)}
+        onConfirm={async () => {
+          const email = guestEraseTarget;
+          setGuestEraseTarget(null);
+          if (!email) return;
+          setGuestBusy(true);
+          const r = await adminAction('guest.erase', { email });
+          setGuestBusy(false);
+          if (r.ok) {
+            setMsg(`Guest data erased for ${email}. Financial facts were retained.`);
+            router.invalidate();
+          } else setMsg(r.error ?? 'Guest erasure failed');
+        }}
+      />
+      <ConfirmDialog
+        request={
+          deleteTarget
+            ? {
+                title: 'Delete this account?',
+                body: `Delete ${deleteTarget.email} and anonymize their order history? Guest purchases with the same email are not touched.`,
+                confirmLabel: 'Delete account',
+              }
+            : null
+        }
+        busy={!!busyId}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={async () => {
+          const c = deleteTarget;
+          setDeleteTarget(null);
+          if (!c) return;
+          setBusyId(c.id);
+          const r = await adminAction('customer.delete', { userId: c.id });
+          setBusyId('');
+          if (r.ok) {
+            setMsg(`${c.email} deleted.`);
+            router.invalidate();
+          } else setMsg(r.error ?? 'Delete failed');
+        }}
+      />
       {msg ? (
         <p className="mt-4 rounded-xl bg-green-50 px-4 py-3 text-sm text-green-700" role="status">
           {msg}
