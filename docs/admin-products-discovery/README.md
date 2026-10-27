@@ -77,7 +77,7 @@ After:
 
 The Products list now filters by product status (All, Active, Draft, Archived) and sorts by Newest, Oldest, Title A-Z, or Recently updated. Status and sort are stored in the URL with the search and cursor. Changing either returns to the first page. Each row shows the active-variant price range (a single price when all active variants share one), the total variant count under the inventory state, and, for SKU searches, the matching SKUs with variant titles under the product title: the first three in SKU order, with a remainder count. There is still no total result count.
 
-Recently updated sorts by the product record's `updated_at`. Editing a product or changing its status updates that timestamp. Editing a variant, stock, or media does not, so a variant price change may not move a product up the Recently updated list. A complete modification-timestamp contract is deferred to the product editing phase; no write behavior changed here.
+Recently updated sorts by the product record's `updated_at`. Since Phase 4A (migration 0020), editing a product, changing its status, editing or deleting a variant, or attaching and detaching product media all update that timestamp, so a variant price change now moves the product up the Recently updated list. Stock changes deliberately do not update it. Stock movement must never dirty catalog publication or invalidate checkout quotes, which the inventory publication tests enforce. The triggers keep the rule in the database, so imports and other write paths follow the same contract.
 
 ### Ordering contract
 
