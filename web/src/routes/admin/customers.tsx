@@ -3,7 +3,9 @@ import { staffMiddleware } from '../../server/staff-middleware';
 import { requireStaffPermission } from '../../server/session';
 import { adminCustomers } from '../../server/admin-lists';
 import { pageInputSchema } from '../../schemas/pagination';
-import { pageSearch } from '../../lib/search-params';
+import * as z from 'zod';
+import { contactHistory, lookupContact } from '../../server/admin-contacts';
+import { btnPrimary, labelCls } from '../../components/ui';
 import { validateServerInput } from '../../server/function-boundary';
 import { AdminPager } from '../../components/AdminPager';
 import { formatDate } from '../../lib/format';
@@ -23,19 +25,39 @@ import {
 
 const ROLES = ['customer', 'support', 'warehouse', 'manager', 'owner'];
 
+const customersInput = pageInputSchema.extend({
+  q: z.string().max(320).default(''),
+  email: z.string().max(320).default(''),
+});
+
 const getData = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
-  .validator(validateServerInput(pageInputSchema))
+  .validator(validateServerInput(customersInput))
   .handler(async ({ data, context }) => {
     const { env } = await import('cloudflare:workers');
     const me = context.staff;
     requireStaffPermission(me, 'user', 'list');
-    return { ...(await adminCustomers(env.DB, data)), myRole: me.role, myId: me.id };
+    const lookup = data.q ? await lookupContact(env.DB, data.q) : null;
+    const history = data.email ? await contactHistory(env.DB, data.email) : null;
+    return {
+      ...(await adminCustomers(env.DB, data)),
+      lookup,
+      history,
+      myRole: me.role,
+      myId: me.id,
+    };
   });
 
 export const Route = createFileRoute('/admin/customers')({
-  validateSearch: pageSearch,
-  loaderDeps: ({ search }) => ({ page: search.page }),
+  validateSearch: (search: Record<string, unknown>) => ({
+    page:
+      typeof search.page === 'number' && Number.isInteger(search.page) && search.page >= 1
+        ? search.page
+        : 1,
+    q: typeof search.q === 'string' ? search.q.slice(0, 320) : '',
+    email: typeof search.email === 'string' ? search.email.slice(0, 320) : '',
+  }),
+  loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => getData({ data: deps }),
   component: AdminCustomers,
 });
@@ -43,7 +65,9 @@ export const Route = createFileRoute('/admin/customers')({
 function AdminCustomers() {
   const adminAction = useAdminAction();
 
-  const { customers, total, myRole, page } = Route.useLoaderData();
+  const { customers, total, myRole, page, lookup, history } = Route.useLoaderData();
+  const search = Route.useSearch();
+  const [emailQuery, setEmailQuery] = useState(search.q);
   const navigate = Route.useNavigate();
   const router = useRouter();
   const [msg, setMsg] = useState('');
@@ -59,6 +83,101 @@ function AdminCustomers() {
         signs up appears here with their order history. Staff roles control what someone can do in
         this admin.
       </p>
+
+      <form
+        className={`${cardCls} mt-5 flex flex-wrap items-end gap-3 p-4`}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void navigate({ search: { page: 1, q: emailQuery.trim(), email: '' } });
+        }}
+      >
+        <div className="min-w-56 flex-1">
+          <label className={labelCls} htmlFor="customer-email">
+            Find a contact by email
+          </label>
+          <input
+            id="customer-email"
+            className={inputCls}
+            value={emailQuery}
+            onChange={(event) => setEmailQuery(event.target.value)}
+            placeholder="ada@example.com"
+          />
+        </div>
+        <button type="submit" className={btnPrimary}>
+          Look up
+        </button>
+      </form>
+      <p className="mt-2 text-[13px] text-zinc-500">
+        Guest purchases and account orders are separate records, even when the email matches. A
+        lookup shows counts first. History loads only when you open the contact.
+      </p>
+
+      {search.q && lookup ? (
+        <section className={`${cardCls} mt-4 p-4`} aria-label="Contact lookup result">
+          <h2 className="text-sm font-medium text-zinc-950">{lookup.email}</h2>
+          <ul className="mt-2 space-y-1 text-sm text-zinc-600">
+            <li>
+              Account:{' '}
+              {lookup.account
+                ? `${lookup.account.name || lookup.account.email} (${lookup.account.role}), ${lookup.accountOrderCount} account order${lookup.accountOrderCount === 1 ? '' : 's'}`
+                : 'no account with this email'}
+            </li>
+            <li>
+              Guest purchases (no account): {lookup.guestOrderCount} order
+              {lookup.guestOrderCount === 1 ? '' : 's'}
+            </li>
+          </ul>
+          <button
+            type="button"
+            className={btnPrimary}
+            onClick={() => void navigate({ search: { page: 1, q: search.q, email: lookup.email } })}
+          >
+            Open contact history
+          </button>
+        </section>
+      ) : search.q ? (
+        <p className={`${cardCls} mt-4 p-4 text-sm text-zinc-500`} role="status">
+          Enter an email address to look up a contact.
+        </p>
+      ) : null}
+
+      {history ? (
+        <section className={`${cardCls} mt-4 p-4`} aria-label="Contact history">
+          <h2 className="text-sm font-medium text-zinc-950">History for {history.email}</h2>
+          <h3 className="mt-3 text-[13px] font-medium text-zinc-950">Account orders</h3>
+          {history.account.length === 0 ? (
+            <p className="text-sm text-zinc-500">No account orders.</p>
+          ) : (
+            <ul className="text-sm text-zinc-600">
+              {history.account.map((o) => (
+                <li key={o.id}>
+                  {o.number} · {o.status.replace(/_/g, ' ')} · {o.currency}{' '}
+                  {formatMoney(o.total_cents, o.currency)} · {formatDate(o.created_at)}
+                </li>
+              ))}
+            </ul>
+          )}
+          <h3 className="mt-3 text-[13px] font-medium text-zinc-950">
+            Guest purchases (no account)
+          </h3>
+          {history.guest.length === 0 ? (
+            <p className="text-sm text-zinc-500">No guest purchases.</p>
+          ) : (
+            <ul className="text-sm text-zinc-600">
+              {history.guest.map((o) => (
+                <li key={o.id}>
+                  {o.number} · {o.status.replace(/_/g, ' ')} · {o.currency}{' '}
+                  {formatMoney(o.total_cents, o.currency)} · {formatDate(o.created_at)}
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-2 text-[13px] text-zinc-500">
+            Guest purchases are not owned by the account with the same email and are never merged
+            into account history.
+          </p>
+        </section>
+      ) : null}
 
       <AdminPager
         label="Customers pagination"
