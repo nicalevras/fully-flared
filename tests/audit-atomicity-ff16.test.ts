@@ -23,7 +23,7 @@ describe('FF-16 Tier A: audit commits atomically with the change', () => {
       .run();
     await db
       .prepare(
-        "INSERT INTO media (id, r2_key, filename, content_type, created_at) VALUES ('m1', 'k1', 'a.jpg', 'image/jpeg', '2026')"
+        "INSERT INTO media (id, r2_key, filename, content_type, alt_text, created_at) VALUES ('m1', 'k1', 'a.jpg', 'image/jpeg', 'original', '2026')"
       )
       .run();
     await db
@@ -65,7 +65,7 @@ describe('FF-16 Tier A: audit commits atomically with the change', () => {
       .prepare('SELECT alt_text FROM media WHERE id = ?')
       .bind('m1')
       .first<{ alt_text: string | null }>();
-    expect(media?.alt_text ?? null).toBeNull();
+    expect(media?.alt_text).toBe('original');
     await db.prepare('DROP TRIGGER audit_fail').run();
     // The same operations succeed once the audit write can land.
     const ok = await runAdminAction(db, env, owner, 'discount.create', {
