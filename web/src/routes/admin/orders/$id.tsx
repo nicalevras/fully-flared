@@ -12,6 +12,7 @@ import {
   AdminActionFeedback,
   type AdminActionFeedbackState,
 } from '../../../components/AdminActionFeedback';
+import { ConfirmDialog, type ConfirmRequest } from '../../../components/ConfirmDialog';
 import { StatusBadge } from '../../../components/StatusBadge';
 import type { OrderStatus, PaymentStatus, RefundStatus, ReturnStatus } from '../../../db/schema';
 import {
@@ -19,6 +20,7 @@ import {
   availableRefundCents,
   calculatedReturnRefundCents,
   refundActionMessage,
+  refundStatusLabel,
   refundedQtyBefore,
 } from '../../../lib/order-actions';
 import { roles, type StaffRole } from '../../../lib/permissions';
@@ -181,6 +183,10 @@ function OrderPage() {
   const [returnAmounts, setReturnAmounts] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState<AdminActionFeedbackState>(null);
   const [busy, setBusy] = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState<{
+    request: ConfirmRequest;
+    run: () => void;
+  } | null>(null);
 
   if (!order) {
     return (
@@ -489,9 +495,9 @@ function OrderPage() {
                       {order.refunds.find((f) => f.return_id === r.id) ? (
                         <span className="block">
                           Refund:{' '}
-                          {order.refunds
-                            .find((f) => f.return_id === r.id)!
-                            .status.replace(/_/g, ' ')}
+                          {refundStatusLabel(
+                            order.refunds.find((f) => f.return_id === r.id)!.status
+                          )}
                         </span>
                       ) : null}
                     </span>
@@ -536,17 +542,19 @@ function OrderPage() {
                               });
                               return;
                             }
-                            if (
-                              !window.confirm(
-                                `Refund ${order.currency} ${formatMoney(cents, order.currency)} for this return now?`
-                              )
-                            )
-                              return;
-                            void run(
-                              'return.refund',
-                              { returnId: r.id, amountCents: cents },
-                              'Refund submitted.'
-                            );
+                            setPendingConfirm({
+                              request: {
+                                title: 'Refund this return?',
+                                body: `Refund ${order.currency} ${formatMoney(cents, order.currency)} for this return now? You can submit a refund once. Settlement is reported separately.`,
+                                confirmLabel: 'Refund this return',
+                              },
+                              run: () =>
+                                void run(
+                                  'return.refund',
+                                  { returnId: r.id, amountCents: cents },
+                                  'Refund submitted.'
+                                ),
+                            });
                           }}
                         >
                           Refund this return
@@ -563,13 +571,15 @@ function OrderPage() {
                               )
                             }
                             onClick={() => {
-                              if (
-                                !window.confirm(
-                                  'Close this return without a refund? This frees the order for other refunds.'
-                                )
-                              )
-                                return;
-                              void run('return.reject', { returnId: r.id }, 'Return closed.');
+                              setPendingConfirm({
+                                request: {
+                                  title: 'Close this return?',
+                                  body: 'Close this return without a refund? This frees the order for other refunds.',
+                                  confirmLabel: 'Close return',
+                                },
+                                run: () =>
+                                  void run('return.reject', { returnId: r.id }, 'Return closed.'),
+                              });
                             }}
                           >
                             Close without refund
@@ -662,7 +672,7 @@ function OrderPage() {
                 {order.refunds.map((r) => (
                   <li key={r.id} className="flex justify-between">
                     <span className="text-zinc-500">
-                      <LocalDate value={r.created_at} /> · {r.status.replace(/_/g, ' ')}
+                      <LocalDate value={r.created_at} /> · {refundStatusLabel(r.status)}
                     </span>
                     <span className="font-medium">
                       −{formatMoney(r.amount_cents, order.currency)}
@@ -703,17 +713,19 @@ function OrderPage() {
                         });
                         return;
                       }
-                      if (
-                        !window.confirm(
-                          `Refund ${formatMoney(cents, order.currency)} for ${order.number}? This cannot be undone.`
-                        )
-                      )
-                        return;
-                      await run(
-                        'order.refund',
-                        { orderId: order.id, amountCents: cents },
-                        `Refund submitted for ${formatMoney(cents, order.currency)}.`
-                      );
+                      setPendingConfirm({
+                        request: {
+                          title: 'Refund this order?',
+                          body: `Refund ${formatMoney(cents, order.currency)} for ${order.number}? This cannot be undone. Settlement is reported separately from submission.`,
+                          confirmLabel: 'Refund order',
+                        },
+                        run: () =>
+                          void run(
+                            'order.refund',
+                            { orderId: order.id, amountCents: cents },
+                            `Refund submitted for ${formatMoney(cents, order.currency)}.`
+                          ),
+                      });
                     }}
                   >
                     Refund
@@ -724,6 +736,16 @@ function OrderPage() {
           </section>
         </div>
       </div>
+      <ConfirmDialog
+        request={pendingConfirm?.request ?? null}
+        busy={busy}
+        onCancel={() => setPendingConfirm(null)}
+        onConfirm={() => {
+          const action = pendingConfirm?.run;
+          setPendingConfirm(null);
+          action?.();
+        }}
+      />
       <section id="packing-slip" className={`${cardCls} mt-5 p-5 print:shadow-none`}>
         <div className="flex flex-wrap items-center gap-3">
           <h2 className="text-sm font-medium text-zinc-950">Packing slip</h2>
