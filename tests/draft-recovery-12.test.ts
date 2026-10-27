@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   draftKey,
@@ -70,5 +71,18 @@ describe('FF-06: clean-state cleanup cannot race the recovery read', () => {
     const hook = readFileSync('web/src/lib/use-draft-recovery.ts', 'utf8');
     expect(hook).toContain('shouldRemoveDraftOnClean');
     expect(hook).toContain('readSettledRef');
+  });
+});
+
+describe('FF-06 release gate: draft recovery ships disabled', () => {
+  it('neither editor wires the recovery hook', () => {
+    for (const file of [
+      'web/src/routes/admin/blog_/$id.tsx',
+      'web/src/routes/admin/pages_/$id.tsx',
+    ]) {
+      const source = readFileSync(file, 'utf8');
+      expect(source, file).not.toContain('useDraftRecovery');
+      expect(source, file).not.toContain('Saved on this device');
+    }
   });
 });

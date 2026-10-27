@@ -12,11 +12,9 @@ import {
 } from '../../../components/AdminActionFeedback';
 import { slugify, utcToLocalDateTimeInput, type LoadedSchedule } from '../../../lib/format';
 import { saveBlogPost } from '../../../lib/blog-save';
-import { useDraftRecovery } from '../../../lib/use-draft-recovery';
 import { uploadMedia } from '../../../lib/upload';
 import {
   btnGhost,
-  btnPrimary,
   btnSecondary,
   cardCls,
   hintCls,
@@ -86,11 +84,11 @@ const EMPTY = {
 };
 
 function BlogPostEditor() {
-  const { post, staffId } = Route.useLoaderData();
-  return <EditorForm key={post?.id ?? 'new'} post={post} staffId={staffId} />;
+  const { post } = Route.useLoaderData();
+  return <EditorForm key={post?.id ?? 'new'} post={post} />;
 }
 
-function EditorForm({ post, staffId }: { post: PostRow | null; staffId: string }) {
+function EditorForm({ post }: { post: PostRow | null }) {
   const adminAction = useAdminAction();
   const router = useRouter();
   const [form, setForm] = useState(() =>
@@ -118,28 +116,6 @@ function EditorForm({ post, staffId }: { post: PostRow | null; staffId: string }
   );
   const [feedback, setFeedback] = useState<AdminActionFeedbackState>(null);
   const [contentHtml, setContentHtml] = useState(form.contentHtml);
-  const [editorEpoch, setEditorEpoch] = useState(0);
-  const serverFields = {
-    title: post?.title ?? '',
-    slug: post?.slug ?? '',
-    status: post?.status ?? 'draft',
-    excerpt: post?.excerpt ?? '',
-    contentHtml: post?.content_html ?? '',
-    seoTitle: post?.seo_title ?? '',
-    seoDescription: post?.seo_description ?? '',
-    tags: post?.tags ?? '',
-    coverMediaId: post?.cover_media_id ?? '',
-    publishedAt: post?.published_at ? utcToLocalDateTimeInput(post.published_at) : '',
-  };
-  const draft = useDraftRecovery({
-    staffId,
-    entityType: 'post',
-    entityId: post?.id ?? 'new',
-    baseUpdatedAt: post?.updated_at ?? null,
-    serverFields,
-    currentFields: { ...form, contentHtml },
-  });
-
   return (
     <main>
       <Link to="/admin/blog" className="text-[13px] font-medium text-zinc-500 hover:text-zinc-950">
@@ -151,41 +127,6 @@ function EditorForm({ post, staffId }: { post: PostRow | null; staffId: string }
         published post makes the change live. A draft stays off the storefront.
       </p>
       <AdminActionFeedback value={feedback} />
-      {draft.recovery ? (
-        <section className={`${cardCls} mt-4 p-4`} aria-label="Recovered draft">
-          <p className="text-sm text-zinc-600">
-            You have unsaved work for this post, saved on this device{' '}
-            {new Date(draft.recovery.draft.savedAt).toLocaleString()}.
-            {draft.recovery.stale
-              ? ' The post changed on the server after that. The server version stays authoritative until you save over it.'
-              : ''}
-          </p>
-          <div className="mt-2 flex gap-2">
-            <button
-              type="button"
-              className={btnPrimary}
-              onClick={() => {
-                const fields = draft.recovery?.draft.fields;
-                if (!fields) return;
-                setForm((current) => ({ ...current, ...fields, contentHtml: current.contentHtml }));
-                setContentHtml(fields.contentHtml ?? '');
-                setEditorEpoch((epoch) => epoch + 1);
-                draft.markRecovered();
-              }}
-            >
-              Recover this work
-            </button>
-            <button type="button" className={btnSecondary} onClick={draft.discardRecovery}>
-              Discard it
-            </button>
-          </div>
-        </section>
-      ) : draft.savedAt ? (
-        <p className="mt-3 text-[13px] text-zinc-500" role="status">
-          Draft saved on this device {new Date(draft.savedAt).toLocaleTimeString()}. It is only on
-          this device and is removed when you save.
-        </p>
-      ) : null}
       <section className="mt-6 space-y-4">
         <div className={`${cardCls} grid gap-4 p-5 sm:p-6 lg:grid-cols-3`}>
           <div>
@@ -337,7 +278,7 @@ function EditorForm({ post, staffId }: { post: PostRow | null; staffId: string }
           </p>
         </div>
         <BlogEditor
-          key={`${form.id || 'new'}-${editorEpoch}`}
+          key={form.id || 'new'}
           initialHtml={contentHtml}
           showSave
           onChange={(html) => setContentHtml(html)}
@@ -348,7 +289,6 @@ function EditorForm({ post, staffId }: { post: PostRow | null; staffId: string }
               loadedSchedule
             );
             if (result.ok) {
-              draft.clearDraft();
               setFeedback({
                 kind: 'status',
                 message:
