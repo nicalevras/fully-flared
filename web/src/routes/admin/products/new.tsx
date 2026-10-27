@@ -118,6 +118,25 @@ function AdminProductNew() {
     setErrors((current) => ({ ...current, [key]: undefined }));
   };
 
+  if (!canCreate) {
+    return (
+      <main>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className={pageTitle}>Add product</h1>
+          </div>
+          <Link to="/admin/products" search={listSearch} className={btnSmall}>
+            Back to products
+          </Link>
+        </div>
+        <div className={`${cardCls} mt-5 p-5 sm:p-6`}>
+          <p className="text-sm text-zinc-950">Your role cannot create products.</p>
+          <p className={hintCls}>Ask an owner or manager to create products for you.</p>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main>
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -134,14 +153,7 @@ function AdminProductNew() {
         </Link>
       </div>
       <AdminActionFeedback value={feedback} />
-      {!canCreate ? (
-        <div className={`${cardCls} mt-5 p-5 sm:p-6`}>
-          <p className="text-sm text-zinc-950">Your role cannot create products.</p>
-          <p className={hintCls}>Ask an owner or manager to create products for you.</p>
-        </div>
-      ) : null}
 
-      {canCreate ? (
       <form
         className={`${cardCls} mt-5 space-y-6 p-5 sm:p-6`}
         noValidate
@@ -307,38 +319,38 @@ function AdminProductNew() {
           ) : null}
           <div className="grid gap-4 sm:grid-cols-2">
             {useOptions ? null : (
-            <>
-            <div>
-              <label className={labelCls} htmlFor="new-sku">
-                SKU
-              </label>
-              <input
-                id="new-sku"
-                className={inputCls}
-                value={draft.sku}
-                maxLength={100}
-                aria-invalid={Boolean(errors.sku)}
-                aria-describedby={errors.sku ? 'new-sku-error' : undefined}
-                onChange={(event) => set('sku', event.target.value)}
-              />
-              <FieldError id="new-sku-error" message={errors.sku} />
-            </div>
-            <div>
-              <label className={labelCls} htmlFor="new-variant-title">
-                Variant title
-              </label>
-              <input
-                id="new-variant-title"
-                className={inputCls}
-                value={draft.variantTitle}
-                maxLength={200}
-                aria-invalid={Boolean(errors.variantTitle)}
-                aria-describedby={errors.variantTitle ? 'new-variant-title-error' : undefined}
-                onChange={(event) => set('variantTitle', event.target.value)}
-              />
-              <FieldError id="new-variant-title-error" message={errors.variantTitle} />
-            </div>
-            </>
+              <>
+                <div>
+                  <label className={labelCls} htmlFor="new-sku">
+                    SKU
+                  </label>
+                  <input
+                    id="new-sku"
+                    className={inputCls}
+                    value={draft.sku}
+                    maxLength={100}
+                    aria-invalid={Boolean(errors.sku)}
+                    aria-describedby={errors.sku ? 'new-sku-error' : undefined}
+                    onChange={(event) => set('sku', event.target.value)}
+                  />
+                  <FieldError id="new-sku-error" message={errors.sku} />
+                </div>
+                <div>
+                  <label className={labelCls} htmlFor="new-variant-title">
+                    Variant title
+                  </label>
+                  <input
+                    id="new-variant-title"
+                    className={inputCls}
+                    value={draft.variantTitle}
+                    maxLength={200}
+                    aria-invalid={Boolean(errors.variantTitle)}
+                    aria-describedby={errors.variantTitle ? 'new-variant-title-error' : undefined}
+                    onChange={(event) => set('variantTitle', event.target.value)}
+                  />
+                  <FieldError id="new-variant-title-error" message={errors.variantTitle} />
+                </div>
+              </>
             )}
             <div>
               <label className={labelCls} htmlFor="new-price">
@@ -455,9 +467,7 @@ function AdminProductNew() {
                       onChange={(event) => {
                         setResetArmed(false);
                         const next = groups.map((item, index) =>
-                          index === groupIndex
-                            ? { ...item, valuesText: event.target.value }
-                            : item
+                          index === groupIndex ? { ...item, valuesText: event.target.value } : item
                         );
                         if (!confirmEditedLoss(next)) return;
                         setGroups(next);
@@ -700,7 +710,6 @@ function AdminProductNew() {
           </p>
         </div>
       </form>
-      ) : null}
     </main>
   );
 }

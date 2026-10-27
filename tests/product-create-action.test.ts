@@ -39,7 +39,13 @@ function createPayload(skus: string[]) {
 
 describe('product.create action', () => {
   it('creates the product, variant, stock, ledger and audit rows together', async () => {
-    const result = await runAdminAction(db, {} as never, owner, 'product.create', createPayload(['TOTE-001']));
+    const result = await runAdminAction(
+      db,
+      {} as never,
+      owner,
+      'product.create',
+      createPayload(['TOTE-001'])
+    );
     expect(result.ok).toBe(true);
     expect(await count('products')).toBe(1);
     expect(await count('variants')).toBe(1);
@@ -49,13 +55,22 @@ describe('product.create action', () => {
       .prepare("SELECT action, entity_type FROM audit_log WHERE action = 'product.create'")
       .first();
     expect(audit).toMatchObject({ action: 'product.create', entity_type: 'product' });
-    const stock = await db.prepare('SELECT on_hand FROM stock WHERE sku = ?').bind('TOTE-001').first();
+    const stock = await db
+      .prepare('SELECT on_hand FROM stock WHERE sku = ?')
+      .bind('TOTE-001')
+      .first();
     expect(stock).toMatchObject({ on_hand: 5 });
   });
 
   it('creates six variants with matching stock and ledger rows', async () => {
     const skus = ['TOTE-S-B', 'TOTE-S-W', 'TOTE-M-B', 'TOTE-M-W', 'TOTE-L-B', 'TOTE-L-W'];
-    const result = await runAdminAction(db, {} as never, owner, 'product.create', createPayload(skus));
+    const result = await runAdminAction(
+      db,
+      {} as never,
+      owner,
+      'product.create',
+      createPayload(skus)
+    );
     expect(result.ok).toBe(true);
     expect(await count('variants')).toBe(6);
     expect(await count('stock')).toBe(6);
@@ -89,9 +104,13 @@ describe('product.create action', () => {
       )
       .run();
     try {
-      const result = await runAdminAction(db, {} as never, owner, 'product.create', createPayload(['TOTE-001'])).catch(
-        (error: unknown) => ({ ok: false, error: String(error) })
-      );
+      const result = await runAdminAction(
+        db,
+        {} as never,
+        owner,
+        'product.create',
+        createPayload(['TOTE-001'])
+      ).catch((error: unknown) => ({ ok: false, error: String(error) }));
       expect(result.ok).toBe(false);
       expect(await count('products')).toBe(0);
       expect(await count('variants')).toBe(0);
@@ -120,7 +139,10 @@ describe('product.create action', () => {
       payload.slug = `perf-${n}`;
       const started = performance.now();
       const result = await runAdminAction(db, {} as never, owner, 'product.create', payload);
-      timings[String(n)] = { ms: Math.round(performance.now() - started), statements: 1 + 3 * n + 1 };
+      timings[String(n)] = {
+        ms: Math.round(performance.now() - started),
+        statements: 1 + 3 * n + 1,
+      };
       expect(result.ok).toBe(true);
     }
     console.info(JSON.stringify({ event: 'product_create_perf', timings }));

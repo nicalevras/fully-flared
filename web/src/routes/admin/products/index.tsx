@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react';
 import { staffMiddleware } from '../../../server/staff-middleware';
 import { useStoreCurrency } from '../../../lib/use-store-currency';
-import { Link, createFileRoute, getRouteApi, useRouter, type SearchSchemaInput } from '@tanstack/react-router';
+import {
+  Link,
+  createFileRoute,
+  getRouteApi,
+  useRouter,
+  type SearchSchemaInput,
+} from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import {
   adminProductDiscovery,

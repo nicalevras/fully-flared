@@ -129,7 +129,9 @@ export function validateVariantCombinations(
     const sku = combo.sku.trim();
     if (!sku) errors.push(`Variant ${index + 1} needs a SKU.`);
     else if (sku.length > 100)
-      errors.push(`Variant ${combo.title} has a SKU over 100 characters. Shorten the SKU in the table.`);
+      errors.push(
+        `Variant ${combo.title} has a SKU over 100 characters. Shorten the SKU in the table.`
+      );
     else if (seen.has(sku)) errors.push(`SKU ${sku} is used more than once.`);
     else seen.set(sku, index);
     if (combo.title.length > 200)
