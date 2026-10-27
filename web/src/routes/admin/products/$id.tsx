@@ -1,7 +1,14 @@
 import { useEffect, useState } from 'react';
 import { staffMiddleware } from '../../../server/staff-middleware';
 import { useStoreCurrency } from '../../../lib/use-store-currency';
-import { Link, createFileRoute, useRouter, type SearchSchemaInput } from '@tanstack/react-router';
+import {
+  Link,
+  createFileRoute,
+  useBlocker,
+  useRouter,
+  type SearchSchemaInput,
+} from '@tanstack/react-router';
+import { ConfirmDialog } from '../../../components/ConfirmDialog';
 import { createServerFn } from '@tanstack/react-start';
 import { validateServerInput } from '../../../server/function-boundary';
 import { normalizeProductSearch } from '../../../lib/product-search';
@@ -205,6 +212,11 @@ function EditForm({
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
   const [edits, setEdits] = useState<VariantEdits<VariantRow>>({});
+  const blocker = useBlocker({
+    shouldBlockFn: () => dirty || Object.keys(edits).length > 0,
+    enableBeforeUnload: false,
+    withResolver: true,
+  });
   const variants = applyVariantEdits(product.variants, edits);
   const editVariant = (id: string, patch: Partial<VariantRow>) =>
     setEdits((current) => ({ ...current, [id]: { ...current[id], ...patch } }));
@@ -431,6 +443,20 @@ function EditForm({
         </p>
       </form>
 
+      <ConfirmDialog
+        request={
+          blocker.status === 'blocked'
+            ? {
+                title: 'Leave with unsaved changes?',
+                body: 'This product has unsaved changes. Leaving now discards them.',
+                confirmLabel: 'Leave and discard',
+              }
+            : null
+        }
+        busy={false}
+        onConfirm={() => blocker.proceed?.()}
+        onCancel={() => blocker.reset?.()}
+      />
       {dirty ? (
         <div
           className="fixed inset-x-3 bottom-3 z-40 mx-auto max-w-2xl rounded-2xl border border-zinc-200 bg-white p-3 shadow-lg sm:inset-x-6"
@@ -584,7 +610,7 @@ function EditForm({
                           const next = [m.media_id, ...ids.filter((id) => id !== m.media_id)];
                           void act(
                             'product.reorderMedia',
-                            { productId: product.id, mediaIds: next },
+                            { productId: product.id, mediaIds: next, expectedMediaIds: ids },
                             'Cover image updated.'
                           );
                         }}
@@ -608,7 +634,7 @@ function EditForm({
                           }
                           void act(
                             'product.reorderMedia',
-                            { productId: product.id, mediaIds: next },
+                            { productId: product.id, mediaIds: next, expectedMediaIds: ids },
                             'Image order updated.'
                           );
                         }}
@@ -632,7 +658,7 @@ function EditForm({
                           }
                           void act(
                             'product.reorderMedia',
-                            { productId: product.id, mediaIds: next },
+                            { productId: product.id, mediaIds: next, expectedMediaIds: ids },
                             'Image order updated.'
                           );
                         }}
@@ -859,7 +885,7 @@ function EditForm({
                   </div>
                   <div>
                     <label className={labelCls} htmlFor={`v-price-${v.id}`}>
-                      Price ($)
+                      Price ({currency})
                     </label>
                     <input
                       id={`v-price-${v.id}`}
@@ -875,7 +901,7 @@ function EditForm({
                   </div>
                   <div>
                     <label className={labelCls} htmlFor={`v-compare-${v.id}`}>
-                      Compare at ($)
+                      Compare at ({currency})
                     </label>
                     <input
                       id={`v-compare-${v.id}`}
@@ -1051,7 +1077,7 @@ function EditForm({
           </div>
           <div>
             <label className={labelCls} htmlFor="nv-price">
-              Price ($)
+              Price ({currency})
             </label>
             <input
               id="nv-price"
