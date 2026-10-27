@@ -434,7 +434,7 @@ unapplied. Verification is deferred: see
   product-creation PR, is a combination generator. It saves flat variants only.
   Option group names and values are not stored, and variant titles such as
   `Small / Black` cannot be parsed back into an option structure reliably,
-  because a value may itself contain ` / `.
+  because a value may itself contain the separator.
 - No Phase 4 editor code, and no other dependent code, may assume that a
   product's option groups can be reconstructed from its variants. The Phase 4
   editing workspace must be designed against flat variants until this decision
