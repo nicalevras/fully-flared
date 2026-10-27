@@ -8,6 +8,10 @@ import { validateServerInput } from '../../../server/function-boundary';
 import { idString } from '../../../schemas/common';
 import { useAdminAction, type AdminPayload } from '../../../components/AdminNav';
 import { formatMoney } from '../../../components/ProductCard';
+import {
+  AdminActionFeedback,
+  type AdminActionFeedbackState,
+} from '../../../components/AdminActionFeedback';
 import { StatusBadge } from '../../../components/StatusBadge';
 import type { OrderStatus, PaymentStatus, RefundStatus, ReturnStatus } from '../../../db/schema';
 import {
@@ -175,7 +179,7 @@ function OrderPage() {
   const [tracking, setTracking] = useState('');
   const [refundAmount, setRefundAmount] = useState('');
   const [returnAmounts, setReturnAmounts] = useState<Record<string, string>>({});
-  const [msg, setMsg] = useState('');
+  const [msg, setMsg] = useState<AdminActionFeedbackState>(null);
   const [busy, setBusy] = useState(false);
 
   if (!order) {
@@ -197,12 +201,8 @@ function OrderPage() {
   const timeline: Array<[string, string | null, boolean]> = [
     ['Order placed', order.created_at, true],
     [
-      'Payment confirmed',
-      order.payment_status === 'paid' ||
-      order.payment_status === 'partially_refunded' ||
-      order.payment_status === 'refunded'
-        ? order.created_at
-        : null,
+      `Payment ${order.payment_status.replace(/_/g, ' ')}`,
+      null,
       order.payment_status !== 'unpaid' && order.payment_status !== 'failed',
     ],
     ['Shipped', order.shipped_at, order.status === 'shipped' || order.status === 'delivered'],
@@ -266,13 +266,15 @@ function OrderPage() {
     const r = await adminAction(action, payload);
     setBusy(false);
     if (r.ok) {
-      setMsg(
-        action === 'order.refund' || action === 'return.refund'
-          ? refundActionMessage(r.data, currency)
-          : ok
-      );
+      setMsg({
+        kind: 'status',
+        message:
+          action === 'order.refund' || action === 'return.refund'
+            ? refundActionMessage(r.data, currency)
+            : ok,
+      });
       router.invalidate();
-    } else setMsg(r.error ?? 'Failed');
+    } else setMsg({ kind: 'error', message: r.error ?? 'Failed' });
   }
 
   return (
@@ -292,6 +294,38 @@ function OrderPage() {
       <p className={pageSub}>
         Placed <LocalDate value={order.created_at} withTime /> · {order.customer_email}
       </p>
+      <AdminActionFeedback value={msg} />
+      <section
+        className={`${cardCls} mt-5 flex flex-wrap items-center gap-3 p-4`}
+        aria-label="Next action"
+      >
+        <p className="text-sm text-zinc-600">
+          <span className="font-medium text-zinc-950">Next action: </span>
+          {canShip
+            ? 'Ship this order. Add the tracking number in Fulfillment below.'
+            : hasOpenReturn
+              ? 'Review the open return below before refunding anything else.'
+              : canRefund
+                ? 'A refund balance remains. Review Payment before refunding.'
+                : 'Nothing needs attention on this order right now.'}
+        </p>
+        {canShip ? (
+          <a href="#fulfillment" className={btnPrimary}>
+            Go to fulfillment
+          </a>
+        ) : hasOpenReturn ? (
+          <a href="#returns" className={btnPrimary}>
+            Review the return
+          </a>
+        ) : canRefund ? (
+          <a href="#payment" className={btnPrimary}>
+            Review payment
+          </a>
+        ) : null}
+        <a href="#packing-slip" className={btnSecondary}>
+          Packing slip
+        </a>
+      </section>
 
       <div className="mt-6 grid items-start gap-5 lg:grid-cols-[1fr_340px]">
         <div className="space-y-5">
@@ -357,7 +391,7 @@ function OrderPage() {
           </section>
 
           {/* Fulfillment */}
-          <section className={`${cardCls} p-5 sm:p-6`}>
+          <section id="fulfillment" className={`${cardCls} p-5 sm:p-6`}>
             <h2 className="text-sm font-medium text-zinc-950">Fulfillment</h2>
             <ol className="mt-4 space-y-0" aria-label="Order timeline">
               {timeline.map(([label, at, done], i) => (
@@ -433,7 +467,7 @@ function OrderPage() {
 
           {/* Returns */}
           {order.returns.length > 0 ? (
-            <section className={`${cardCls} p-5 sm:p-6`}>
+            <section id="returns" className={`${cardCls} p-5 sm:p-6`}>
               <h2 className="text-sm font-medium text-zinc-950">Returns</h2>
               <ul className="mt-3 space-y-3">
                 {order.returns.map((r) => (
@@ -496,7 +530,10 @@ function OrderPage() {
                                 100
                             );
                             if (!Number.isSafeInteger(cents) || cents < 1 || cents > refundable) {
-                              setMsg('Enter an amount within the available refund balance.');
+                              setMsg({
+                                kind: 'error',
+                                message: 'Enter an amount within the available refund balance.',
+                              });
                               return;
                             }
                             if (
@@ -607,7 +644,7 @@ function OrderPage() {
           </section>
 
           {/* Payment / refund */}
-          <section className={`${cardCls} p-5`}>
+          <section id="payment" className={`${cardCls} p-5`}>
             <h2 className="text-sm font-medium text-zinc-950">Payment</h2>
             <p className="mt-2 text-sm text-zinc-600">
               Status:{' '}
@@ -660,7 +697,10 @@ function OrderPage() {
                         ? Math.round(Number(refundAmount) * 100)
                         : refundable;
                       if (!Number.isSafeInteger(cents) || cents < 1 || cents > refundable) {
-                        setMsg('Enter an amount within the available refund balance.');
+                        setMsg({
+                          kind: 'error',
+                          message: 'Enter an amount within the available refund balance.',
+                        });
                         return;
                       }
                       if (
@@ -684,11 +724,47 @@ function OrderPage() {
           </section>
         </div>
       </div>
-      {msg ? (
-        <p className="mt-4 rounded-xl bg-green-50 px-4 py-3 text-sm text-green-700" role="status">
-          {msg}
+      <section id="packing-slip" className={`${cardCls} mt-5 p-5 print:shadow-none`}>
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className="text-sm font-medium text-zinc-950">Packing slip</h2>
+          <button
+            type="button"
+            className={`${btnSmall} print:hidden`}
+            onClick={() => window.print()}
+          >
+            Print packing slip
+          </button>
+        </div>
+        <p className="mt-2 text-sm text-zinc-600">
+          Order {order.number} · Placed <LocalDate value={order.created_at} />
         </p>
-      ) : null}
+        {order.shipping_name ? (
+          <p className="mt-2 text-sm text-zinc-950">{order.shipping_name}</p>
+        ) : null}
+        {addressLines.length > 0 ? (
+          <address className="text-sm leading-6 text-zinc-600 not-italic">
+            {addressLines.map((l) => (
+              <span key={l} className="block">
+                {l}
+              </span>
+            ))}
+          </address>
+        ) : null}
+        <ul className="mt-3 divide-y divide-zinc-100 text-sm">
+          {order.items.map((i) => (
+            <li key={i.id} className="flex justify-between py-2">
+              <span>
+                {i.title} <span className="text-zinc-500">({i.sku})</span>
+              </span>
+              <span>Qty {i.qty}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-3 text-[13px] text-zinc-500">
+          This slip lists what to pack and where to send it. It carries no prices, payment details,
+          or customer email.
+        </p>
+      </section>
     </main>
   );
 }
