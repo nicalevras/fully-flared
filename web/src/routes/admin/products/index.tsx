@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { staffMiddleware } from '../../../server/staff-middleware';
 import { useStoreCurrency } from '../../../lib/use-store-currency';
-import { Link, createFileRoute, useRouter, type SearchSchemaInput } from '@tanstack/react-router';
+import { Link, createFileRoute, getRouteApi, useRouter, type SearchSchemaInput } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import {
   adminProductDiscovery,
@@ -20,7 +20,8 @@ import {
 } from '../../../components/AdminActionFeedback';
 import { validateServerInput } from '../../../server/function-boundary';
 import { useAdminAction } from '../../../components/AdminNav';
-import { formatMoney, slugify } from '../../../lib/format';
+import { formatMoney } from '../../../lib/format';
+import { roleCan } from '../../../lib/permissions';
 import { StatusBadge } from '../../../components/StatusBadge';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
@@ -77,19 +78,21 @@ export const Route = createFileRoute('/admin/products/')({
   component: AdminProducts,
 });
 
+const adminApi = getRouteApi('/admin');
+
 function AdminProducts() {
   const adminAction = useAdminAction();
+  const { staff } = adminApi.useRouteContext();
+  const canCreate = roleCan(staff?.role, 'product', 'create');
 
   const currency = useStoreCurrency();
   const { products, nextCursor, previousCursor, state } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
-  const [form, setForm] = useState({ title: '', slug: '', sku: '', price: '29.99', stock: '10' });
   const [csv, setCsv] = useState('title,slug,sku,price_cents,stock\n');
   const [adjust, setAdjust] = useState({ sku: '', delta: '10' });
   const [msg, setMsg] = useState<AdminActionFeedbackState>(null);
-  const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState(search.q);
   const [mode, setMode] = useState<ProductMode>(search.mode ?? 'title');
   useEffect(() => {
@@ -106,9 +109,15 @@ function AdminProducts() {
             Find a product by title or SKU. Click a product to edit its variants, stock, and images.
           </p>
         </div>
-        <Link to="/admin/products/new" className={btnPrimary}>
-          Add product
-        </Link>
+        {canCreate ? (
+          <Link
+            to="/admin/products/new"
+            search={{ q: search.q, mode: search.mode, status: search.status, sort: search.sort }}
+            className={btnPrimary}
+          >
+            Add product
+          </Link>
+        ) : null}
       </div>
       <AdminActionFeedback value={msg} />
 
@@ -395,116 +404,7 @@ function AdminProducts() {
         </div>
       ) : null}
 
-      <div className="mt-5 grid items-start gap-5 lg:grid-cols-2">
-        <form
-          className={`${cardCls} space-y-4 p-5 sm:p-6`}
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setBusy(true);
-            const r = await adminAction('product.create', {
-              title: form.title,
-              slug: form.slug || slugify(form.title),
-              status: 'draft',
-              description: '',
-              variants: [
-                {
-                  sku: form.sku,
-                  title: 'Default',
-                  priceCents: Math.round(Number(form.price) * 100),
-                  stock: Number(form.stock),
-                },
-              ],
-            });
-            setBusy(false);
-            if (r.ok) {
-              const data = r.data as { productId?: string } | undefined;
-              setMsg({ kind: 'status', message: 'Product created as a draft.' });
-              if (data?.productId)
-                router.navigate({ to: '/admin/products/$id', params: { id: data.productId } });
-              else router.invalidate();
-            } else setMsg({ kind: 'error', message: r.error ?? 'Failed' });
-          }}
-        >
-          <h2 className="text-sm font-medium text-zinc-950">Add product</h2>
-          <div>
-            <label className={labelCls} htmlFor="p-title">
-              Title
-            </label>
-            <input
-              id="p-title"
-              placeholder="e.g. Everyday Tote"
-              className={inputCls}
-              value={form.title}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  title: e.target.value,
-                  slug: form.slug || slugify(e.target.value),
-                })
-              }
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={labelCls} htmlFor="p-slug">
-                Slug
-              </label>
-              <input
-                id="p-slug"
-                placeholder="everyday-tote"
-                className={inputCls}
-                value={form.slug}
-                onChange={(e) => setForm({ ...form, slug: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className={labelCls} htmlFor="p-sku">
-                SKU
-              </label>
-              <input
-                id="p-sku"
-                placeholder="TOTE-001"
-                className={inputCls}
-                value={form.sku}
-                onChange={(e) => setForm({ ...form, sku: e.target.value })}
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={labelCls} htmlFor="p-price">
-                Price ($)
-              </label>
-              <input
-                id="p-price"
-                inputMode="decimal"
-                className={inputCls}
-                value={form.price}
-                onChange={(e) => setForm({ ...form, price: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className={labelCls} htmlFor="p-stock">
-                Stock
-              </label>
-              <input
-                id="p-stock"
-                inputMode="numeric"
-                className={inputCls}
-                value={form.stock}
-                onChange={(e) => setForm({ ...form, stock: e.target.value })}
-              />
-            </div>
-          </div>
-          <p className={hintCls}>
-            Created as a draft. You will land on the edit page to add a description, images, and
-            variants before publishing.
-          </p>
-          <button type="submit" disabled={busy} className={btnPrimary}>
-            {busy ? 'Creating…' : 'Add product'}
-          </button>
-        </form>
-
+      <div className="mt-5">
         <div className="space-y-5">
           <section className={`${cardCls} space-y-4 p-5 sm:p-6`}>
             <div>
