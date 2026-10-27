@@ -11,15 +11,23 @@ import { runEditorSave } from '../lib/blog-save';
 export function BlogEditor({
   initialHtml,
   onSave,
+  onChange,
 }: {
   initialHtml?: string;
   onSave: (html: string, json: string) => Promise<void>;
+  onChange?: (html: string) => void;
 }) {
   const [saving, setSaving] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const editor = useEditor({
     extensions: [StarterKit, Image],
     content: initialHtml ?? '',
+    ...(onChange
+      ? {
+          onUpdate: ({ editor: current }: { editor: { getHTML: () => string } }) =>
+            onChange(current.getHTML()),
+        }
+      : {}),
     // TipTap React docs: defer first render under SSR and do not re-render
     // the component on every transaction.
     immediatelyRender: false,
@@ -114,19 +122,21 @@ export function BlogEditor({
             {uploadError}
           </span>
         ) : null}
-        <button
-          type="button"
-          disabled={saving}
-          className="ml-auto inline-flex h-8 items-center rounded-full bg-zinc-950 px-3.5 text-[13px] font-medium text-white transition-colors hover:bg-zinc-800 disabled:opacity-40"
-          onClick={() =>
-            void runEditorSave({
-              setSaving,
-              onSave: () => onSave(editor.getHTML(), JSON.stringify(editor.getJSON())),
-            })
-          }
-        >
-          {saving ? 'Saving…' : 'Save post'}
-        </button>
+        {onChange ? null : (
+          <button
+            type="button"
+            disabled={saving}
+            className="ml-auto inline-flex h-8 items-center rounded-full bg-zinc-950 px-3.5 text-[13px] font-medium text-white transition-colors hover:bg-zinc-800 disabled:opacity-40"
+            onClick={() =>
+              void runEditorSave({
+                setSaving,
+                onSave: () => onSave(editor.getHTML(), JSON.stringify(editor.getJSON())),
+              })
+            }
+          >
+            {saving ? 'Saving…' : 'Save post'}
+          </button>
+        )}
       </div>
       <EditorContent editor={editor} />
     </div>

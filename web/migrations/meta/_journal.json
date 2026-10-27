@@ -148,6 +148,13 @@
       "when": 1793100000000,
       "tag": "0020_product_touch_triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1793073984769,
+      "tag": "0021_product_description_html",
+      "breakpoints": true
     }
   ]
 }
