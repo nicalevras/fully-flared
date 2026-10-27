@@ -3,7 +3,7 @@ import { adjustStock, adjustStockIdempotent } from './inventory';
 import { canonicalizeMediaUrls, mediaKeysInContent, mediaRawSpellings } from './media';
 import { parseCsv } from './csv';
 import { getStripeProvider } from './payments';
-import { getSettings, setSetting } from './settings';
+import { getSettings } from './settings';
 import { emailStatement, commitWithEmails, enqueueJob } from './email';
 import { broadcastAdminRealtime } from './realtime';
 import { escapeHtml, plainTextFromHtml, sanitizeHtml } from './sanitize';
@@ -873,7 +873,14 @@ export async function runAdminAction(
           return { ok: false, error: 'Currency is locked after the first live order', status: 409 };
         }
         try {
-          await setSetting(db, key, f.value);
+          await db.batch([
+            db
+              .prepare(
+                'INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at'
+              )
+              .bind(key, f.value, now()),
+            auditStmt(db, actor.id, 'settings.set', 'settings', key),
+          ]);
         } catch (error) {
           // Drizzle wraps D1 trigger errors; preserve the expected conflict status.
           let cause = error;
@@ -889,7 +896,6 @@ export async function runAdminAction(
           }
           throw error;
         }
-        await audit(db, actor.id, 'settings.set', 'settings', key);
         return { ok: true };
       }
       case 'page.save': {
@@ -1005,14 +1011,38 @@ export async function runAdminAction(
           now(),
           productId,
         ];
+        const updateStmts: D1PreparedStatement[] = [];
         if (f.expectedRevision !== undefined) {
-          const guarded = await db
-            .prepare(
-              `${updateSql} AND (SELECT target_revision FROM catalog_work WHERE entity_type = 'product' AND entity_id = ?) = ?`
+          updateStmts.push(
+            db
+              .prepare(
+                `INSERT INTO batch_guard SELECT 1 WHERE NOT EXISTS(SELECT 1 FROM catalog_work WHERE entity_type = 'product' AND entity_id = ? AND target_revision = ?)`
+              )
+              .bind(productId, f.expectedRevision)
+          );
+        }
+        updateStmts.push(db.prepare(updateSql).bind(...updateValues));
+        if (before.slug !== slug) {
+          // Renamed slugs keep resolving (plan Step 6: renamed slugs redirect).
+          updateStmts.push(
+            db
+              .prepare(
+                `INSERT INTO redirects (id, from_path, to_path, created_at) VALUES (?, ?, ?, ?)
+             ON CONFLICT(from_path) DO UPDATE SET to_path = excluded.to_path`
+              )
+              .bind(id(), `/products/${before.slug}`, `/products/${slug}`, now())
+          );
+        }
+        updateStmts.push(auditStmt(db, actor.id, 'product.update', 'product', productId));
+        try {
+          await db.batch(updateStmts);
+        } catch (error) {
+          if (
+            f.expectedRevision !== undefined &&
+            /batch_guard|CHECK constraint failed: 0/.test(
+              error instanceof Error ? error.message : ''
             )
-            .bind(...updateValues, productId, f.expectedRevision)
-            .run();
-          if (!guarded.meta.changes) {
+          ) {
             return {
               ok: false,
               error:
@@ -1020,23 +1050,8 @@ export async function runAdminAction(
               conflict: true,
             };
           }
-        } else {
-          await db
-            .prepare(updateSql)
-            .bind(...updateValues)
-            .run();
+          throw error;
         }
-        if (before && before.slug !== slug) {
-          // Renamed slugs keep resolving (plan Step 6: renamed slugs redirect).
-          await db
-            .prepare(
-              `INSERT INTO redirects (id, from_path, to_path, created_at) VALUES (?, ?, ?, ?)
-             ON CONFLICT(from_path) DO UPDATE SET to_path = excluded.to_path`
-            )
-            .bind(id(), `/products/${before.slug}`, `/products/${slug}`, now())
-            .run();
-        }
-        await audit(db, actor.id, 'product.update', 'product', productId);
         const revision = await db
           .prepare(
             "SELECT target_revision FROM catalog_work WHERE entity_type = 'product' AND entity_id = ?"
@@ -1113,12 +1128,14 @@ export async function runAdminAction(
             );
           }
         }
-        if (stmts.length > 0) await db.batch(stmts);
-        await audit(db, actor.id, 'variant.bulkUpdate', 'variant', variantIds[0] ?? '', {
-          count: variantIds.length,
-          priceCents: priceCents ?? null,
-          stockDelta,
-        });
+        stmts.push(
+          auditStmt(db, actor.id, 'variant.bulkUpdate', 'variant', variantIds[0] ?? '', {
+            count: variantIds.length,
+            priceCents: priceCents ?? null,
+            stockDelta,
+          })
+        );
+        await db.batch(stmts);
         return { ok: true, data: { updated: variantIds.length } };
       }
       case 'media.updateAlt': {
@@ -1205,11 +1222,10 @@ export async function runAdminAction(
             };
           }
         }
-        await db
-          .prepare('DELETE FROM media WHERE id = ? AND deletion_pending=1')
-          .bind(mediaId)
-          .run();
-        await audit(db, actor.id, 'media.delete', 'media', mediaId);
+        await db.batch([
+          db.prepare('DELETE FROM media WHERE id = ? AND deletion_pending=1').bind(mediaId),
+          auditStmt(db, actor.id, 'media.delete', 'media', mediaId),
+        ]);
         return { ok: true };
       }
       case 'variant.save': {
@@ -1237,21 +1253,22 @@ export async function runAdminAction(
                 'SKU cannot be changed after creation, because stock and orders are tracked by SKU. Add a new variant with the new SKU instead.',
             };
           }
-          await db
-            .prepare(
-              'UPDATE variants SET sku = ?, title = ?, price_cents = ?, compare_at_cents = ?, continue_selling = ?, weight_grams = ? WHERE id = ?'
-            )
-            .bind(
-              sku,
-              f.title || 'Default',
-              priceCents,
-              f.compareAtCents ?? null,
-              f.continueSelling ? 1 : 0,
-              f.weightGrams,
-              variantId
-            )
-            .run();
-          await audit(db, actor.id, 'variant.save', 'variant', variantId);
+          await db.batch([
+            db
+              .prepare(
+                'UPDATE variants SET sku = ?, title = ?, price_cents = ?, compare_at_cents = ?, continue_selling = ?, weight_grams = ? WHERE id = ?'
+              )
+              .bind(
+                sku,
+                f.title || 'Default',
+                priceCents,
+                f.compareAtCents ?? null,
+                f.continueSelling ? 1 : 0,
+                f.weightGrams,
+                variantId
+              ),
+            auditStmt(db, actor.id, 'variant.save', 'variant', variantId),
+          ]);
           return { ok: true, data: { variantId } };
         }
         const newId = id();
@@ -1276,8 +1293,8 @@ export async function runAdminAction(
               'INSERT INTO stock (sku, on_hand, reserved, updated_at) VALUES (?, 0, 0, ?) ON CONFLICT(sku) DO NOTHING'
             )
             .bind(sku, now()),
+          auditStmt(db, actor.id, 'variant.save', 'variant', newId),
         ]);
-        await audit(db, actor.id, 'variant.save', 'variant', newId);
         return { ok: true, data: { variantId: newId } };
       }
       case 'variant.delete': {
@@ -1330,13 +1347,14 @@ export async function runAdminAction(
       }
       case 'product.detachMedia': {
         const f = parsedAction.data;
-        await db
-          .prepare('DELETE FROM product_media WHERE product_id = ? AND media_id = ?')
-          .bind(f.productId, f.mediaId)
-          .run();
-        await audit(db, actor.id, 'product.detachMedia', 'product', f.productId, {
-          mediaId: f.mediaId,
-        });
+        await db.batch([
+          db
+            .prepare('DELETE FROM product_media WHERE product_id = ? AND media_id = ?')
+            .bind(f.productId, f.mediaId),
+          auditStmt(db, actor.id, 'product.detachMedia', 'product', f.productId, {
+            mediaId: f.mediaId,
+          }),
+        ]);
         return { ok: true };
       }
       case 'discount.delete': {
@@ -1600,24 +1618,26 @@ export async function runAdminAction(
           )
           .bind(f.productId)
           .first<{ p: number }>();
-        await db
-          .prepare('INSERT INTO product_media (product_id, media_id, position) VALUES (?, ?, ?)')
-          .bind(f.productId, f.mediaId, pos?.p ?? 0)
-          .run();
-        await audit(db, actor.id, 'product.attachMedia', 'product', f.productId, {
-          mediaId: f.mediaId,
-        });
+        await db.batch([
+          db
+            .prepare('INSERT INTO product_media (product_id, media_id, position) VALUES (?, ?, ?)')
+            .bind(f.productId, f.mediaId, pos?.p ?? 0),
+          auditStmt(db, actor.id, 'product.attachMedia', 'product', f.productId, {
+            mediaId: f.mediaId,
+          }),
+        ]);
         return { ok: true };
       }
       case 'product.updateStatus': {
         const f = parsedAction.data;
-        await db
-          .prepare('UPDATE products SET status = ?, updated_at = ? WHERE id = ?')
-          .bind(f.status, now(), f.productId)
-          .run();
-        await audit(db, actor.id, 'product.updateStatus', 'product', f.productId, {
-          status: f.status,
-        });
+        await db.batch([
+          db
+            .prepare('UPDATE products SET status = ?, updated_at = ? WHERE id = ?')
+            .bind(f.status, now(), f.productId),
+          auditStmt(db, actor.id, 'product.updateStatus', 'product', f.productId, {
+            status: f.status,
+          }),
+        ]);
         return { ok: true };
       }
       case 'post.save': {
