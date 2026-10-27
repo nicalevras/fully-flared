@@ -17,7 +17,7 @@ export type ProductCreateDraft = {
 };
 
 export type ProductCreateField = keyof ProductCreateDraft;
-export type ProductCreateErrors = Partial<Record<ProductCreateField, string>>;
+export type ProductCreateErrors = Partial<Record<ProductCreateField, string | undefined>>;
 
 export const emptyProductCreateDraft: ProductCreateDraft = {
   title: '',

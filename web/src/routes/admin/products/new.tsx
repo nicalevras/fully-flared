@@ -15,6 +15,16 @@ import {
   type ProductCreateErrors,
 } from '../../../lib/product-create';
 import {
+  MAX_OPTION_GROUPS,
+  MAX_VALUES_PER_GROUP,
+  MAX_VARIANT_COMBINATIONS,
+  countCombinations,
+  generateVariantCombinations,
+  validateVariantCombinations,
+  type VariantCombination,
+  type VariantOptionGroup,
+} from '../../../lib/product-variant-options';
+import {
   btnPrimary,
   btnSmall,
   cardCls,
@@ -47,6 +57,25 @@ function AdminProductNew() {
   const [errors, setErrors] = useState<ProductCreateErrors>({});
   const [feedback, setFeedback] = useState<AdminActionFeedbackState>(null);
   const [busy, setBusy] = useState(false);
+  const [useOptions, setUseOptions] = useState(false);
+  const [groups, setGroups] = useState<VariantOptionGroup[]>([
+    { name: 'Size', values: ['Small', 'Medium', 'Large'] },
+    { name: 'Color', values: ['Black', 'White'] },
+  ]);
+  const [combinations, setCombinations] = useState<VariantCombination[]>([]);
+  const [optionErrors, setOptionErrors] = useState<string[]>([]);
+  const [resetArmed, setResetArmed] = useState(false);
+
+  const regenerate = (nextGroups: VariantOptionGroup[], previous: VariantCombination[]) => {
+    setCombinations(
+      generateVariantCombinations(
+        nextGroups,
+        draft.slug || suggestedProductSlug(draft.title),
+        { price: draft.price, stock: draft.stock },
+        previous
+      )
+    );
+  };
 
   const set = <K extends keyof ProductCreateDraft>(key: K, value: ProductCreateDraft[K]) => {
     setDraft((current) => {
@@ -82,14 +111,36 @@ function AdminProductNew() {
         noValidate
         onSubmit={async (event) => {
           event.preventDefault();
-          const nextErrors = validateProductCreateDraft(draft);
+          const baseErrors = validateProductCreateDraft(draft);
+          const nextErrors = useOptions
+            ? {
+                ...baseErrors,
+                sku: undefined,
+                variantTitle: undefined,
+                price: undefined,
+                stock: undefined,
+              }
+            : baseErrors;
           setErrors(nextErrors);
-          if (Object.values(nextErrors).some(Boolean)) {
+          const nextOptionErrors = useOptions ? validateVariantCombinations(combinations) : [];
+          setOptionErrors(nextOptionErrors);
+          if (Object.values(nextErrors).some(Boolean) || nextOptionErrors.length > 0) {
             setFeedback({ kind: 'error', message: 'Fix the highlighted fields and try again.' });
             return;
           }
           setBusy(true);
-          const result = await adminAction('product.create', productCreatePayload(draft));
+          const payload = productCreatePayload(draft);
+          if (useOptions) {
+            payload.variants = combinations.map((combo) => ({
+              sku: combo.sku.trim(),
+              title: combo.title,
+              priceCents: Math.round(Number(combo.price) * 100),
+              stock: Number(combo.stock),
+              weightGrams: draft.weightGrams.trim() === '' ? null : Number(draft.weightGrams),
+              continueSelling: draft.continueSelling,
+            }));
+          }
+          const result = await adminAction('product.create', payload);
           setBusy(false);
           if (result.ok) {
             const data = result.data as { productId?: string } | undefined;
@@ -278,6 +329,199 @@ function AdminProductNew() {
               Continue selling when out of stock
             </label>
           </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-sm font-medium text-zinc-950">Variant options</h2>
+            <label className="flex items-center gap-2 text-sm text-zinc-700">
+              <input
+                type="checkbox"
+                checked={useOptions}
+                onChange={(event) => {
+                  setUseOptions(event.target.checked);
+                  if (event.target.checked && combinations.length === 0) regenerate(groups, []);
+                }}
+              />
+              Create variants from options
+            </label>
+          </div>
+          {useOptions ? (
+            <div className="space-y-4">
+              <p className={hintCls}>
+                Add option groups such as Size and Color. Every combination becomes one variant. At
+                most {MAX_VARIANT_COMBINATIONS} variants can be created at once. This product
+                currently makes {countCombinations(groups)} combinations.
+              </p>
+              {groups.map((group, groupIndex) => (
+                <div key={groupIndex} className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className={labelCls} htmlFor={`group-name-${groupIndex}`}>
+                      Option name
+                    </label>
+                    <input
+                      id={`group-name-${groupIndex}`}
+                      className={inputCls}
+                      value={group.name}
+                      onChange={(event) => {
+                        const next = groups.map((item, index) =>
+                          index === groupIndex ? { ...item, name: event.target.value } : item
+                        );
+                        setGroups(next);
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelCls} htmlFor={`group-values-${groupIndex}`}>
+                      Values, separated by commas
+                    </label>
+                    <input
+                      id={`group-values-${groupIndex}`}
+                      className={inputCls}
+                      value={group.values.join(', ')}
+                      onChange={(event) => {
+                        const values = event.target.value
+                          .split(',')
+                          .map((value) => value.trim())
+                          .filter(Boolean)
+                          .slice(0, MAX_VALUES_PER_GROUP);
+                        const next = groups.map((item, index) =>
+                          index === groupIndex ? { ...item, values } : item
+                        );
+                        setGroups(next);
+                        regenerate(next, combinations);
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className={btnSmall}
+                  disabled={groups.length >= MAX_OPTION_GROUPS}
+                  onClick={() => setGroups([...groups, { name: '', values: [] }])}
+                >
+                  Add option group
+                </button>
+                <button
+                  type="button"
+                  className={btnSmall}
+                  onClick={() => regenerate(groups, combinations)}
+                >
+                  Refresh combinations
+                </button>
+                <button
+                  type="button"
+                  className={btnSmall}
+                  onClick={() => {
+                    if (!resetArmed) {
+                      setResetArmed(true);
+                      return;
+                    }
+                    setCombinations(
+                      generateVariantCombinations(
+                        groups,
+                        draft.slug || suggestedProductSlug(draft.title),
+                        { price: draft.price, stock: draft.stock },
+                        []
+                      )
+                    );
+                    setResetArmed(false);
+                  }}
+                >
+                  {resetArmed
+                    ? 'Click again to discard combination edits'
+                    : 'Reset combination details'}
+                </button>
+              </div>
+              {optionErrors.length > 0 ? (
+                <div role="alert" className="text-xs text-red-700">
+                  {optionErrors.map((message) => (
+                    <p key={message}>{message}</p>
+                  ))}
+                </div>
+              ) : null}
+              {combinations.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[560px] text-left text-sm">
+                    <caption className="sr-only">Variant combinations to create</caption>
+                    <thead>
+                      <tr className="text-xs text-zinc-500">
+                        <th className="py-1 pr-2">Variant</th>
+                        <th className="py-1 pr-2">SKU</th>
+                        <th className="py-1 pr-2">Price ($)</th>
+                        <th className="py-1">Stock</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {combinations.map((combo, index) => (
+                        <tr key={combo.key}>
+                          <td className="py-1 pr-2">{combo.title}</td>
+                          <td className="py-1 pr-2">
+                            <input
+                              aria-label={`SKU for ${combo.title}`}
+                              className={inputCls}
+                              value={combo.sku}
+                              onChange={(event) =>
+                                setCombinations((current) =>
+                                  current.map((item, itemIndex) =>
+                                    itemIndex === index
+                                      ? { ...item, sku: event.target.value }
+                                      : item
+                                  )
+                                )
+                              }
+                            />
+                          </td>
+                          <td className="py-1 pr-2">
+                            <input
+                              aria-label={`Price for ${combo.title}`}
+                              className={inputCls}
+                              inputMode="decimal"
+                              value={combo.price}
+                              onChange={(event) =>
+                                setCombinations((current) =>
+                                  current.map((item, itemIndex) =>
+                                    itemIndex === index
+                                      ? { ...item, price: event.target.value }
+                                      : item
+                                  )
+                                )
+                              }
+                            />
+                          </td>
+                          <td className="py-1">
+                            <input
+                              aria-label={`Stock for ${combo.title}`}
+                              className={inputCls}
+                              inputMode="numeric"
+                              value={combo.stock}
+                              onChange={(event) =>
+                                setCombinations((current) =>
+                                  current.map((item, itemIndex) =>
+                                    itemIndex === index
+                                      ? { ...item, stock: event.target.value }
+                                      : item
+                                  )
+                                )
+                              }
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className={hintCls}>Add option values to preview the combinations.</p>
+              )}
+            </div>
+          ) : (
+            <p className={hintCls}>
+              Leave this off to create one variant from the First variant fields.
+            </p>
+          )}
         </section>
 
         <section className="space-y-4">
