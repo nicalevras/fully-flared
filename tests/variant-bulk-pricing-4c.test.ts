@@ -76,3 +76,36 @@ describe('Phase 4C bulk variant pricing', () => {
     expect(result.ok).toBe(false);
   });
 });
+
+describe('FF-20: price edits against a prepared shopper quote', () => {
+  it('a bulk price edit after quoting rejects the stale submission and requotes at the new price', async () => {
+    const { quoteOrder, createPendingOrder } = await import('../web/src/server/checkout');
+    const { getSettings } = await import('../web/src/server/settings');
+    const { pendingIntent } = await import('./helpers/pending-intent');
+    const input = {
+      email: 'ff20@example.invalid',
+      lines: [{ sku: 'TEE-1', qty: 1 }],
+      shippingRateId: 'test-rate',
+      shippingCountry: 'US',
+    };
+    const settings = await getSettings(db);
+    const quote = await quoteOrder(db, input, settings);
+    const variantId = await firstVariantId();
+    const edited = await runAdminAction(db, env, owner, 'variant.bulkUpdate', {
+      variantIds: [variantId],
+      priceCents: 4321,
+      stockDelta: 0,
+    });
+    expect(edited.ok).toBe(true);
+    // The prepared submission must not charge the old price or silently reprice.
+    await expect(
+      createPendingOrder(db, input, pendingIntent(), settings, quote)
+    ).rejects.toMatchObject({ code: 'STALE_QUOTE' });
+    expect((await db.prepare('SELECT COUNT(*) AS n FROM orders').first<{ n: number }>())?.n).toBe(
+      0
+    );
+    // A fresh quote reflects the authoritative D1 price.
+    const fresh = await quoteOrder(db, input, await getSettings(db));
+    expect(fresh.subtotalCents).toBe(4321);
+  });
+});
