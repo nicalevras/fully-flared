@@ -40,7 +40,6 @@ type PostRow = {
   cover_media_id: string | null;
   updated_at: string;
   tags: string;
-  updated_at: string;
 };
 
 const getPost = createServerFn({ method: 'GET' })
