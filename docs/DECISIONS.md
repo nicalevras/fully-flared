@@ -427,3 +427,20 @@ unapplied. Verification is deferred: see
     (CAT-16). Application errors come back as a 500 response.
   - Admin actions read `catalog_publication_state` twice (SEC-L15). Both are
     indexed one-row reads; removing them would enqueue a wake-up for every action.
+
+## 2026-10-26: persistent product options (pending)
+
+- **Status: `pending`.** Phase 3B, as shipped in the combined Phase 3A and 3B
+  product-creation PR, is a combination generator. It saves flat variants only.
+  Option group names and values are not stored, and variant titles such as
+  `Small / Black` cannot be parsed back into an option structure reliably,
+  because a value may itself contain the separator.
+- No Phase 4 editor code, and no other dependent code, may assume that a
+  product's option groups can be reconstructed from its variants. The Phase 4
+  editing workspace must be designed against flat variants until this decision
+  is approved.
+- The decision to take before Phase 4 design starts: whether to add persistent
+  product options (stored groups and values, editor reconstruction, and
+  storefront Size and Color selectors) as its own scoped schema and catalog
+  publication change. That work is deliberately not part of the Phase 3
+  remediation PR.

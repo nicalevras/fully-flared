@@ -23,7 +23,7 @@ import { SHIPPABLE_ORDER_STATUSES, SHIPPABLE_PAYMENT_STATUSES } from '../lib/ord
 const now = () => new Date().toISOString();
 const id = () => crypto.randomUUID();
 
-async function audit(
+function auditStmt(
   db: D1Database,
   actorId: string,
   action: string,
@@ -31,7 +31,7 @@ async function audit(
   entityId: string,
   details?: unknown
 ) {
-  await db
+  return db
     .prepare(
       'INSERT INTO audit_log (id, actor_user_id, action, entity_type, entity_id, details_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
     )
@@ -43,8 +43,18 @@ async function audit(
       entityId,
       details ? JSON.stringify(details) : null,
       now()
-    )
-    .run();
+    );
+}
+
+async function audit(
+  db: D1Database,
+  actorId: string,
+  action: string,
+  entityType: string,
+  entityId: string,
+  details?: unknown
+) {
+  await auditStmt(db, actorId, action, entityType, entityId, details).run();
 }
 
 export type AdminActionResult =
@@ -407,13 +417,28 @@ export async function runAdminAction(
               )
               .bind(id(), v.sku, v.stock ?? 0, productId, now()),
           ]),
+          db
+            .prepare(
+              'INSERT INTO audit_log (id, actor_user_id, action, entity_type, entity_id, details_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+            )
+            .bind(
+              id(),
+              actor.id,
+              'product.create',
+              'product',
+              productId,
+              JSON.stringify({ slug: f.slug }),
+              now()
+            ),
         ]);
-        await audit(db, actor.id, 'product.create', 'product', productId, { slug: f.slug });
         return { ok: true, data: { productId } };
       }
       case 'stock.adjust': {
         const f = parsedAction.data;
         if (f.operationId) {
+          // FF-08: the audit row commits inside the same batch as stock,
+          // ledger, and receipt. A replay never re-runs the batch, so it
+          // can never add a second audit row.
           const outcome = await adjustStockIdempotent(db, {
             operationId: f.operationId,
             actorId: actor.id,
@@ -421,15 +446,17 @@ export async function runAdminAction(
             delta: f.delta,
             reason: (f.reason as 'restock') || 'restock',
             ...(f.note !== undefined ? { note: f.note } : {}),
+            extraStatements: [
+              auditStmt(db, actor.id, 'stock.adjust', 'stock', f.sku, {
+                delta: f.delta,
+                operationId: f.operationId,
+                replayed: false,
+              }),
+            ],
           });
           if (outcome.status === 'conflict')
             return { ok: false, error: outcome.error, conflict: true };
           if (outcome.status === 'missing-sku') return { ok: false, error: outcome.error };
-          await audit(db, actor.id, 'stock.adjust', 'stock', f.sku, {
-            delta: f.delta,
-            operationId: f.operationId,
-            replayed: outcome.replayed,
-          });
           await broadcastAdminRealtime('inventory.updated', { sku: f.sku as string });
           return {
             ok: true,
@@ -440,8 +467,9 @@ export async function runAdminAction(
             },
           };
         }
-        await adjustStock(db, f.sku, f.delta, (f.reason as 'restock') || 'restock');
-        await audit(db, actor.id, 'stock.adjust', 'stock', f.sku, { delta: f.delta });
+        await adjustStock(db, f.sku, f.delta, (f.reason as 'restock') || 'restock', [
+          auditStmt(db, actor.id, 'stock.adjust', 'stock', f.sku, { delta: f.delta }),
+        ]);
         await broadcastAdminRealtime('inventory.updated', { sku: f.sku as string });
         return { ok: true };
       }
@@ -1422,7 +1450,9 @@ export async function runAdminAction(
         const attachedIds = new Set(attached.results.map((row) => row.media_id));
         if (
           attachedIds.size !== f.mediaIds.length ||
-          f.mediaIds.some((mediaId) => !attachedIds.has(mediaId))
+          f.mediaIds.some((mediaId) => !attachedIds.has(mediaId)) ||
+          attachedIds.size !== f.expectedMediaIds.length ||
+          f.expectedMediaIds.some((mediaId) => !attachedIds.has(mediaId))
         ) {
           return {
             ok: false,
@@ -1430,18 +1460,43 @@ export async function runAdminAction(
             conflict: true,
           };
         }
-        await db.batch(
-          f.mediaIds.map((mediaId, index) =>
+        // Atomic guard (FF-04): the batch aborts unless the stored order is
+        // still exactly the order this editor loaded. The audit row commits
+        // in the same batch (FF-16 Tier A), so neither can land alone.
+        const expectedSignature = f.expectedMediaIds.join(',');
+        const caseSql = f.mediaIds.map((_, index) => `WHEN ? THEN ${index}`).join(' ');
+        try {
+          await db.batch([
             db
               .prepare(
-                'UPDATE product_media SET position = ? WHERE product_id = ? AND media_id = ?'
+                `INSERT INTO batch_guard (id) SELECT 'media-order' WHERE (SELECT group_concat(media_id, ',') FROM (SELECT media_id FROM product_media WHERE product_id = ? ORDER BY position, media_id)) IS NOT ?`
               )
-              .bind(index, f.productId, mediaId)
-          )
-        );
-        await audit(db, actor.id, 'product.reorderMedia', 'product', f.productId, {
-          count: f.mediaIds.length,
-        });
+              .bind(f.productId, expectedSignature),
+            db
+              .prepare(
+                `UPDATE product_media SET position = CASE media_id ${caseSql} ELSE position END WHERE product_id = ?`
+              )
+              .bind(...f.mediaIds, f.productId),
+            auditStmt(db, actor.id, 'product.reorderMedia', 'product', f.productId, {
+              count: f.mediaIds.length,
+            }),
+          ]);
+        } catch (error) {
+          const current = await db
+            .prepare(
+              "SELECT group_concat(media_id, ',') AS signature FROM (SELECT media_id FROM product_media WHERE product_id = ? ORDER BY position, media_id)"
+            )
+            .bind(f.productId)
+            .first<{ signature: string | null }>();
+          if (current?.signature !== expectedSignature) {
+            return {
+              ok: false,
+              error: 'The image order changed since this page loaded. Reload before reordering.',
+              conflict: true,
+            };
+          }
+          throw error;
+        }
         return { ok: true };
       }
       case 'product.attachMedia': {
