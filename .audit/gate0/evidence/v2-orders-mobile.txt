@@ -1,0 +1,86 @@
+- button "Open navigation" [active]:
+- generic: Fully Flared
+- main:
+  - generic: Fully Flared
+  - generic: /
+  - button "Orders"
+  - heading "Orders" [level=1]
+  - paragraph: 3 orders to fulfill
+  - button "More order actions":
+  - tablist "Order views":
+    - tab "All" [selected]
+    - tab "To fulfill 3":
+      - text: To fulfill
+      - generic: "3"
+    - tab "Shipped"
+    - tab "Returns"
+  - textbox "Search orders by number or email":
+    - /placeholder: Search orders
+  - generic: ⌘ K
+  - button "Filter records":
+  - table:
+    - rowgroup:
+      - row "Select visible records Order Fulfillment Total":
+        - columnheader "Select visible records":
+          - checkbox "Select visible records"
+        - columnheader "Order"
+        - columnheader "Fulfillment"
+        - columnheader "Total"
+    - rowgroup:
+      - 'row "Select #1048 #1048 Alex Morgan Paid · Today, 10:42 am Unfulfilled $96.00"':
+        - 'cell "Select #1048"':
+          - 'checkbox "Select #1048"'
+        - cell "#1048 Alex Morgan Paid · Today, 10:42 am":
+          - button "#1048"
+          - text: Alex Morgan
+          - generic: Paid · Today, 10:42 am
+        - cell "Unfulfilled":
+          - generic: Unfulfilled
+        - cell "$96.00"
+      - 'row "Select #1047 #1047 Jamie Chen Paid · Today, 9:18 am Unfulfilled $32.00"':
+        - 'cell "Select #1047"':
+          - 'checkbox "Select #1047"'
+        - cell "#1047 Jamie Chen Paid · Today, 9:18 am":
+          - button "#1047"
+          - text: Jamie Chen
+          - generic: Paid · Today, 9:18 am
+        - cell "Unfulfilled":
+          - generic: Unfulfilled
+        - cell "$32.00"
+      - 'row "Select #1046 #1046 Taylor Brooks Paid · Yesterday, 4:30 pm Shipped $128.00"':
+        - 'cell "Select #1046"':
+          - 'checkbox "Select #1046"'
+        - cell "#1046 Taylor Brooks Paid · Yesterday, 4:30 pm":
+          - button "#1046"
+          - text: Taylor Brooks
+          - generic: Paid · Yesterday, 4:30 pm
+        - cell "Shipped":
+          - generic: Shipped
+        - cell "$128.00"
+      - 'row "Select #1045 #1045 Sam Rivera Paid · Yesterday, 2:16 pm Return requested $48.00"':
+        - 'cell "Select #1045"':
+          - 'checkbox "Select #1045"'
+        - cell "#1045 Sam Rivera Paid · Yesterday, 2:16 pm":
+          - button "#1045"
+          - text: Sam Rivera
+          - generic: Paid · Yesterday, 2:16 pm
+        - cell "Return requested":
+          - generic: Return requested
+        - cell "$48.00"
+      - 'row "Select #1044 #1044 Jordan Lee Paid · Oct 23, 11:05 am Unfulfilled $82.00"':
+        - 'cell "Select #1044"':
+          - 'checkbox "Select #1044"'
+        - cell "#1044 Jordan Lee Paid · Oct 23, 11:05 am":
+          - button "#1044"
+          - text: Jordan Lee
+          - generic: Paid · Oct 23, 11:05 am
+        - cell "Unfulfilled":
+          - generic: Unfulfilled
+        - cell "$82.00"
+  - generic: 5 orders
+  - generic: Page 1 of 1
+  - button "Previous page" [disabled]:
+  - button "Next page" [disabled]:
+  - generic: Design prototype · Sample data
+  - button "Design study":
+    - text: Design study

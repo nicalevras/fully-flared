@@ -10,11 +10,11 @@
 // purge has not landed yet.
 
 const EXCLUDED_PREFIX = /^\/(?:api|_server|_serverFn|admin|auth|account|checkout|cart|ws)(?:\/|$)/;
-const PUBLIC_PREFIX = /^\/(?:products|collections|pages|blog|shop|search)(?:\/|$)/;
+const PUBLIC_PREFIX = /^\/(?:products|collections|pages|articles|shop|search)(?:\/|$)/;
 const SITEMAP_PATH = /^\/sitemap(?:\.xml|\/[a-z]+\.xml)$/;
 
 export const isSitemapPath = (pathname: string) => SITEMAP_PATH.test(pathname);
-const RSS_PATH = '/blog/rss.xml';
+const RSS_PATH = '/articles/rss.xml';
 const XML_TYPES = ['application/xml', 'text/xml'];
 
 // Known click-tracking parameters that never change rendered content.
@@ -61,7 +61,7 @@ export function publicCacheRequest(request: Request): Request | null {
     url.pathname === '/shop' ||
     url.pathname === '/collections' ||
     /^\/collections\/[^/]+\/?$/.test(url.pathname) ||
-    url.pathname === '/blog';
+    url.pathname === '/articles';
   const kept =
     url.pathname === '/search'
       ? SEARCH_PARAMS
@@ -130,7 +130,7 @@ export function cacheTagsForPath(pathname: string): string[] {
   else if (section === 'products' && slug) tags.push(`product-${slug}`);
   else if (section === 'collections') tags.push(slug ? `listing-${slug}` : 'listing-@collections');
   else if (section === 'pages' && slug) tags.push(`editorial-${slug}`);
-  else if (section === 'blog')
+  else if (section === 'articles')
     tags.push(...(slug ? [`editorial-${slug}`] : ['editorial-index', 'listing-@posts']));
   return tags;
 }

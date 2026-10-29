@@ -20,7 +20,7 @@ const form: BlogPostForm = {
   publishedAt: '2026-11-01T01:30',
 };
 
-function fakeAction(result: { ok: boolean; error?: string } = { ok: true }) {
+function fakeAction(result: { ok: boolean; error?: string; data?: unknown } = { ok: true }) {
   const calls: Array<Record<string, string>> = [];
   return {
     calls,
@@ -77,7 +77,7 @@ describe('saveBlogPost', () => {
     const { action, calls } = fakeAction();
     const loaded = { localValue: '2026-11-01T01:30', iso: '2026-11-01T06:30:00.000Z' };
     const result = await saveBlogPost(action, form, loaded);
-    expect(result).toEqual({ ok: true, created: false });
+    expect(result).toEqual({ ok: true, created: false, postId: 'p1' });
     expect(calls[0]?.publishedAt).toBe('2026-11-01T06:30:00.000Z');
   });
 
@@ -88,8 +88,43 @@ describe('saveBlogPost', () => {
       { ...form, id: '', slug: '', status: 'draft', publishedAt: '' },
       null
     );
-    expect(result).toEqual({ ok: true, created: true });
+    expect(result).toEqual({ ok: true, created: true, postId: '' });
     expect(calls[0]?.slug).toBe('hello');
+  });
+
+  it('creation returns the server postId and updatedAt', async () => {
+    const { action } = fakeAction({
+      ok: true,
+      data: { postId: 'p9', updatedAt: '2026-07-01T00:00:00.000Z' },
+    });
+    const result = await saveBlogPost(
+      action,
+      { ...form, id: '', status: 'draft', publishedAt: '' },
+      null
+    );
+    expect(result).toEqual({
+      ok: true,
+      created: true,
+      postId: 'p9',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+    });
+  });
+
+  it('a second save sends the updatedAt returned by the first', async () => {
+    const { action, calls } = fakeAction({
+      ok: true,
+      data: { postId: 'p1', updatedAt: '2026-07-02T00:00:00.000Z' },
+    });
+    const first = await saveBlogPost(
+      action,
+      { ...form, updatedAt: '2026-07-01T00:00:00.000Z' },
+      null
+    );
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    await saveBlogPost(action, { ...form, updatedAt: first.updatedAt }, null);
+    expect(calls[0]?.expectedUpdatedAt).toBe('2026-07-01T00:00:00.000Z');
+    expect(calls[1]?.expectedUpdatedAt).toBe('2026-07-02T00:00:00.000Z');
   });
 
   it('a rejected save returns the server error', async () => {
@@ -122,12 +157,18 @@ describe('runEditorSave', () => {
 
 describe('blog editor wiring', () => {
   it('editor remounts per post and fill uses the local conversion', () => {
-    const page = readFileSync('web/src/routes/admin/blog_/$id.tsx', 'utf8');
+    const page = readFileSync('web/src/components/BlogPostEditor.tsx', 'utf8');
     expect(page).toContain("key={post?.id ?? 'new'}");
     expect(page).toContain("key={form.id || 'new'}");
     expect(page).toContain('utcToLocalDateTimeInput(post.published_at)');
     expect(page).not.toContain('slice(0, 16)');
-    const editor = readFileSync('web/src/components/BlogEditor.tsx', 'utf8');
+    const editor = readFileSync(
+      'web/src/components/tiptap-templates/simple/simple-editor.tsx',
+      'utf8'
+    );
     expect(editor).toContain('runEditorSave');
+    const blogPage = readFileSync('web/src/components/BlogPostEditor.tsx', 'utf8');
+    expect(blogPage).toContain('onSaved()');
+    expect(blogPage).toContain("kind: 'status'");
   });
 });

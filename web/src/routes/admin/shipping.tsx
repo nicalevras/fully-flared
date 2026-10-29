@@ -1,4 +1,13 @@
 import { useState } from 'react';
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../components/ui/table';
 import { staffMiddleware } from '../../server/staff-middleware';
 import { requireStaffPermission } from '../../server/session';
 import { useStoreCurrency } from '../../lib/use-store-currency';
@@ -21,7 +30,6 @@ import {
   labelCls,
   pageSub,
   pageTitle,
-  tableCls,
 } from '../../components/ui';
 
 type Zone = {
@@ -184,34 +192,34 @@ function Page() {
                   No rates yet. Checkout cannot sell to this zone until you add one below.
                 </p>
               ) : (
-                <table className={tableCls}>
-                  <caption className="sr-only">Shipping rates for {z.name}</caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">Rate</th>
-                      <th scope="col">Type</th>
-                      <th scope="col">Price</th>
-                      <th scope="col">Free over</th>
-                      <th scope="col">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+                <Table>
+                  <TableCaption className="sr-only">Shipping rates for {z.name}</TableCaption>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead scope="col">Rate</TableHead>
+                      <TableHead scope="col">Type</TableHead>
+                      <TableHead scope="col">Price</TableHead>
+                      <TableHead scope="col">Free over</TableHead>
+                      <TableHead scope="col">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {z.rates.map((r) => (
-                      <tr key={r.id}>
-                        <td className="font-medium">{r.name}</td>
-                        <td className="text-zinc-500">{rateKindLabel(r.kind)}</td>
-                        <td>
+                      <TableRow key={r.id}>
+                        <TableCell className="font-medium">{r.name}</TableCell>
+                        <TableCell className="text-zinc-500">{rateKindLabel(r.kind)}</TableCell>
+                        <TableCell>
                           {r.kind === 'weight'
                             ? `Base + ${formatMoney(r.per_kg_cents ?? 0, currency)}/kg: `
                             : ''}
                           {r.rate_cents === 0 ? 'Free' : formatMoney(r.rate_cents, currency)}
-                        </td>
-                        <td className="text-zinc-500">
+                        </TableCell>
+                        <TableCell className="text-zinc-500">
                           {r.free_over_cents != null
                             ? formatMoney(r.free_over_cents, currency)
                             : '—'}
-                        </td>
-                        <td>
+                        </TableCell>
+                        <TableCell>
                           <button
                             type="button"
                             className="text-sm text-red-700 underline"
@@ -226,11 +234,11 @@ function Page() {
                           >
                             Delete
                           </button>
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               )}
             </section>
           ))

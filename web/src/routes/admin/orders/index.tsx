@@ -1,4 +1,13 @@
 import { useState } from 'react';
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../../components/ui/table';
 import { staffMiddleware } from '../../../server/staff-middleware';
 import { requireStaffPermission } from '../../../server/session';
 import { LocalDate } from '../../../components/LocalDate';
@@ -36,8 +45,6 @@ import {
   labelCls,
   pageSub,
   pageTitle,
-  tableCls,
-  tableWrap,
 } from '../../../components/ui';
 
 const getData = createServerFn({ method: 'GET' })
@@ -273,34 +280,34 @@ function AdminOrders() {
             </button>
           </p>
         ) : (
-          <div className={tableWrap}>
-            <table className={tableCls}>
-              <caption className="sr-only">Orders</caption>
-              <thead>
-                <tr>
+          <div>
+            <Table>
+              <TableCaption className="sr-only">Orders</TableCaption>
+              <TableHeader>
+                <TableRow>
                   {search.view === 'queue' ? (
-                    <th scope="col">
+                    <TableHead scope="col">
                       <span className="sr-only">Select for bulk shipping</span>
-                    </th>
+                    </TableHead>
                   ) : null}
-                  <th scope="col">Order</th>
-                  <th scope="col">Customer</th>
-                  <th scope="col">Fulfillment</th>
-                  <th scope="col">Payment</th>
-                  <th scope="col">Date</th>
-                  <th scope="col" className="text-right">
+                  <TableHead scope="col">Order</TableHead>
+                  <TableHead scope="col">Customer</TableHead>
+                  <TableHead scope="col">Fulfillment</TableHead>
+                  <TableHead scope="col">Payment</TableHead>
+                  <TableHead scope="col">Date</TableHead>
+                  <TableHead scope="col" className="text-right">
                     Total
-                  </th>
-                  <th scope="col" className="text-right">
+                  </TableHead>
+                  <TableHead scope="col" className="text-right">
                     Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {orders.map((o) => (
-                  <tr key={o.id}>
+                  <TableRow key={o.id}>
                     {search.view === 'queue' ? (
-                      <td>
+                      <TableCell>
                         <input
                           type="checkbox"
                           aria-label={`Select ${o.number} for bulk shipping`}
@@ -318,9 +325,9 @@ function AdminOrders() {
                             );
                           }}
                         />
-                      </td>
+                      </TableCell>
                     ) : null}
-                    <td className="font-medium">
+                    <TableCell className="font-medium">
                       <Link
                         to="/admin/orders/$id"
                         params={{ id: o.id }}
@@ -328,21 +335,21 @@ function AdminOrders() {
                       >
                         {o.number}
                       </Link>
-                    </td>
-                    <td className="text-zinc-500">{o.customer_email}</td>
-                    <td>
+                    </TableCell>
+                    <TableCell className="text-zinc-500">{o.customer_email}</TableCell>
+                    <TableCell>
                       <StatusBadge value={o.status} />
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <StatusBadge value={o.payment_status} />
-                    </td>
-                    <td className="text-zinc-500">
+                    </TableCell>
+                    <TableCell className="text-zinc-500">
                       <LocalDate value={o.created_at} />
-                    </td>
-                    <td className="text-right font-medium">
+                    </TableCell>
+                    <TableCell className="text-right font-medium">
                       {formatMoney(o.total_cents, o.currency)}
-                    </td>
-                    <td className="text-right">
+                    </TableCell>
+                    <TableCell className="text-right">
                       <span className="inline-flex gap-1">
                         <Link to="/admin/orders/$id" params={{ id: o.id }} className={btnSmall}>
                           View
@@ -371,11 +378,11 @@ function AdminOrders() {
                           Open return — refund from the return
                         </span>
                       ) : null}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
       </section>
@@ -420,20 +427,20 @@ function AdminOrders() {
             </div>
             {bulkItems ? (
               <div className="mt-3">
-                <div className={tableWrap} tabIndex={0} role="region" aria-label="Bulk shipments">
-                  <table className={`${tableCls} min-w-[560px]`}>
-                    <thead>
-                      <tr>
-                        <th scope="col">Order</th>
-                        <th scope="col">Tracking number</th>
-                        <th scope="col">Result</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                <div tabIndex={0} role="region" aria-label="Bulk shipments">
+                  <Table className="min-w-[560px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead scope="col">Order</TableHead>
+                        <TableHead scope="col">Tracking number</TableHead>
+                        <TableHead scope="col">Result</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                       {bulkItems.map((item) => (
-                        <tr key={item.orderId}>
-                          <td className="font-medium">{item.number}</td>
-                          <td>
+                        <TableRow key={item.orderId}>
+                          <TableCell className="font-medium">{item.number}</TableCell>
+                          <TableCell>
                             <input
                               className={inputCls}
                               aria-label={`Tracking number for ${item.number}`}
@@ -447,18 +454,18 @@ function AdminOrders() {
                                 )
                               }
                             />
-                          </td>
-                          <td>
+                          </TableCell>
+                          <TableCell>
                             {item.status === 'pending'
                               ? 'Not shipped yet'
                               : item.status === 'applied'
                                 ? item.message
                                 : `Failed. ${item.message}`}
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {summarizeBulk(bulkItems).pending > 0 ? (
@@ -527,23 +534,23 @@ function AdminOrders() {
       {search.view === 'returns' && requested.length > 0 ? (
         <section className={`${cardCls} mt-5 overflow-hidden`}>
           <h2 className="px-5 pt-4 pb-3 text-sm font-medium text-zinc-950">Return requests</h2>
-          <div className={tableWrap}>
-            <table className={tableCls}>
-              <caption className="sr-only">Return requests</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Order</th>
-                  <th scope="col">Reason</th>
-                  <th scope="col">Requested</th>
-                  <th scope="col" className="text-right">
+          <div>
+            <Table>
+              <TableCaption className="sr-only">Return requests</TableCaption>
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope="col">Order</TableHead>
+                  <TableHead scope="col">Reason</TableHead>
+                  <TableHead scope="col">Requested</TableHead>
+                  <TableHead scope="col" className="text-right">
                     Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {requested.map((r) => (
-                  <tr key={r.id}>
-                    <td className="font-medium">
+                  <TableRow key={r.id}>
+                    <TableCell className="font-medium">
                       <Link
                         to="/admin/orders/$id"
                         params={{ id: r.order_id }}
@@ -551,8 +558,8 @@ function AdminOrders() {
                       >
                         {r.number}
                       </Link>
-                    </td>
-                    <td className="text-zinc-500">
+                    </TableCell>
+                    <TableCell className="text-zinc-500">
                       {r.reason || 'No reason given'}
                       <span className="block">
                         <StatusBadge value={r.status} />
@@ -569,11 +576,11 @@ function AdminOrders() {
                           refund
                         </span>
                       ) : null}
-                    </td>
-                    <td className="text-zinc-500">
+                    </TableCell>
+                    <TableCell className="text-zinc-500">
                       <LocalDate value={r.created_at} />
-                    </td>
-                    <td className="text-right">
+                    </TableCell>
+                    <TableCell className="text-right">
                       <span className="inline-flex gap-1">
                         {r.status === 'requested' ? (
                           <button
@@ -624,11 +631,11 @@ function AdminOrders() {
                           {r.status === 'refund_failed' ? 'Close without refund' : 'Reject'}
                         </button>
                       </span>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
           <nav className="flex gap-2 px-5 py-3" aria-label="Returns pagination">
             <button

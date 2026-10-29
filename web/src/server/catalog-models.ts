@@ -37,7 +37,6 @@ export const productDocumentSchema = z.object({
   slug: z.string(),
   title: z.string(),
   description: z.string(),
-  descriptionHtml: z.string().nullable().default(null),
   status: z.enum(['active', 'archived', 'draft']),
   seoTitle: z.string().nullable(),
   seoDescription: z.string().nullable(),
@@ -142,9 +141,19 @@ export const directoryNodeSchema = z.discriminatedUnion('kind', [
 ]);
 export type DirectoryNode = z.infer<typeof directoryNodeSchema>;
 
+const layoutImageSchema = z.object({
+  key: z.string(),
+  publicUrl: z.string().nullable(),
+  variants: z.array(z.object({ width: z.number(), url: z.string() })),
+});
+
 export const layoutModelSchema = z.object({
   limits: z.record(z.string(), z.number()),
   storeName: z.string(),
+  // Defaulted so layout artifacts published before these fields existed
+  // still parse instead of failing the storefront layout read.
+  logo: layoutImageSchema.nullable().default(null),
+  hero: layoutImageSchema.nullable().default(null),
   announcementText: z.string(),
   seoTitleTemplate: z.string(),
   canonicalBaseUrl: z.string(),
@@ -215,7 +224,7 @@ export const editorialKey = (kind: 'post' | 'page', slug: string) => `${NS}:doc:
 export const documentPointerSchema = z.object({ key: z.string(), revision: z.string() }).strict();
 /** A renamed product or post slug's pointer names the current path. */
 export const movedPointerSchema = z
-  .object({ redirect: z.string().regex(/^\/(products|blog)\/[a-z0-9-]+$/) })
+  .object({ redirect: z.string().regex(/^\/(products|articles)\/[a-z0-9-]+$/) })
   .strict();
 export type MovedPointer = z.infer<typeof movedPointerSchema>;
 export const immutableDocumentKey = (base: string, revision: string) => `${base}:v:${revision}`;

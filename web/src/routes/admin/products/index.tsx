@@ -1,4 +1,13 @@
 import { useEffect, useState } from 'react';
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../../components/ui/table';
 import { staffMiddleware } from '../../../server/staff-middleware';
 import { useStoreCurrency } from '../../../lib/use-store-currency';
 import {
@@ -8,7 +17,20 @@ import {
   useRouter,
   type SearchSchemaInput,
 } from '@tanstack/react-router';
-import { createServerFn } from '@tanstack/react-start';
+import { createServerFn, useServerFn } from '@tanstack/react-start';
+import {
+  getProductDetail,
+  ProductEditor,
+  type ProductDetail,
+} from '../../../components/ProductEditor';
+import { ProductCreateSheet } from '../../../components/ProductCreateSheet';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 import {
   adminProductDiscovery,
   productDiscoveryInputSchema,
@@ -29,21 +51,18 @@ import { useAdminAction } from '../../../components/AdminNav';
 import { formatMoney } from '../../../lib/format';
 import { roleCan } from '../../../lib/permissions';
 import { StatusBadge } from '../../../components/StatusBadge';
-import { Button } from '../../../components/ui/button';
-import { Input } from '../../../components/ui/input';
+import { SearchIcon } from '../../../components/icons';
+import { btnSmall } from '../../../components/ui';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
-  btnGhost,
-  btnPrimary,
-  btnSmall,
-  cardCls,
-  hintCls,
-  inputCls,
-  labelCls,
-  pageSub,
-  pageTitle,
-  tableCls,
-  tableWrap,
-} from '../../../components/ui';
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 
 const getData = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
@@ -61,9 +80,16 @@ export const Route = createFileRoute('/admin/products/')({
       status?: unknown;
       sort?: unknown;
       cursor?: unknown;
+      edit?: unknown;
     } & SearchSchemaInput
-  ) => normalizeProductSearch(search),
-  loaderDeps: ({ search }) => search,
+  ) => ({
+    ...normalizeProductSearch(search),
+    edit: typeof search.edit === 'string' && search.edit ? search.edit : undefined,
+  }),
+  loaderDeps: ({ search }) => {
+    const { edit: _edit, ...rest } = search;
+    return rest;
+  },
   loader: async ({ deps }) => getData({ data: deps }),
   pendingComponent: () => (
     <p className="p-5 text-sm" role="status">
@@ -95,43 +121,103 @@ function AdminProducts() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
-  const [adjust, setAdjust] = useState({ sku: '', delta: '10' });
   const [msg, setMsg] = useState<AdminActionFeedbackState>(null);
   const [query, setQuery] = useState(search.q);
   const [mode, setMode] = useState<ProductMode>(search.mode ?? 'title');
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const detailFn = useServerFn(getProductDetail);
+  const [detail, setDetail] = useState<ProductDetail | null>(null);
+  const [detailFor, setDetailFor] = useState('');
+  useEffect(() => {
+    if (!search.edit) {
+      setDetail(null);
+      setDetailFor('');
+      return;
+    }
+    let cancelled = false;
+    setDetailFor('');
+    detailFn({ data: search.edit })
+      .then((d) => {
+        if (!cancelled) {
+          setDetail(d);
+          setDetailFor(search.edit!);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDetail(null);
+          setDetailFor(search.edit!);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.edit]);
+  const openEditor = (id: string) => void navigate({ search: { ...search, edit: id } });
+  const closeEditor = () => void navigate({ search: { ...search, edit: undefined } });
+  const refreshDetail = async () => {
+    if (search.edit) {
+      const d = await detailFn({ data: search.edit });
+      setDetail(d);
+      setDetailFor(search.edit);
+    }
+    router.invalidate();
+  };
   useEffect(() => {
     setQuery(search.q);
     setMode(search.mode ?? 'title');
   }, [search.q, search.mode]);
+  useEffect(() => {
+    if (!menuFor) return;
+    const close = () => setMenuFor(null);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close();
+    };
+    document.addEventListener('click', close);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('click', close);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [menuFor]);
+
+  const pillWhite =
+    'inline-flex h-9 items-center justify-center gap-1.5 rounded-full border border-zinc-300 bg-white px-4 text-[13px] font-medium text-zinc-950 transition-colors hover:border-zinc-950 disabled:pointer-events-none disabled:opacity-40';
+  const statuses = [
+    ['all', 'All'],
+    ['active', 'Active'],
+    ['draft', 'Draft'],
+    ['archived', 'Archived'],
+  ] as const;
 
   return (
     <main>
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className={pageTitle}>Products</h1>
-          <p className={pageSub}>
-            Find a product by title or SKU. Click a product to edit its variants, stock, and images.
+          <h1 className="text-[28px] leading-tight font-medium tracking-tight text-zinc-950">
+            Products
+          </h1>
+          <p className="mt-1 text-sm text-zinc-500">
+            Click a product to edit its variants, stock, and images.
           </p>
         </div>
         <span className="flex gap-2">
-          <Link to="/admin/products/import" className={btnSmall}>
-            Import CSV
-          </Link>
+          <Button variant="outline" asChild>
+            <Link to="/admin/products/import">Import CSV</Link>
+          </Button>
           {canCreate ? (
-            <Link
-              to="/admin/products/new"
-              search={{ q: search.q, mode: search.mode, status: search.status, sort: search.sort }}
-              className={btnPrimary}
-            >
-              Add product
-            </Link>
+            <Button type="button" onClick={() => setCreateOpen(true)}>
+              + Add product
+            </Button>
           ) : null}
         </span>
       </div>
       <AdminActionFeedback value={msg} />
 
       <form
-        className={`${cardCls} mt-5 flex flex-wrap items-end gap-3 p-4`}
+        className="mt-8"
         onSubmit={(event) => {
           event.preventDefault();
           const q = query.trim();
@@ -146,107 +232,111 @@ function AdminProducts() {
           });
         }}
       >
-        <div className="min-w-48 flex-1">
-          <label className={labelCls} htmlFor="product-query">
-            Find products
-          </label>
-          <Input
-            id="product-query"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Title or SKU"
-            maxLength={200}
-          />
-        </div>
-        <div>
-          <label className={labelCls} htmlFor="product-mode">
-            Search by
-          </label>
-          <select
-            id="product-mode"
-            className={inputCls}
-            value={mode}
-            onChange={(event) => {
-              if (isProductMode(event.target.value)) setMode(event.target.value);
-            }}
-          >
-            <option value="title">Title</option>
-            <option value="sku-exact">Exact SKU</option>
-            <option value="sku-prefix">SKU starts with</option>
-          </select>
-        </div>
-        <div>
-          <label className={labelCls} htmlFor="product-status">
-            Status
-          </label>
-          <select
-            id="product-status"
-            className={inputCls}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex min-w-56 flex-1 items-center gap-1 rounded-full bg-zinc-50 p-1 transition-shadow focus-within:ring-2 focus-within:ring-zinc-950/70">
+            <Select
+              value={mode}
+              onValueChange={(value) => {
+                if (isProductMode(value)) setMode(value);
+              }}
+            >
+              <SelectTrigger
+                size="sm"
+                aria-label="Search by"
+                className="shrink-0 border-0 bg-transparent shadow-none focus-visible:ring-0"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="title">Title</SelectItem>
+                <SelectItem value="sku">SKU</SelectItem>
+              </SelectContent>
+            </Select>
+            <span aria-hidden="true" className="h-5 w-px shrink-0 bg-zinc-950/10" />
+            <SearchIcon className="ml-2 h-[18px] w-[18px] shrink-0 text-zinc-400" />
+            <Input
+              id="product-query"
+              aria-label="Find products"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search products"
+              maxLength={200}
+              className="h-9 min-w-0 flex-1 border-0 bg-transparent px-2 shadow-none focus-visible:ring-0"
+            />
+            {query ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Clear search"
+                onClick={() => {
+                  setQuery('');
+                  void navigate({
+                    search: {
+                      q: '',
+                      mode: null,
+                      status: search.status,
+                      sort: search.sort,
+                      cursor: undefined,
+                    },
+                  });
+                }}
+              >
+                <span aria-hidden="true">✕</span>
+              </Button>
+            ) : null}
+          </div>
+          <ToggleGroup
+            type="single"
+            spacing={0}
             value={search.status}
-            onChange={(event) => {
-              if (isProductStatusFilter(event.target.value))
-                void navigate({
-                  search: { ...search, status: event.target.value, cursor: undefined },
-                });
+            onValueChange={(value) => {
+              if (isProductStatusFilter(value))
+                void navigate({ search: { ...search, status: value, cursor: undefined } });
             }}
+            aria-label="Filter by status"
+            className="rounded-full bg-zinc-50 p-1"
           >
-            <option value="all">All products</option>
-            <option value="active">Active</option>
-            <option value="draft">Draft</option>
-            <option value="archived">Archived</option>
-          </select>
-        </div>
-        <div>
-          <label className={labelCls} htmlFor="product-sort">
-            Sort by
-          </label>
-          <select
-            id="product-sort"
-            className={inputCls}
+            {statuses.map(([value, label]) => (
+              <ToggleGroupItem
+                key={value}
+                value={value}
+                className="rounded-full px-3.5 text-[13px] text-zinc-500 data-[state=on]:bg-zinc-950 data-[state=on]:text-white"
+              >
+                {label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+          <Select
             value={search.sort}
-            onChange={(event) => {
-              if (isProductSort(event.target.value))
-                void navigate({
-                  search: { ...search, sort: event.target.value, cursor: undefined },
-                });
+            onValueChange={(value) => {
+              if (isProductSort(value))
+                void navigate({ search: { ...search, sort: value, cursor: undefined } });
             }}
           >
-            <option value="newest">Newest</option>
-            <option value="oldest">Oldest</option>
-            <option value="title">Title A–Z</option>
-            <option value="updated">Recently updated</option>
-          </select>
+            <SelectTrigger aria-label="Sort products" className="bg-white">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="newest">Newest</SelectItem>
+              <SelectItem value="oldest">Oldest</SelectItem>
+              <SelectItem value="title">Title A–Z</SelectItem>
+              <SelectItem value="updated">Recently updated</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-        <Button type="submit">Search</Button>
-        <Button
-          variant="outline"
-          type="button"
-          onClick={() => {
-            setQuery('');
-            void navigate({
-              search: {
-                q: '',
-                mode: null,
-                status: search.status,
-                sort: search.sort,
-                cursor: undefined,
-              },
-            });
-          }}
-        >
-          Browse all
-        </Button>
-        <p className="w-full text-xs text-zinc-500">
-          SKU search is case-sensitive. Search runs when you press Search or Enter.
-        </p>
+        {mode !== 'title' ? (
+          <p className="mt-2 text-xs text-zinc-500">SKU search is case-sensitive.</p>
+        ) : null}
       </form>
-      <section className={`${cardCls} mt-6 overflow-hidden`}>
+
+      <section className="mt-6" aria-label="Product results">
         {state === 'refine' ? (
-          <p className="p-5 text-sm text-zinc-600" role="status">
+          <p className="rounded-2xl bg-zinc-50 p-5 text-sm text-zinc-600" role="status">
             This search is too broad to display safely. Try a more specific title or SKU.
           </p>
         ) : products.length === 0 ? (
-          <div className="p-5">
+          <div className="rounded-2xl bg-zinc-50 p-5">
             <p className="text-sm text-zinc-500" role="status">
               {search.q
                 ? 'No matching products. Try another title or SKU.'
@@ -256,7 +346,7 @@ function AdminProducts() {
             </p>
             {search.cursor ? (
               <button
-                className={`${btnSmall} mt-3`}
+                className={`${pillWhite} mt-3`}
                 onClick={() => void navigate({ search: { ...search, cursor: undefined } })}
               >
                 Back to first page
@@ -264,7 +354,7 @@ function AdminProducts() {
             ) : null}
             {search.q || search.status !== 'all' || search.sort !== 'newest' ? (
               <button
-                className={`${btnSmall} mt-3 ml-2`}
+                className={`${pillWhite} mt-3 ml-2`}
                 onClick={() => {
                   setQuery('');
                   void navigate({
@@ -277,28 +367,34 @@ function AdminProducts() {
             ) : null}
           </div>
         ) : (
-          <div className={tableWrap} tabIndex={0} role="region" aria-label="Product results">
-            <table className={`${tableCls} min-w-[680px]`}>
-              <caption className="sr-only">Products</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Product</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">Price</th>
-                  <th scope="col">Inventory</th>
-                  <th scope="col" className="text-right">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {products.map((p) => (
-                  <tr key={p.id}>
-                    <td>
+          <div tabIndex={0} role="region" aria-label="Product results">
+            <Table className="min-w-[680px]">
+              <TableCaption className="sr-only">Products</TableCaption>
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope="col">Product</TableHead>
+                  <TableHead scope="col">Status</TableHead>
+                  <TableHead scope="col">Price</TableHead>
+                  <TableHead scope="col">Inventory</TableHead>
+                  <TableHead scope="col">
+                    <span className="sr-only">Actions</span>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {products.map((p, index) => (
+                  <TableRow
+                    key={p.id}
+                    className="cursor-pointer"
+                    onClick={(event) => {
+                      if ((event.target as HTMLElement).closest('a, button, select, input')) return;
+                      openEditor(p.id);
+                    }}
+                  >
+                    <TableCell className="whitespace-normal">
                       <Link
-                        to="/admin/products/$id"
-                        params={{ id: p.id }}
-                        search={search}
+                        to="/admin/products"
+                        search={{ ...search, edit: p.id }}
                         className="flex items-center gap-3"
                       >
                         {p.image_key ? (
@@ -332,61 +428,103 @@ function AdminProducts() {
                           ) : null}
                         </span>
                       </Link>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <StatusBadge value={p.status} />
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       {p.price_cents != null
                         ? p.max_price_cents != null && p.max_price_cents !== p.price_cents
                           ? `${formatMoney(p.price_cents, currency)} – ${formatMoney(p.max_price_cents, currency)}`
                           : formatMoney(p.price_cents, currency)
                         : '-'}
-                    </td>
-                    <td>
-                      {p.available <= 0 ? (
-                        <span className="font-medium text-red-600">Out of stock</span>
-                      ) : p.available <= 5 ? (
-                        <span className="font-medium text-yellow-800">{p.available} left</span>
-                      ) : (
-                        `${p.available} in stock`
-                      )}
+                    </TableCell>
+                    <TableCell>
+                      <span className="inline-flex items-center gap-2">
+                        <span
+                          aria-hidden="true"
+                          className={`h-2 w-2 shrink-0 rounded-full ${
+                            p.available <= 0
+                              ? 'bg-red-500'
+                              : p.available <= 5
+                                ? 'bg-amber-500'
+                                : 'bg-zinc-300'
+                          }`}
+                        />
+                        {p.available <= 0 ? (
+                          <span className="font-medium text-red-600">Out of stock</span>
+                        ) : p.available <= 5 ? (
+                          <span className="font-medium text-yellow-800">{p.available} left</span>
+                        ) : (
+                          `${p.available} in stock`
+                        )}
+                      </span>
                       <span className="block text-[13px] text-zinc-500">
                         {p.variant_count} {p.variant_count === 1 ? 'variant' : 'variants'}
                       </span>
-                    </td>
-                    <td className="text-right">
-                      <span className="inline-flex flex-wrap justify-end gap-1">
-                        <Link
-                          to="/admin/products/$id"
-                          params={{ id: p.id }}
-                          search={search}
-                          className={btnSmall}
-                        >
-                          Edit
-                        </Link>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <span className="relative inline-block text-left">
                         <button
-                          className={btnGhost}
-                          onClick={async () => {
-                            const next = p.status === 'active' ? 'draft' : 'active';
-                            const r = await adminAction('product.updateStatus', {
-                              productId: p.id,
-                              status: next,
-                            });
-                            if (r.ok) {
-                              setMsg({ kind: 'status', message: `${p.title} is now ${next}.` });
-                              router.invalidate();
-                            } else setMsg({ kind: 'error', message: r.error ?? 'Failed' });
+                          type="button"
+                          aria-haspopup="menu"
+                          aria-expanded={menuFor === p.id}
+                          aria-label={`Actions for ${p.title}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setMenuFor(menuFor === p.id ? null : p.id);
                           }}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-full text-lg leading-none font-medium text-zinc-500 transition-colors hover:bg-zinc-950/5 hover:text-zinc-950"
                         >
-                          {p.status === 'active' ? 'Move to draft' : 'Publish'}
+                          …
                         </button>
+                        {menuFor === p.id ? (
+                          <span
+                            role="menu"
+                            onClick={(event) => event.stopPropagation()}
+                            className={`absolute right-0 z-20 block w-44 rounded-xl border border-zinc-200 bg-white p-1 shadow-lg ${
+                              index >= products.length - 2 ? 'bottom-full mb-1' : 'top-full mt-1'
+                            }`}
+                          >
+                            <Link
+                              role="menuitem"
+                              to="/admin/products"
+                              search={{ ...search, edit: p.id }}
+                              onClick={() => setMenuFor(null)}
+                              className="block rounded-lg px-3 py-2 text-[13px] font-medium text-zinc-950 transition-colors hover:bg-zinc-50"
+                            >
+                              Edit
+                            </Link>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={async () => {
+                                setMenuFor(null);
+                                const next = p.status === 'active' ? 'draft' : 'active';
+                                const r = await adminAction('product.updateStatus', {
+                                  productId: p.id,
+                                  status: next,
+                                });
+                                if (r.ok) {
+                                  setMsg({
+                                    kind: 'status',
+                                    message: `${p.title} is now ${next}.`,
+                                  });
+                                  router.invalidate();
+                                } else setMsg({ kind: 'error', message: r.error ?? 'Failed' });
+                              }}
+                              className="block w-full rounded-lg px-3 py-2 text-left text-[13px] font-medium text-zinc-950 transition-colors hover:bg-zinc-50"
+                            >
+                              {p.status === 'active' ? 'Move to draft' : 'Publish'}
+                            </button>
+                          </span>
+                        ) : null}
                       </span>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
       </section>
@@ -394,7 +532,7 @@ function AdminProducts() {
         <div className="mt-4 flex justify-between gap-3">
           {previousCursor ? (
             <button
-              className={btnSmall}
+              className={pillWhite}
               onClick={() => void navigate({ search: { ...search, cursor: previousCursor } })}
             >
               Previous 50 products
@@ -404,7 +542,7 @@ function AdminProducts() {
           )}
           {nextCursor ? (
             <button
-              className={btnSmall}
+              className={pillWhite}
               onClick={() => void navigate({ search: { ...search, cursor: nextCursor } })}
             >
               Next 50 products
@@ -412,61 +550,49 @@ function AdminProducts() {
           ) : null}
         </div>
       ) : null}
-
-      <div className="mt-5">
-        <div className="space-y-5">
-          <section className={`${cardCls} space-y-4 p-5 sm:p-6`}>
-            <div>
-              <h2 className="text-sm font-medium text-zinc-950">Adjust inventory</h2>
-              <p className={hintCls}>
-                Every adjustment is written to the stock ledger, so counts can always be audited.
-                You can also adjust stock per variant on the product edit page.
-              </p>
+      {canCreate ? (
+        <ProductCreateSheet
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          onCreated={(id) => {
+            setCreateOpen(false);
+            router.invalidate();
+            if (id) openEditor(id);
+          }}
+        />
+      ) : null}
+      {search.edit && detailFor === search.edit && !detail ? (
+        <Sheet
+          open
+          onOpenChange={(next) => {
+            if (!next) closeEditor();
+          }}
+        >
+          <SheetContent
+            className="w-full gap-0 overflow-hidden p-0 sm:max-w-4xl"
+            onOpenAutoFocus={(event) => event.preventDefault()}
+          >
+            <SheetHeader className="p-5 pr-14 pb-0 sm:p-6 sm:pr-14 sm:pb-0">
+              <SheetTitle>Product not found</SheetTitle>
+              <SheetDescription>This product does not exist.</SheetDescription>
+            </SheetHeader>
+            <div className="px-5 py-5 sm:px-6">
+              <Button type="button" onClick={closeEditor}>
+                Back to products
+              </Button>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className={labelCls} htmlFor="a-sku">
-                  SKU
-                </label>
-                <input
-                  id="a-sku"
-                  placeholder="TOTE-001"
-                  className={inputCls}
-                  value={adjust.sku}
-                  onChange={(e) => setAdjust({ ...adjust, sku: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className={labelCls} htmlFor="a-delta">
-                  Change (+/-)
-                </label>
-                <input
-                  id="a-delta"
-                  className={inputCls}
-                  value={adjust.delta}
-                  onChange={(e) => setAdjust({ ...adjust, delta: e.target.value })}
-                />
-              </div>
-            </div>
-            <button
-              className={btnSmall}
-              onClick={async () => {
-                const r = await adminAction('stock.adjust', {
-                  sku: adjust.sku,
-                  delta: Number(adjust.delta),
-                  reason: 'restock',
-                });
-                if (r.ok) {
-                  setMsg({ kind: 'status', message: 'Stock adjusted.' });
-                  router.invalidate();
-                } else setMsg({ kind: 'error', message: r.error ?? 'Failed' });
-              }}
-            >
-              Adjust stock
-            </button>
-          </section>
-        </div>
-      </div>
+          </SheetContent>
+        </Sheet>
+      ) : null}
+      {search.edit && detail && detailFor === search.edit ? (
+        <ProductEditor
+          key={detail.id}
+          product={detail}
+          open
+          onClose={closeEditor}
+          refresh={refreshDetail}
+        />
+      ) : null}
     </main>
   );
 }

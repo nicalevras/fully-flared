@@ -158,6 +158,15 @@ describe('inline media references', () => {
     expect((await runAdminAction(db, env, owner, 'media.delete', { mediaId: 'm' })).ok).toBe(false);
   });
 
+  it('a settings logo reference blocks deletion', async () => {
+    await media('m', 'brand-logo.jpg');
+    await db
+      .prepare("INSERT INTO settings(key,value,updated_at) VALUES('logo_media_id','m','2026')")
+      .run();
+    expect((await runAdminAction(db, env, owner, 'media.delete', { mediaId: 'm' })).ok).toBe(false);
+    expect(await db.prepare("SELECT id FROM media WHERE id='m'").first()).not.toBeNull();
+  });
+
   it('post JSON reference counts as usage', async () => {
     await media('m', 'img3.jpg');
     await post(

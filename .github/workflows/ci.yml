@@ -86,7 +86,7 @@ jobs:
       - run: npm ci && npm --prefix web ci
       - run: npm --prefix web run cf-typegen
       - name: Isolated 100k catalog acceptance
-        run: npm exec -- vitest run tests/catalog-scale-100k.test.ts
+        run: npm run test:scale
 
   # Per-change preview deployment (plan Step 0). Requires the repo secrets
   # CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID; the job is skipped (not

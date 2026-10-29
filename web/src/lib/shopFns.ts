@@ -78,7 +78,8 @@ export const checkoutQuoteFn = createServerFn({ method: 'POST' })
       setResponseStatus(429);
       throw new Error('Too many discount attempts');
     }
-    return quoteOrder(env.DB, data);
+    const user = data.discountCode ? await getSessionUser(env.DB, getRequest()) : null;
+    return quoteOrder(env.DB, { ...data, discountUsageEmail: user?.email ?? null });
   });
 
 /** Create a return request for the signed-in customer's own order

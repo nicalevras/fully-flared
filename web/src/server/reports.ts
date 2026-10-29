@@ -52,7 +52,7 @@ export async function dashboardStats(
   const refunds = (
     await db
       .prepare(
-        `SELECT o.currency AS currency,SUM(r.amount_cents) AS refunds FROM refunds r JOIN orders o ON o.id = r.order_id WHERE r.status = 'succeeded' AND r.created_at >= ? AND r.created_at < ? GROUP BY o.currency`
+        `SELECT o.currency AS currency,SUM(r.amount_cents) AS refunds FROM refunds r JOIN orders o ON o.id = r.order_id WHERE r.status = 'succeeded' AND NOT (r.purpose = 'late_payment' AND NOT EXISTS (SELECT 1 FROM reservations sale WHERE sale.order_id = o.id AND sale.status = 'committed')) AND r.created_at >= ? AND r.created_at < ? GROUP BY o.currency`
       )
       .bind(fromIso, toIso)
       .all<{ currency: string; refunds: number }>()

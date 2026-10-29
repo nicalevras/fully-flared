@@ -1,4 +1,13 @@
 import { useState } from 'react';
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../components/ui/table';
 import { createFileRoute, Link, redirect, useRouter } from '@tanstack/react-router';
 import { useAdminAction } from '../../components/AdminNav';
 import { staffMiddleware } from '../../server/staff-middleware';
@@ -15,11 +24,19 @@ import {
 import * as z from 'zod';
 import { validateServerInput } from '../../server/function-boundary';
 import { failingCatalogWork, type FailingCatalogWork } from '../../server/catalog-operations';
-import { ArrowRightIcon } from '../../components/icons';
+import {
+  ArrowRightIcon,
+  BoxIcon,
+  CheckIcon,
+  FileIcon,
+  OrdersIcon,
+  ReturnIcon,
+  ShieldIcon,
+} from '../../components/icons';
 import { formatMoney } from '../../components/ProductCard';
 import { StatusBadge } from '../../components/StatusBadge';
 import type { OrderStatus, PaymentStatus } from '../../db/schema';
-import { btnPrimary, cardCls, pageSub, pageTitle, tableCls, tableWrap } from '../../components/ui';
+import { btnPrimary } from '../../components/ui';
 import { roleCan, roles, type StaffRole } from '../../lib/permissions';
 
 type Stats = {
@@ -152,247 +169,365 @@ function AdminHome() {
     }
     void router.invalidate();
   };
-  const cards: Array<[string, string, string]> = [
-    ...(s.revenues.length ? s.revenues : [{ currency, revenue: 0, orders: 0 }]).map(
-      (row): [string, string, string] => [
-        `Gross sales (${row.currency})`,
-        formatMoney(row.revenue, row.currency),
-        'Original amounts, including refunded sales',
-      ]
-    ),
-    ['Orders', String(s.paidOrders), `${s.pendingOrders} awaiting payment`],
-    ['Active products', String(s.activeProducts), `${s.lowStockSkus} SKUs low on stock`],
-    [
-      'Returns to review',
-      String(s.returnsPending),
-      'Requested, plus failed refunds needing attention',
-    ],
-    ...(s.deadWebhookCount
-      ? ([
-          ['Webhook failures', String(s.deadWebhookCount), 'Dead-lettered events awaiting replay'],
-        ] as Array<[string, string, string]>)
-      : []),
-    ...(s.catalogFailures.count
-      ? [
-          [
-            'Publishing failures',
-            String(s.catalogFailures.count),
-            'Storefront changes that keep failing to publish',
-          ] satisfies [string, string, string],
-        ]
-      : []),
-  ];
+  const revenueRows = s.revenues.length ? s.revenues : [{ currency, revenue: 0, orders: 0 }];
+  const hasAttention =
+    s.returnsPending > 0 ||
+    s.lowStockSkus > 0 ||
+    s.pendingOrders > 0 ||
+    s.deadWebhookCount > 0 ||
+    s.catalogFailures.count > 0;
+  const pillWhite =
+    'inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full border border-zinc-300 bg-white px-4 text-[13px] font-medium text-zinc-950 transition-colors hover:border-zinc-950 disabled:pointer-events-none disabled:opacity-40';
+  const tileCls =
+    'group rounded-xl border border-zinc-200 bg-white p-4 transition-colors hover:border-zinc-400';
   return (
     <main>
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className={pageTitle}>Home</h1>
-          <p className={pageSub}>Here is what is happening in {s.storeName} today.</p>
+          <h1 className="text-[28px] leading-tight font-medium tracking-tight text-zinc-950">
+            Welcome, {s.storeName}
+          </h1>
+          <p className="mt-1 text-sm text-zinc-500">
+            Here is what needs your attention, and how the store is doing.
+          </p>
         </div>
         <Link to="/admin/products" className={btnPrimary}>
-          Add product
+          + Add product
         </Link>
       </div>
 
-      <dl className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {cards.map(([label, value, sub]) => (
-          <div key={label} className={`${cardCls} p-5`}>
-            <dt className="text-[13px] font-medium text-zinc-500">{label}</dt>
-            <dd className="mt-1.5 text-2xl font-medium tracking-tight text-zinc-950">{value}</dd>
-            <dd className="mt-0.5 text-[13px] text-zinc-500">{sub}</dd>
-          </div>
-        ))}
-      </dl>
-
-      <section className={`${cardCls} mt-5 p-5`}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-sm font-medium text-zinc-950">Sales, last {s.periodDays} days</h2>
-          <div className="flex gap-2 text-[13px]">
-            {([7, 30, 90] as const).map((d) => (
+      <section aria-labelledby="needs-attention" className="mt-10">
+        <h2 id="needs-attention" className="text-[15px] font-medium text-zinc-950">
+          Needs attention
+        </h2>
+        <div className="mt-3 divide-y divide-zinc-950/[0.06] rounded-2xl bg-zinc-50 px-5 py-1">
+          {!hasAttention && (
+            <div className="flex items-center gap-4 py-4">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white text-zinc-950">
+                <CheckIcon className="h-[18px] w-[18px]" />
+              </span>
+              <div>
+                <p className="text-sm font-medium text-zinc-950">All caught up</p>
+                <p className="text-[13px] text-zinc-500">Nothing needs your attention right now.</p>
+              </div>
+            </div>
+          )}
+          {s.returnsPending > 0 && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 py-4">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white text-[#ff4d00]">
+                <ReturnIcon className="h-[18px] w-[18px]" />
+              </span>
+              <div className="min-w-0 flex-1 basis-56">
+                <p className="text-sm font-medium text-zinc-950">
+                  {s.returnsPending} return{s.returnsPending === 1 ? '' : 's'} to review
+                </p>
+                <p className="text-[13px] text-zinc-500">
+                  Requested, plus failed refunds needing attention.
+                </p>
+              </div>
               <Link
-                key={d}
-                to="/admin"
-                search={{ days: d }}
-                className={
-                  d === s.periodDays ? 'font-medium text-zinc-950 underline' : 'text-zinc-500'
-                }
+                to="/admin/orders"
+                search={{ q: '', view: 'returns', payment: 'all', from: '', to: '' }}
+                className={pillWhite}
               >
-                {d} days
+                Review
               </Link>
-            ))}
-          </div>
+            </div>
+          )}
+          {s.lowStockSkus > 0 && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 py-4">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white text-[#ff4d00]">
+                <BoxIcon className="h-[18px] w-[18px]" />
+              </span>
+              <div className="min-w-0 flex-1 basis-56">
+                <p className="text-sm font-medium text-zinc-950">
+                  {s.lowStockSkus} SKU{s.lowStockSkus === 1 ? ' is' : 's are'} running low
+                </p>
+                <p className="text-[13px] text-zinc-500">
+                  5 or fewer available. Restock before they sell out.
+                </p>
+              </div>
+              <Link
+                to="/admin/inventory"
+                search={{ q: '', page: 1, low: false, sku: undefined }}
+                className={pillWhite}
+              >
+                Review inventory
+              </Link>
+            </div>
+          )}
+          {s.pendingOrders > 0 && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 py-4">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white text-[#ff4d00]">
+                <OrdersIcon className="h-[18px] w-[18px]" />
+              </span>
+              <div className="min-w-0 flex-1 basis-56">
+                <p className="text-sm font-medium text-zinc-950">
+                  {s.pendingOrders} order{s.pendingOrders === 1 ? '' : 's'} awaiting payment
+                </p>
+                <p className="text-[13px] text-zinc-500">
+                  Payment has not completed for these orders yet.
+                </p>
+              </div>
+              <Link
+                to="/admin/orders"
+                search={{ q: '', view: 'payment-issues', payment: 'all', from: '', to: '' }}
+                className={pillWhite}
+              >
+                Review
+              </Link>
+            </div>
+          )}
+          {s.deadWebhookCount > 0 && (
+            <div className="py-4">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white text-[#ff4d00]">
+                  <ShieldIcon className="h-[18px] w-[18px]" />
+                </span>
+                <div className="min-w-0 flex-1 basis-56">
+                  <p className="text-sm font-medium text-zinc-950">
+                    {s.deadWebhookCount} webhook failure{s.deadWebhookCount === 1 ? '' : 's'}
+                  </p>
+                  <p className="text-[13px] text-zinc-500">
+                    These Stripe events failed processing and are quarantined. Automatic recovery
+                    keeps retrying them; owner and admin staff can also replay one now.
+                  </p>
+                </div>
+              </div>
+              {replayError && (
+                <p role="alert" className="mt-2 pl-[52px] text-[13px] text-red-700">
+                  {replayError}
+                </p>
+              )}
+              <ul className="mt-3 space-y-2 pl-[52px]">
+                {s.deadWebhooks.map((w) => (
+                  <li key={w.event_id} className="flex flex-wrap items-center gap-3 text-[13px]">
+                    <span className="font-medium text-zinc-950">{w.type}</span>
+                    <span className="text-zinc-500">
+                      {w.attempts} attempts · {w.received_at}
+                    </span>
+                    {s.canReplay && (
+                      <button
+                        type="button"
+                        disabled={replaying === w.event_id}
+                        onClick={() => void replay(w.event_id)}
+                        className="inline-flex h-7 items-center rounded-full bg-zinc-950 px-3 text-xs font-medium text-white transition-colors hover:bg-zinc-800 disabled:opacity-40"
+                      >
+                        {replaying === w.event_id ? 'Replaying…' : 'Replay'}
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {s.catalogFailures.count > 0 && (
+            <div className="py-4">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white text-[#ff4d00]">
+                  <FileIcon className="h-[18px] w-[18px]" />
+                </span>
+                <div className="min-w-0 flex-1 basis-56">
+                  <p className="text-sm font-medium text-zinc-950">
+                    {s.catalogFailures.count} publishing failure
+                    {s.catalogFailures.count === 1 ? '' : 's'}
+                  </p>
+                  <p className="text-[13px] text-zinc-500">
+                    These changes are saved but not yet live on the storefront. Publishing retries
+                    automatically, waiting longer after each failure.
+                  </p>
+                </div>
+              </div>
+              <ul className="mt-3 space-y-2 pl-[52px]">
+                {s.catalogFailures.items.map((w) => (
+                  <li
+                    key={`${w.entity_type}:${w.entity_id}`}
+                    className="flex flex-wrap items-center gap-3 text-[13px]"
+                  >
+                    <span className="font-medium text-zinc-950">
+                      {w.entity_type} {w.entity_id}
+                    </span>
+                    <span className="text-zinc-500">
+                      {w.last_error} · {w.retry_count} attempts
+                      {w.next_attempt_at ? ` · next ${w.next_attempt_at}` : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
-        <p className="mt-1 text-[13px] text-zinc-500">
-          Period boundaries are UTC. Gross sales count paid orders by order date. Refunds count
-          settled refunds by refund date, so a refund can appear in a later period than its order.
-          Currencies are never combined.
-        </p>
-        {s.periodStats.length === 0 ? (
-          <p className="mt-3 text-sm text-zinc-500" role="status">
-            No paid sales in this period yet.
-          </p>
-        ) : (
-          <dl className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-            {s.periodStats.flatMap((row) => [
-              <div key={`${row.currency}-gross`}>
-                <dt className="text-[13px] font-medium text-zinc-500">
-                  Gross sales ({row.currency})
-                </dt>
-                <dd className="mt-1 text-xl font-medium text-zinc-950">
-                  {formatMoney(row.grossCents, row.currency)}
-                </dd>
-              </div>,
-              <div key={`${row.currency}-refunds`}>
-                <dt className="text-[13px] font-medium text-zinc-500">Refunds ({row.currency})</dt>
-                <dd className="mt-1 text-xl font-medium text-zinc-950">
-                  {formatMoney(row.refundCents, row.currency)}
-                </dd>
-              </div>,
-              <div key={`${row.currency}-net`}>
-                <dt className="text-[13px] font-medium text-zinc-500">
-                  Net sales ({row.currency})
-                </dt>
-                <dd className="mt-1 text-xl font-medium text-zinc-950">
-                  {formatMoney(row.netCents, row.currency)}
-                </dd>
-              </div>,
-              <div key={`${row.currency}-orders`}>
-                <dt className="text-[13px] font-medium text-zinc-500">
-                  Paid orders ({row.currency})
-                </dt>
-                <dd className="mt-1 text-xl font-medium text-zinc-950">{row.paidOrders}</dd>
-              </div>,
-              <div key={`${row.currency}-aov`}>
-                <dt className="text-[13px] font-medium text-zinc-500">
-                  Average order ({row.currency})
-                </dt>
-                <dd className="mt-1 text-xl font-medium text-zinc-950">
-                  {formatMoney(row.aovCents, row.currency)}
-                </dd>
-              </div>,
-            ])}
-          </dl>
-        )}
-        <nav className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-[13px] font-medium text-zinc-950">
-          <Link
-            to="/admin/orders"
-            search={{ q: '', view: 'queue', payment: 'all', from: '', to: '' }}
-          >
-            Fulfillment queue
-          </Link>
-          <Link
-            to="/admin/orders"
-            search={{ q: '', view: 'returns', payment: 'all', from: '', to: '' }}
-          >
-            Returns to review
-          </Link>
-          <Link
-            to="/admin/orders"
-            search={{ q: '', view: 'payment-issues', payment: 'all', from: '', to: '' }}
-          >
-            Payment issues
-          </Link>
-          <Link to="/admin/inventory" search={{ q: '', sku: '' }}>
-            Inventory
-          </Link>
-        </nav>
       </section>
 
-      {s.deadWebhooks.length > 0 && (
-        <section className={`${cardCls} mt-5 p-5`}>
-          <h2 className="text-sm font-medium text-zinc-950">Webhook failures needing attention</h2>
-          <p className="mt-1 text-[13px] text-zinc-500">
-            These Stripe events failed processing and are quarantined. Automatic recovery keeps
-            retrying them; owner and admin staff can also replay one now.
-          </p>
-          {replayError && (
-            <p role="alert" className="mt-2 text-[13px] text-red-700">
-              {replayError}
+      <section aria-labelledby="sales-overview" className="mt-12">
+        <h2 id="sales-overview" className="text-[15px] font-medium text-zinc-950">
+          Sales overview
+        </h2>
+        <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-7 xl:grid-cols-4">
+          {revenueRows.map((row) => (
+            <div key={row.currency} className="border-t border-zinc-200 pt-3">
+              <dt className="text-[13px] font-medium text-zinc-500">
+                Gross sales ({row.currency})
+              </dt>
+              <dd className="mt-1.5 text-[26px] leading-none font-medium tracking-tight text-zinc-950">
+                {formatMoney(row.revenue, row.currency)}
+              </dd>
+              <dd className="mt-1.5 text-[13px] text-zinc-500">
+                Original amounts, including refunded sales
+              </dd>
+            </div>
+          ))}
+          <div className="border-t border-zinc-200 pt-3">
+            <dt className="text-[13px] font-medium text-zinc-500">Orders</dt>
+            <dd className="mt-1.5 text-[26px] leading-none font-medium tracking-tight text-zinc-950">
+              {s.paidOrders}
+            </dd>
+            <dd className="mt-1.5 text-[13px] text-zinc-500">{s.pendingOrders} awaiting payment</dd>
+          </div>
+          <div className="border-t border-zinc-200 pt-3">
+            <dt className="text-[13px] font-medium text-zinc-500">Active products</dt>
+            <dd className="mt-1.5 text-[26px] leading-none font-medium tracking-tight text-zinc-950">
+              {s.activeProducts}
+            </dd>
+            <dd className="mt-1.5 text-[13px] text-zinc-500">{s.lowStockSkus} SKUs low on stock</dd>
+          </div>
+        </dl>
+
+        <div className="mt-8 rounded-2xl bg-zinc-50 p-5 sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="text-sm font-medium text-zinc-950">Sales, last {s.periodDays} days</h3>
+            <nav
+              aria-label="Sales period"
+              className="flex rounded-full bg-white p-1 text-[13px] font-medium"
+            >
+              {([7, 30, 90] as const).map((d) => (
+                <Link
+                  key={d}
+                  to="/admin"
+                  search={{ days: d }}
+                  aria-current={d === s.periodDays ? 'true' : undefined}
+                  className={
+                    d === s.periodDays
+                      ? 'rounded-full bg-zinc-950 px-3.5 py-1.5 text-white'
+                      : 'rounded-full px-3.5 py-1.5 text-zinc-500 transition-colors hover:text-zinc-950'
+                  }
+                >
+                  {d} days
+                </Link>
+              ))}
+            </nav>
+          </div>
+          {s.periodStats.length === 0 ? (
+            <p className="mt-4 text-sm text-zinc-500" role="status">
+              No paid sales in this period yet.
             </p>
-          )}
-          <ul className="mt-3 space-y-2">
-            {s.deadWebhooks.map((w) => (
-              <li key={w.event_id} className="flex flex-wrap items-center gap-3 text-[13px]">
-                <span className="font-medium text-zinc-950">{w.type}</span>
-                <span className="text-zinc-500">
-                  {w.attempts} attempts · {w.received_at}
-                </span>
-                {s.canReplay && (
-                  <button
-                    type="button"
-                    disabled={replaying === w.event_id}
-                    onClick={() => void replay(w.event_id)}
-                    className="font-medium text-zinc-950 hover:underline disabled:opacity-50"
+          ) : (
+            <ul className="mt-2 divide-y divide-zinc-950/[0.06]">
+              {s.periodStats.map((row) => (
+                <li key={row.currency} className="py-5">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <p className="text-sm font-medium text-zinc-950">{row.currency}</p>
+                    <p className="text-sm text-zinc-500">
+                      Net{' '}
+                      <span className="font-medium text-zinc-950">
+                        {formatMoney(row.netCents, row.currency)}
+                      </span>
+                    </p>
+                  </div>
+                  <div
+                    className="mt-3 h-1 overflow-hidden rounded-full bg-zinc-950/10"
+                    role="img"
+                    aria-label={`Net sales are ${row.grossCents > 0 ? Math.max(0, Math.min(100, Math.round((row.netCents / row.grossCents) * 100))) : 0} percent of gross sales in ${row.currency}; the rest is refunds`}
                   >
-                    {replaying === w.event_id ? 'Replaying…' : 'Replay'}
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {s.catalogFailures.items.length > 0 && (
-        <section className={`${cardCls} mt-5 p-5`}>
-          <h2 className="text-sm font-medium text-zinc-950">Publishing failures</h2>
-          <p className="mt-1 text-[13px] text-zinc-500">
-            These changes are saved but not yet live on the storefront. Publishing retries
-            automatically, waiting longer after each failure.
+                    <div
+                      className="h-full rounded-full bg-zinc-950"
+                      style={{
+                        width: `${row.grossCents > 0 ? Math.max(0, Math.min(100, (row.netCents / row.grossCents) * 100)) : 0}%`,
+                      }}
+                    />
+                  </div>
+                  <dl className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-5">
+                    <div>
+                      <dt className="text-[13px] font-medium text-zinc-500">Gross sales</dt>
+                      <dd className="mt-1 text-base font-medium text-zinc-950">
+                        {formatMoney(row.grossCents, row.currency)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-[13px] font-medium text-zinc-500">Refunds</dt>
+                      <dd className="mt-1 text-base font-medium text-zinc-950">
+                        {formatMoney(row.refundCents, row.currency)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-[13px] font-medium text-zinc-500">Net sales</dt>
+                      <dd className="mt-1 text-base font-medium text-zinc-950">
+                        {formatMoney(row.netCents, row.currency)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-[13px] font-medium text-zinc-500">Paid orders</dt>
+                      <dd className="mt-1 text-base font-medium text-zinc-950">{row.paidOrders}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-[13px] font-medium text-zinc-500">Average order</dt>
+                      <dd className="mt-1 text-base font-medium text-zinc-950">
+                        {formatMoney(row.aovCents, row.currency)}
+                      </dd>
+                    </div>
+                  </dl>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-2 text-xs leading-relaxed text-zinc-500">
+            Period boundaries are UTC. Gross sales count paid orders by order date. Refunds count
+            settled refunds by refund date, so a refund can appear in a later period than its order.
+            Currencies are never combined.
           </p>
-          <ul className="mt-3 space-y-2">
-            {s.catalogFailures.items.map((w) => (
-              <li
-                key={`${w.entity_type}:${w.entity_id}`}
-                className="flex flex-wrap items-center gap-3 text-[13px]"
-              >
-                <span className="font-medium text-zinc-950">
-                  {w.entity_type} {w.entity_id}
-                </span>
-                <span className="text-zinc-500">
-                  {w.last_error} · {w.retry_count} attempts
-                  {w.next_attempt_at ? ` · next ${w.next_attempt_at}` : ''}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+        </div>
+      </section>
 
-      <section className={`${cardCls} mt-5 overflow-hidden`}>
-        <div className="flex items-center justify-between px-5 pt-4 pb-3">
-          <h2 className="text-sm font-medium text-zinc-950">Recent orders</h2>
+      <section aria-labelledby="recent-orders" className="mt-12">
+        <div className="flex items-center justify-between gap-3">
+          <h2 id="recent-orders" className="text-[15px] font-medium text-zinc-950">
+            Recent orders
+          </h2>
           <Link
             to="/admin/orders"
             search={{ q: '', view: 'queue', payment: 'all', from: '', to: '' }}
-            className="inline-flex items-center gap-1 text-[13px] font-medium text-zinc-950 hover:underline"
+            className={`${pillWhite} group`}
           >
-            View all <ArrowRightIcon className="h-4 w-4" />
+            View all
+            <ArrowRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
           </Link>
         </div>
         {s.recent.length === 0 ? (
-          <p className="px-5 pb-5 text-sm text-zinc-500" role="status">
+          <p className="mt-4 text-sm text-zinc-500" role="status">
             No orders yet. When customers check out, orders will appear here.
           </p>
         ) : (
-          <div className={tableWrap}>
-            <table className={tableCls}>
-              <caption className="sr-only">Recent orders</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Order</th>
-                  <th scope="col">Customer</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">Payment</th>
-                  <th scope="col" className="text-right">
+          <div className="mt-2">
+            <Table>
+              <TableCaption className="sr-only">Recent orders</TableCaption>
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope="col">Order</TableHead>
+                  <TableHead scope="col">Customer</TableHead>
+                  <TableHead scope="col">Status</TableHead>
+                  <TableHead scope="col">Payment</TableHead>
+                  <TableHead scope="col" className="text-right">
                     Total
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
+                  </TableHead>
+                  <TableHead scope="col">
+                    <span className="sr-only">Open order</span>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {s.recent.map((o) => (
-                  <tr key={o.id}>
-                    <td className="font-medium">
+                  <TableRow key={o.id} className="group">
+                    <TableCell className="font-medium">
                       <Link
                         to="/admin/orders/$id"
                         params={{ id: o.id }}
@@ -400,43 +535,93 @@ function AdminHome() {
                       >
                         {o.number}
                       </Link>
-                    </td>
-                    <td className="text-zinc-500">{o.customer_email}</td>
-                    <td>
+                    </TableCell>
+                    <TableCell className="whitespace-normal text-zinc-500">
+                      {o.customer_email}
+                    </TableCell>
+                    <TableCell>
                       <StatusBadge value={o.status} />
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <StatusBadge value={o.payment_status} />
-                    </td>
-                    <td className="text-right font-medium">
+                    </TableCell>
+                    <TableCell className="text-right font-medium">
                       {formatMoney(o.total_cents, o.currency)}
-                    </td>
-                  </tr>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <ArrowRightIcon className="ml-auto h-4 w-4 text-zinc-300 transition-all group-hover:translate-x-0.5 group-hover:text-zinc-950" />
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
       </section>
 
-      {s.lowStockSkus > 0 ? (
-        <section className={`${cardCls} mt-5 flex flex-wrap items-center gap-3 p-5`}>
-          <p className="text-sm text-zinc-950">
-            <strong>
-              {s.lowStockSkus} SKU{s.lowStockSkus === 1 ? ' is' : 's are'} running low
-            </strong>{' '}
-            <span className="text-zinc-500">
-              (5 or fewer available). Restock before they sell out.
-            </span>
-          </p>
+      <section aria-labelledby="shortcuts" className="mt-12">
+        <h2 id="shortcuts" className="text-[15px] font-medium text-zinc-950">
+          Shortcuts
+        </h2>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Link
-            to="/admin/products"
-            className="ml-auto text-[13px] font-medium text-zinc-950 hover:underline"
+            to="/admin/orders"
+            search={{ q: '', view: 'queue', payment: 'all', from: '', to: '' }}
+            className={tileCls}
           >
-            Review inventory
+            <span className="flex items-start justify-between">
+              <OrdersIcon className="h-5 w-5 text-zinc-950" />
+              <ArrowRightIcon className="h-4 w-4 text-zinc-300 transition-all group-hover:translate-x-0.5 group-hover:text-zinc-950" />
+            </span>
+            <span className="mt-4 block text-sm font-medium text-zinc-950">Fulfillment queue</span>
+            <span className="mt-1 block text-[13px] leading-relaxed text-zinc-500">
+              Orders paid and waiting to ship.
+            </span>
           </Link>
-        </section>
-      ) : null}
+          <Link
+            to="/admin/orders"
+            search={{ q: '', view: 'returns', payment: 'all', from: '', to: '' }}
+            className={tileCls}
+          >
+            <span className="flex items-start justify-between">
+              <ReturnIcon className="h-5 w-5 text-zinc-950" />
+              <ArrowRightIcon className="h-4 w-4 text-zinc-300 transition-all group-hover:translate-x-0.5 group-hover:text-zinc-950" />
+            </span>
+            <span className="mt-4 block text-sm font-medium text-zinc-950">Returns to review</span>
+            <span className="mt-1 block text-[13px] leading-relaxed text-zinc-500">
+              Review requested returns and refunds.
+            </span>
+          </Link>
+          <Link
+            to="/admin/orders"
+            search={{ q: '', view: 'payment-issues', payment: 'all', from: '', to: '' }}
+            className={tileCls}
+          >
+            <span className="flex items-start justify-between">
+              <ShieldIcon className="h-5 w-5 text-zinc-950" />
+              <ArrowRightIcon className="h-4 w-4 text-zinc-300 transition-all group-hover:translate-x-0.5 group-hover:text-zinc-950" />
+            </span>
+            <span className="mt-4 block text-sm font-medium text-zinc-950">Payment issues</span>
+            <span className="mt-1 block text-[13px] leading-relaxed text-zinc-500">
+              Orders whose payment needs attention.
+            </span>
+          </Link>
+          <Link
+            to="/admin/inventory"
+            search={{ q: '', page: 1, low: false, sku: undefined }}
+            className={tileCls}
+          >
+            <span className="flex items-start justify-between">
+              <BoxIcon className="h-5 w-5 text-zinc-950" />
+              <ArrowRightIcon className="h-4 w-4 text-zinc-300 transition-all group-hover:translate-x-0.5 group-hover:text-zinc-950" />
+            </span>
+            <span className="mt-4 block text-sm font-medium text-zinc-950">Inventory</span>
+            <span className="mt-1 block text-[13px] leading-relaxed text-zinc-500">
+              Check stock levels and low SKUs.
+            </span>
+          </Link>
+        </div>
+      </section>
     </main>
   );
 }

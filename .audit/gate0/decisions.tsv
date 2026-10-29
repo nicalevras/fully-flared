@@ -1,0 +1,10 @@
+ts	phase	decision	why	evidence	result
+2026-10-25T15:11:20Z	frame	Execute Gate 0 in isolated audit outputs	Preserve application and production while obtaining reviewable evidence	.audit/gate0/todo.md	open
+2026-10-25T15:28:39Z	design	Reject first visual prototype and rebuild with actual shadcn	Owner explicitly rejected generic cards and styling; match supplied x.ai reference	.audit/gate0/REPORT.md	open
+2026-10-25T15:28:39Z	measurements	Keep checkout capacity gate open	Local contention proxies fail at concurrency one and five; deployed evidence unavailable	.audit/gate0/resources/results.json	INCONCLUSIVE
+2026-10-25T19:56:10Z	source	Bundle exact-main archive and verify every source file before reproduction	A stale temporary directory must not be labeled as the measured main baseline	.audit/gate0/resources/prepare-baseline.sh	VERIFIED
+2026-10-25T19:56:10Z	provenance	Disclose absence of an initial whole-tree hash	Contemporaneous status and thirty cited hashes support a bounded source claim only	.audit/gate0/evidence/source-boundary.md	limitation documented
+2026-10-25T19:56:10Z	design	Build replacement with actual shadcn and remove decorative dashboard framing	Owner rejected the first study; reuse existing components and focus on merchant tasks	.audit/gate0/design-v2/README.md	build and typecheck pass
+2026-10-25T19:56:10Z	browser	Verify v2 publishing, recovery, shipment and responsive layouts	A rendered design must work through real browser inputs before review	.audit/gate0/evidence/v2-verification.md	local prototype verified; visual approval open
+2026-10-25T19:56:10Z	review	Resolve final independent evidence-package findings	Separate rejected visuals, verify reproduction source, complete evidence links	.audit/gate0/review.md	conditional review fixes verified by lead
+2026-10-25T19:57:57Z	handoff	Deliver Gate 0 approval package and leave feature work closed	Local evidence is complete enough for design/scope review; deployed capacity and owner visual approval remain open	.audit/gate0/evidence/package-validation.json	76 links valid; typecheck passes; exact-main archive verified

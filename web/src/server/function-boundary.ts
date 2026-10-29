@@ -6,6 +6,7 @@ import { AuthError } from './session';
 import { CheckoutError } from './checkout';
 import { InsufficientStock } from './inventory';
 import { StoreLimitError } from '../lib/settings-definitions';
+import { CartConflictError } from './cart';
 
 // Start's Standard Schema adapter turns issues into a plain Error. Calling
 // parse preserves ZodError so the HTTP boundary can return the correct status.
@@ -34,7 +35,7 @@ export const functionBoundary = createMiddleware({ type: 'function' }).server(as
       setResponseStatus(409);
       throw new Error('Some items are no longer available');
     }
-    if (error instanceof StoreLimitError) {
+    if (error instanceof StoreLimitError || error instanceof CartConflictError) {
       setResponseStatus(409);
       throw error;
     }

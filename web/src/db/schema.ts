@@ -161,7 +161,6 @@ export const products = sqliteTable(
     slug: text('slug').notNull().unique(),
     title: text('title').notNull(),
     description: text('description').notNull().default(''),
-    descriptionHtml: text('description_html'),
     status: text('status', { enum: ['active', 'draft', 'archived'] })
       .notNull()
       .default('draft'),
@@ -169,7 +168,6 @@ export const products = sqliteTable(
     seoDescription: text('seo_description'),
     canonicalUrl: text('canonical_url'),
     ogImageKey: text('og_image_key'),
-    taxCode: text('tax_code'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },

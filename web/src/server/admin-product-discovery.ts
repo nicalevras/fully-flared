@@ -101,7 +101,11 @@ function titleMatch(q: string): string {
   return `title : (${q
     .split(/\s+/)
     .filter(Boolean)
-    .map((term) => `"${term.replaceAll('"', '""')}"`)
+    .map((term) => {
+      const quoted = `"${term.replaceAll('"', '""')}"`;
+      // Prefix-match from 3 characters so partial words hit; shorter terms stay exact.
+      return [...term].length >= 3 ? `${quoted}*` : quoted;
+    })
     .join(' AND ')})`;
 }
 
@@ -129,17 +133,6 @@ async function discover(db: D1Database, input: ProductDiscoveryInput): Promise<C
       JOIN products p ON p.rowid=f.rowid WHERE products_fts MATCH ? ${statusClause} LIMIT 1001`
         )
         .bind(titleMatch(input.q), ...binds)
-        .all<Candidate>()
-    ).results;
-  }
-  if (input.mode === 'sku-exact') {
-    return (
-      await db
-        .prepare(
-          `SELECT p.id,p.created_at,p.updated_at,p.title,v.sku,v.title AS variant_title FROM variants v
-      JOIN products p ON p.id=v.product_id WHERE v.sku=? ${statusClause} LIMIT 1001`
-        )
-        .bind(input.q, ...binds)
         .all<Candidate>()
     ).results;
   }

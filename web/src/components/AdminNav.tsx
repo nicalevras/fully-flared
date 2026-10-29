@@ -4,8 +4,9 @@ import type { ComponentType, ReactElement } from 'react';
 import type { z } from 'zod';
 import { Link, linkOptions, useLocation } from '@tanstack/react-router';
 import { MenuIcon } from 'lucide-react';
-import { GlobalSearchDialog, GlobalSearchMobileTrigger, GlobalSearchTrigger } from './GlobalSearch';
+import { GlobalSearchDialog, GlobalSearchMobileTrigger } from './GlobalSearch';
 import { adminActionFn } from '../lib/adminFns';
+import { mediaUrl, type MediaSource } from '../lib/media-url';
 import { roleCan, type statement } from '../lib/permissions';
 import { Button } from './ui/button';
 import {
@@ -17,13 +18,15 @@ import {
   SheetTrigger,
 } from './ui/sheet';
 import {
+  BagIcon,
   BoxIcon,
   ChartIcon,
   FileIcon,
+  ImageIcon,
   HomeIcon,
   OrdersIcon,
   PenIcon,
-  PercentIcon,
+  LayersIcon,
   SettingsIcon,
   StoreIcon,
   TruckIcon,
@@ -41,7 +44,7 @@ type AdminPath =
   | '/admin/orders'
   | '/admin/customers'
   | '/admin/shipping'
-  | '/admin/blog'
+  | '/admin/articles'
   | '/admin/media'
   | '/admin/pages'
   | '/admin/reports'
@@ -69,10 +72,10 @@ const sections: readonly NavSection[] = [
   {
     label: 'Catalog',
     items: [
-      { link: nav('/admin/products'), label: 'Products', Icon: BoxIcon },
-      { link: nav('/admin/inventory'), label: 'Inventory', Icon: BoxIcon },
-      { link: nav('/admin/collections'), label: 'Collections', Icon: TagIcon },
-      { link: nav('/admin/discounts'), label: 'Discounts', Icon: PercentIcon },
+      { link: nav('/admin/products'), label: 'Products', Icon: BagIcon },
+      { link: nav('/admin/collections'), label: 'Collections', Icon: LayersIcon },
+      { link: nav('/admin/discounts'), label: 'Discounts', Icon: TagIcon },
+      { link: nav('/admin/inventory'), label: 'Inventory', Icon: OrdersIcon },
     ],
   },
   {
@@ -81,7 +84,7 @@ const sections: readonly NavSection[] = [
       {
         link: nav('/admin/orders'),
         label: 'Orders',
-        Icon: OrdersIcon,
+        Icon: BoxIcon,
         requires: ['order', 'view'],
       },
       {
@@ -96,9 +99,9 @@ const sections: readonly NavSection[] = [
   {
     label: 'Content',
     items: [
-      { link: nav('/admin/blog'), label: 'Blog', Icon: PenIcon },
-      { link: nav('/admin/media'), label: 'Media', Icon: FileIcon },
+      { link: nav('/admin/articles'), label: 'Articles', Icon: PenIcon },
       { link: nav('/admin/pages'), label: 'Pages', Icon: FileIcon },
+      { link: nav('/admin/media'), label: 'Media', Icon: ImageIcon },
     ],
   },
   {
@@ -115,9 +118,9 @@ const sections: readonly NavSection[] = [
 ];
 
 const itemClass =
-  'flex items-center gap-2.5 rounded-md px-3 py-2 text-[13px] font-medium text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-950';
+  'flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm text-zinc-500 transition-colors hover:bg-zinc-50 hover:text-zinc-950';
 const activeClass =
-  'flex items-center gap-2.5 rounded-md bg-zinc-100 px-3 py-2 text-[13px] font-medium text-zinc-950';
+  'flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium text-zinc-950';
 
 function NavigationLinks({
   sections,
@@ -137,29 +140,29 @@ function NavigationLinks({
         activeOptions={{ exact: link.to === '/admin', includeSearch: false }}
         onClick={onNavigate}
       >
-        <Icon className="h-[17px] w-[17px] shrink-0" />
+        <Icon className="h-[18px] w-[18px] shrink-0" />
         <span>{label}</span>
       </Link>
     </li>
   );
   return (
     <>
-      <nav aria-label="Admin" className="min-h-0 flex-1 space-y-5 overflow-y-auto px-3 pb-4">
+      <nav aria-label="Admin" className="min-h-0 flex-1 space-y-7 overflow-y-auto px-4 pb-4">
         {sections.map((section) => (
           <div key={section.label ?? 'main'}>
             {section.label ? (
-              <p className="px-3 pb-2 text-[11px] font-medium text-zinc-500">{section.label}</p>
+              <p className="px-2.5 pb-1.5 text-[13px] font-medium text-zinc-950">{section.label}</p>
             ) : null}
             <ul className="space-y-0.5">{section.items.map(renderItem)}</ul>
           </div>
         ))}
       </nav>
-      <div className="border-t border-zinc-100 px-3 py-3">
+      <div className="px-4 pt-2 pb-5">
         <ul className="space-y-0.5">
           {settings ? renderItem(settings) : null}
           <li>
             <Link to="/" className={itemClass} onClick={onNavigate}>
-              <StoreIcon className="h-[17px] w-[17px] shrink-0" />
+              <StoreIcon className="h-[18px] w-[18px] shrink-0" />
               <span>View store</span>
             </Link>
           </li>
@@ -171,9 +174,11 @@ function NavigationLinks({
 
 export function AdminNav({
   storeName = 'Your store',
+  logo = null,
   role,
 }: {
   storeName?: string;
+  logo?: MediaSource | null;
   role: string | null | undefined;
 }) {
   const [open, setOpen] = useState(false);
@@ -198,14 +203,20 @@ export function AdminNav({
   }, []);
 
   const storeIdentity = (
-    <div className="flex min-w-0 items-center gap-2.5 px-5 pb-6 pt-8">
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-zinc-200 bg-zinc-50 text-sm font-medium text-zinc-800">
-        {storeName.slice(0, 1).toUpperCase()}
-      </span>
-      <span className="min-w-0">
-        <span className="block truncate text-[13px] font-medium text-zinc-950">{storeName}</span>
-        <span className="block text-xs text-zinc-500">Store admin</span>
-      </span>
+    <div className="flex items-center gap-2.5 px-5 pt-6 pb-5">
+      {logo ? (
+        <img
+          src={mediaUrl(logo, 320)}
+          alt=""
+          className="size-6 shrink-0 rounded-md bg-white object-contain"
+        />
+      ) : (
+        <span className="flex size-6 shrink-0 items-center justify-center rounded-md border border-zinc-300 bg-white text-[11px] font-medium text-zinc-800">
+          {storeName.slice(0, 1).toUpperCase()}
+        </span>
+      )}
+      <span className="block min-w-0 truncate text-sm font-medium text-zinc-950">{storeName}</span>
+      <GlobalSearchMobileTrigger />
     </div>
   );
 
@@ -215,10 +226,9 @@ export function AdminNav({
         ref={railRef}
         tabIndex={-1}
         aria-label="Admin navigation"
-        className="fixed inset-y-0 left-0 z-40 hidden w-[190px] flex-col border-r border-zinc-100 bg-white sm:flex min-[56.25rem]:w-[222px]"
+        className="fixed inset-y-0 left-0 z-40 hidden w-[260px] flex-col bg-white sm:flex"
       >
         {storeIdentity}
-        <GlobalSearchTrigger />
         <NavigationLinks sections={visibleSections} settings={settings} />
       </aside>
       <div className="flex h-[62px] items-center gap-2 border-b border-zinc-100 bg-white px-4 sm:hidden">
@@ -250,6 +260,13 @@ export function AdminNav({
             />
           </SheetContent>
         </Sheet>
+        {logo ? (
+          <img
+            src={mediaUrl(logo, 320)}
+            alt=""
+            className="size-6 shrink-0 rounded-md bg-white object-contain"
+          />
+        ) : null}
         <span className="min-w-0 truncate text-sm font-medium text-zinc-950">{storeName}</span>
         <GlobalSearchMobileTrigger />
       </div>

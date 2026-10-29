@@ -142,6 +142,7 @@ export async function calculateShipping(
 
 type OrderInput = {
   email: string;
+  discountUsageEmail?: string | null;
   userId?: string | null;
   ip?: string | null;
   lines: CartLine[];
@@ -183,7 +184,6 @@ export async function quoteOrder(
       status: variantsT.status,
       productStatus: productsT.status,
       weightGrams: variantsT.weightGrams,
-      taxCode: productsT.taxCode,
     })
     .from(variantsT)
     .innerJoin(productsT, eq(productsT.id, variantsT.productId))
@@ -199,11 +199,8 @@ export async function quoteOrder(
       title: v.title,
       unitPriceCents: v.priceCents,
       weightGrams: v.weightGrams ?? 0,
-      taxCode: v.taxCode,
     };
   });
-  if (settings.stripeTaxEnabled && items.some((i) => !i.taxCode || !i.taxCode.startsWith('txcd_')))
-    throw new CheckoutError('Product tax configuration is incomplete', 503, 'DEPENDENCY');
   const subtotalCents = items.reduce((s, i) => s + i.unitPriceCents * i.qty, 0);
   const totalWeightGrams = items.reduce((s, i) => s + i.weightGrams * i.qty, 0);
   const discount = input.discountCode
@@ -211,7 +208,9 @@ export async function quoteOrder(
         db,
         input.discountCode,
         subtotalCents,
-        input.email.trim().toLowerCase()
+        input.discountUsageEmail === undefined
+          ? input.email.trim().toLowerCase()
+          : input.discountUsageEmail
       )
     : null;
   if (input.discountCode && !discount)

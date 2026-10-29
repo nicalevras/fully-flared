@@ -6,6 +6,7 @@ import { getHomeCollections, getStorefrontLayout } from '../server/catalog-read'
 import { getFeaturedRails } from '../server/catalog-discovery';
 import { requestCanonicalBase } from '../server/canonical-base';
 import { ProductCard } from '../components/ProductCard';
+import { mediaSrcSet, mediaUrl } from '../lib/media-url';
 import { buttonVariants } from '@/components/ui/button';
 import { Card as UiCard } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
@@ -20,6 +21,7 @@ const getHome = createServerFn({ method: 'GET' }).handler(async () => {
   ]);
   return {
     storeName: layout.storeName,
+    hero: layout.hero,
     canonicalBaseUrl: requestCanonicalBase(layout.canonicalBaseUrl),
     rails: await getFeaturedRails(env.DB, env, layout.featured),
     collections,
@@ -46,7 +48,7 @@ export const Route = createFileRoute('/_shop/')({
 });
 
 function HomePage() {
-  const { storeName, rails, collections, posts } = Route.useLoaderData();
+  const { storeName, hero, rails, collections, posts } = Route.useLoaderData();
   const availability = useAvailability([
     ...new Set(rails.flatMap((rail) => rail.products.map((p) => p.id))),
   ]);
@@ -55,21 +57,36 @@ function HomePage() {
     <main>
       {/* Hero */}
       <section className="py-20 sm:py-24 lg:py-32">
-        <div className="max-w-2xl">
-          <h1 className="text-5xl font-normal tracking-[-0.03em] text-zinc-950 sm:text-6xl">
-            {storeName}
-          </h1>
-          <p className="mt-5 text-lg leading-8 text-zinc-500">
-            Goods made to be used every day. Browse the collection and choose something you’ll love.
-          </p>
-          <div className="mt-8 flex flex-wrap gap-3">
-            <Link to="/shop" className={cn(buttonVariants({ size: 'lg' }))}>
-              Shop all products <ArrowRightIcon className="h-4 w-4" />
-            </Link>
-            <Link to="/blog" className={cn(buttonVariants({ variant: 'outline', size: 'lg' }))}>
-              Read the journal
-            </Link>
+        <div className={hero ? 'grid items-center gap-10 lg:grid-cols-2 lg:gap-14' : undefined}>
+          <div className="max-w-2xl">
+            <h1 className="text-5xl font-normal tracking-[-0.03em] text-zinc-950 sm:text-6xl">
+              {storeName}
+            </h1>
+            <p className="mt-5 text-lg leading-8 text-zinc-500">
+              Goods made to be used every day. Browse the collection and choose something you’ll
+              love.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <Link to="/shop" className={cn(buttonVariants({ size: 'lg' }))}>
+                Shop all products <ArrowRightIcon className="h-4 w-4" />
+              </Link>
+              <Link
+                to="/articles"
+                className={cn(buttonVariants({ variant: 'outline', size: 'lg' }))}
+              >
+                Read articles
+              </Link>
+            </div>
           </div>
+          {hero ? (
+            <img
+              src={mediaUrl(hero, 960)}
+              srcSet={mediaSrcSet(hero)}
+              sizes="(min-width: 1024px) 50vw, 100vw"
+              alt=""
+              className="aspect-[4/5] w-full rounded-2xl object-cover"
+            />
+          ) : null}
         </div>
       </section>
 
@@ -147,13 +164,13 @@ function HomePage() {
         </section>
       ))}
 
-      {/* Journal */}
+      {/* Articles */}
       {posts.length > 0 ? (
-        <section aria-label="Journal" className="pt-20">
+        <section aria-label="Articles" className="pt-20">
           <div className="flex items-end justify-between gap-4">
-            <h2 className="text-2xl font-normal tracking-tight text-zinc-950">Journal</h2>
+            <h2 className="text-2xl font-normal tracking-tight text-zinc-950">Articles</h2>
             <Link
-              to="/blog"
+              to="/articles"
               className="shrink-0 text-sm font-medium text-zinc-950 underline underline-offset-4"
             >
               All articles
@@ -161,7 +178,7 @@ function HomePage() {
           </div>
           <div className="mt-8 grid gap-5 md:grid-cols-3">
             {posts.map((p) => (
-              <Link key={p.slug} to="/blog/$slug" params={{ slug: p.slug }} className="group">
+              <Link key={p.slug} to="/articles/$slug" params={{ slug: p.slug }} className="group">
                 <UiCard className="h-full p-6 transition-colors group-hover:border-zinc-300">
                   <time className="text-[13px] text-zinc-400" dateTime={p.published_at}>
                     {formatDate(p.published_at)}

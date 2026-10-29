@@ -14,7 +14,7 @@ const PAGED = {
     path: 'products',
   },
   collections: { table: 'collections', where: '1 = 1', lastmod: 'NULL', path: 'collections' },
-  posts: { table: 'posts', where: LIVE_POST, lastmod: 'published_at', path: 'blog' },
+  posts: { table: 'posts', where: LIVE_POST, lastmod: 'published_at', path: 'articles' },
 } as const;
 type PagedKind = keyof typeof PAGED;
 const isPagedKind = (kind: string): kind is PagedKind => Object.hasOwn(PAGED, kind);
@@ -71,7 +71,7 @@ export async function sitemapChild(
     return urlset([
       { loc: `${base}/` },
       { loc: `${base}/shop` },
-      { loc: `${base}/blog` },
+      { loc: `${base}/articles` },
       ...pages.results.map((p) => ({ loc: `${base}/pages/${p.slug}` })),
     ]);
   }

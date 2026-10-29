@@ -158,16 +158,14 @@ async function prepareCheckoutRequest(
   const effectiveGuestToken = guestToken;
   if (!cartCreds || !cart || cart.status !== 'open')
     return generic('Your cart is unavailable. Reload and try again.', 'CONFLICT', 409);
-  const currentLines = await env.DB.prepare(
-    'SELECT sku,qty FROM cart_items WHERE cart_id=? ORDER BY sku'
-  )
+  const currentLines = await env.DB.prepare('SELECT sku,qty FROM cart_items WHERE cart_id=?')
     .bind(cartCreds.id)
     .all<{ sku: string; qty: number }>();
   const merged = new Map<string, number>();
   for (const line of body.lines) merged.set(line.sku, (merged.get(line.sku) ?? 0) + line.qty);
   if (
-    JSON.stringify(currentLines.results.map((l) => [l.sku, l.qty])) !==
-    JSON.stringify([...merged].sort(([a], [b]) => a.localeCompare(b)))
+    currentLines.results.length !== merged.size ||
+    currentLines.results.some((line) => merged.get(line.sku) !== line.qty)
   )
     return generic('Your cart changed. Review it again.', 'CONFLICT', 409);
   const settings = await getSettings(env.DB);
@@ -254,7 +252,6 @@ async function prepareCheckoutRequest(
           name: i.title,
           unitAmountCents: i.unitPriceCents,
           qty: i.qty,
-          taxCode: i.taxCode,
         })),
         discountCents: quote.discountCents,
         discountCode: quote.discount?.code,

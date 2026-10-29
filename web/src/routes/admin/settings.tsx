@@ -17,6 +17,9 @@ import {
 } from '../../lib/settings-definitions';
 import { saveSettings } from '../../lib/settings-save';
 import { getSettings } from '../../server/settings';
+import { resolveMediaSources } from '../../server/media-source';
+import { uploadMedia } from '../../lib/upload';
+import { mediaUrl } from '../../lib/media-url';
 import { useAdminAction } from '../../components/AdminNav';
 import {
   btnPrimary,
@@ -44,7 +47,13 @@ const getData = createServerFn({ method: 'GET' })
       storeName: settings.storeName,
       currency: settings.currency,
     });
-    return { settings, checklist };
+    const brand = await resolveMediaSources(env.DB, [settings.logoMediaId, settings.heroMediaId]);
+    return {
+      settings,
+      checklist,
+      logoSource: brand.get(settings.logoMediaId) ?? null,
+      heroSource: brand.get(settings.heroMediaId) ?? null,
+    };
   });
 
 export const Route = createFileRoute('/admin/settings')({
@@ -62,6 +71,8 @@ function AdminSettings() {
   const [admission, setAdmission] = useState(initial.admission);
   const [form, setForm] = useState({
     store_name: initial.storeName,
+    logo_media_id: initial.logoMediaId,
+    hero_media_id: initial.heroMediaId,
     currency: initial.currency,
     canonical_base_url: initial.canonicalBaseUrl,
     announcement_text: initial.announcementText,
@@ -79,6 +90,84 @@ function AdminSettings() {
   });
   const [feedback, setFeedback] = useState<AdminActionFeedbackState>(null);
   const [saving, setSaving] = useState(false);
+  const [logo, setLogo] = useState<{ id: string; src: string } | null>(
+    data.logoSource ? { id: initial.logoMediaId, src: mediaUrl(data.logoSource, 320) } : null
+  );
+  const [hero, setHero] = useState<{ id: string; src: string } | null>(
+    data.heroSource ? { id: initial.heroMediaId, src: mediaUrl(data.heroSource, 640) } : null
+  );
+  const [uploading, setUploading] = useState<'logo' | 'hero' | null>(null);
+
+  async function uploadBrandImage(kind: 'logo' | 'hero', file: File | undefined) {
+    if (!file) return;
+    setUploading(kind);
+    try {
+      const uploaded = await uploadMedia(file);
+      const picked = { id: uploaded.id, src: uploaded.url ?? `/media/${uploaded.key}` };
+      if (kind === 'logo') {
+        setLogo(picked);
+        setForm((f) => ({ ...f, logo_media_id: uploaded.id }));
+      } else {
+        setHero(picked);
+        setForm((f) => ({ ...f, hero_media_id: uploaded.id }));
+      }
+    } catch (error) {
+      setFeedback({
+        kind: 'error',
+        message: error instanceof Error ? error.message : 'Image upload failed.',
+      });
+    } finally {
+      setUploading(null);
+    }
+  }
+
+  function brandImageControl(
+    kind: 'logo' | 'hero',
+    label: string,
+    hint: string,
+    current: { id: string; src: string } | null,
+    previewCls: string
+  ) {
+    return (
+      <div>
+        <label className={labelCls} htmlFor={`s-${kind}-image`}>
+          {label}
+        </label>
+        {current ? (
+          <div className="flex items-start gap-3">
+            <img src={current.src} alt="" className={previewCls} />
+            <button
+              type="button"
+              className="text-sm text-zinc-600 underline underline-offset-4 hover:text-zinc-950"
+              onClick={() => {
+                if (kind === 'logo') {
+                  setLogo(null);
+                  setForm((f) => ({ ...f, logo_media_id: '' }));
+                } else {
+                  setHero(null);
+                  setForm((f) => ({ ...f, hero_media_id: '' }));
+                }
+              }}
+            >
+              Remove
+            </button>
+          </div>
+        ) : null}
+        <input
+          id={`s-${kind}-image`}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif"
+          className={inputCls}
+          disabled={uploading !== null}
+          onChange={(e) => {
+            void uploadBrandImage(kind, e.target.files?.[0]);
+            e.target.value = '';
+          }}
+        />
+        <p className={hintCls}>{uploading === kind ? 'Uploading…' : hint}</p>
+      </div>
+    );
+  }
 
   async function save() {
     setSaving(true);
@@ -137,6 +226,20 @@ function AdminSettings() {
       <section className={`${cardCls} mt-6 space-y-4 p-5 sm:p-6`}>
         <h2 className="text-sm font-medium text-zinc-950">Store details</h2>
         {field('store_name', 'Store name', 'Shown in the header, footer, emails, and page titles.')}
+        {brandImageControl(
+          'logo',
+          'Logo',
+          'Replaces the store name in the header and footer, and appears in the admin sidebar. The store name stays as its accessible label.',
+          logo,
+          'h-10 w-auto max-w-48 object-contain'
+        )}
+        {brandImageControl(
+          'hero',
+          'Hero image',
+          'Shown in the right column of the homepage hero, cropped to a 4:5 portrait. Leave unset for a text-only hero.',
+          hero,
+          'aspect-[4/5] w-24 rounded-lg object-cover'
+        )}
         {field(
           'announcement_text',
           'Announcement bar',
@@ -229,7 +332,8 @@ function AdminSettings() {
           <span>
             Collect tax automatically with Stripe Tax
             <span className="block text-[13px] text-zinc-500">
-              Stripe calculates and adds tax at checkout based on the product tax code.
+              Stripe calculates and adds tax at checkout based on the customer's shipping address
+              and your Stripe account's default product tax code.
             </span>
           </span>
         </label>
@@ -243,8 +347,8 @@ function AdminSettings() {
           <span>
             My Stripe Tax setup is complete
             <span className="block text-[13px] text-zinc-500">
-              Confirm registrations are active and every product has a tax code. Live checkout
-              refuses automatic tax until both boxes are on.
+              Confirm registrations are active and a default product tax code is set in the Stripe
+              dashboard. Live checkout refuses automatic tax until both boxes are on.
             </span>
           </span>
         </label>

@@ -16,6 +16,8 @@ export type StoreSettings = {
   /** Checkout admission budgets (Phase 5), read by CheckoutAdmissionDO. */
   admission: AdmissionConfig;
   storeName: string;
+  logoMediaId: string;
+  heroMediaId: string;
   currency: string;
   currencyLocked: boolean;
   canonicalBaseUrl: string;
@@ -39,6 +41,8 @@ export type StoreSettings = {
 
 const DEFAULTS: Record<string, string> = {
   store_name: 'My Store',
+  logo_media_id: '',
+  hero_media_id: '',
   currency: 'USD',
   currency_locked: '0',
   canonical_base_url: '',
@@ -85,6 +89,8 @@ export async function readSettings(db: D1Database): Promise<StoreSettings> {
     limits: parseLimits(stored),
     admission: parseAdmissionConfig(stored),
     storeName: v('store_name'),
+    logoMediaId: v('logo_media_id'),
+    heroMediaId: v('hero_media_id'),
     currency: v('currency'),
     currencyLocked: v('currency_locked') === '1',
     canonicalBaseUrl: v('canonical_base_url'),

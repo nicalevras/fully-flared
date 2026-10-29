@@ -1,0 +1,46 @@
+- link "Skip to content":
+  - /url: "#admin-content"
+- complementary "Admin":
+  - generic: M
+  - generic: My Store
+  - generic: Store admin
+  - navigation:
+    - paragraph: Catalog
+    - list:
+      - link "Products":
+        - /url: /admin/products
+        - text: Products
+      - link "Collections":
+        - /url: /admin/collections
+        - text: Collections
+      - link "Discounts":
+        - /url: /admin/discounts
+        - text: Discounts
+    - paragraph: Sales
+    - list:
+      - link "Orders":
+        - /url: /admin/orders
+        - text: Orders
+      - link "Customers":
+        - /url: /admin/customers
+        - text: Customers
+      - link "Shipping":
+        - /url: /admin/shipping
+        - text: Shipping
+    - paragraph: Content
+    - list:
+      - link "Blog":
+        - /url: /admin/blog
+        - text: Blog
+      - link "Media":
+        - /url: /admin/media
+        - text: Media
+      - link "Pages":
+        - /url: /admin/pages
+        - text: Pages
+  - link "View store":
+    - /url: /
+    - text: View store
+- strong: Something went wrong!
+- button "Hide Error"
+- code: "Permission required: user.list"

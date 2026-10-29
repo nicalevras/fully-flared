@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedProduct } from './helpers/d1';
 import { runAdminAction } from '../web/src/server/admin-actions';
+import { productDocumentSchema } from '../web/src/server/catalog-models';
 
 let db: D1Database, dispose: () => Promise<void>;
 const owner = { id: 'owner', role: 'owner' };
@@ -45,6 +46,23 @@ describe('Phase 4A reviewed product save', () => {
     }
     const row = await db.prepare("SELECT title FROM products WHERE id = 'p1'").first();
     expect(row?.title).toBe('Renamed Tee');
+  });
+
+  it('stores the plain description verbatim and publishes no rich description', async () => {
+    const description = 'First line.\n\nSecond paragraph with <b>literal</b> text.';
+    const result = await runAdminAction(db, env, owner, 'product.update', {
+      productId: 'p1',
+      title: 'Tee',
+      slug: 'tee',
+      description,
+      status: 'active',
+    });
+    expect(result.ok).toBe(true);
+    const row = await db
+      .prepare("SELECT description FROM products WHERE id = 'p1'")
+      .first<{ description: string }>();
+    expect(row?.description).toBe(description);
+    expect(productDocumentSchema.shape).not.toHaveProperty('descriptionHtml');
   });
 
   it('rejects a stale revision and keeps the first save', async () => {
@@ -100,12 +118,12 @@ describe('Phase 4A reviewed product save', () => {
 });
 
 describe('product editor presentation remediation (FF-12, FF-15)', () => {
-  it('labels prices in the store currency and blocks internal navigation while dirty', async () => {
+  it('labels prices without a currency suffix and blocks internal navigation while dirty', async () => {
     const { readFileSync } = await import('node:fs');
-    const source = readFileSync('web/src/routes/admin/products/$id.tsx', 'utf8');
+    const source = readFileSync('web/src/components/ProductEditor.tsx', 'utf8');
     expect(source).not.toContain('Price ($)');
     expect(source).not.toContain('Compare at ($)');
-    expect(source).toContain('Price ({currency})');
+    expect(source).not.toContain('({currency})');
     expect(source).toContain('useBlocker');
     expect(source).toContain("blocker.status === 'blocked'");
   });

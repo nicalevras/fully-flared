@@ -19,6 +19,7 @@ import { Route as ShopCartRouteImport } from './routes/_shop.cart'
 import { Route as ShopSearchRouteImport } from './routes/_shop.search'
 import { Route as ShopShopRouteImport } from './routes/_shop.shop'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as AdminArticlesRouteImport } from './routes/admin/articles'
 import { Route as AdminBlogRouteImport } from './routes/admin/blog'
 import { Route as AdminCollectionsRouteImport } from './routes/admin/collections'
 import { Route as AdminCustomersRouteImport } from './routes/admin/customers'
@@ -38,13 +39,13 @@ import { Route as CheckoutSuccessRouteImport } from './routes/checkout/success'
 import { Route as MediaKeyRouteImport } from './routes/media/$key'
 import { Route as SitemapChar123kindChar125DotxmlRouteImport } from './routes/sitemap.{$kind}[.]xml'
 import { Route as ShopAccountIndexRouteImport } from './routes/_shop.account/index'
+import { Route as ShopArticlesIndexRouteImport } from './routes/_shop.articles/index'
+import { Route as ShopArticlesSlugRouteImport } from './routes/_shop.articles/$slug'
+import { Route as ShopArticlesRssDotxmlRouteImport } from './routes/_shop.articles/rss[.]xml'
 import { Route as ShopAuthIndexRouteImport } from './routes/_shop.auth/index'
 import { Route as ShopAuthForgotRouteImport } from './routes/_shop.auth/forgot'
 import { Route as ShopAuthResetRouteImport } from './routes/_shop.auth/reset'
 import { Route as ShopAuthSignInRouteImport } from './routes/_shop.auth/sign-in'
-import { Route as ShopBlogIndexRouteImport } from './routes/_shop.blog/index'
-import { Route as ShopBlogSlugRouteImport } from './routes/_shop.blog/$slug'
-import { Route as ShopBlogRssDotxmlRouteImport } from './routes/_shop.blog/rss[.]xml'
 import { Route as ShopCollectionsIndexRouteImport } from './routes/_shop.collections/index'
 import { Route as ShopCollectionsSlugRouteImport } from './routes/_shop.collections/$slug'
 import { Route as ShopPagesSlugRouteImport } from './routes/_shop.pages/$slug'
@@ -57,7 +58,6 @@ import { Route as AdminPagesIdRouteImport } from './routes/admin/pages_/$id'
 import { Route as AdminProductsIndexRouteImport } from './routes/admin/products/index'
 import { Route as AdminProductsIdRouteImport } from './routes/admin/products/$id'
 import { Route as AdminProductsImportRouteImport } from './routes/admin/products/import'
-import { Route as AdminProductsNewRouteImport } from './routes/admin/products/new'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiCheckoutGuestSessionRouteImport } from './routes/api/checkout/guest-session'
 import { Route as ApiWebhooksStripeRouteImport } from './routes/api/webhooks/stripe'
@@ -109,6 +109,11 @@ const ShopShopRoute = ShopShopRouteImport.update({
 const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminArticlesRoute = AdminArticlesRouteImport.update({
+  id: '/articles',
+  path: '/articles',
   getParentRoute: () => AdminRouteRoute,
 } as any)
 const AdminBlogRoute = AdminBlogRouteImport.update({
@@ -207,6 +212,21 @@ const ShopAccountIndexRoute = ShopAccountIndexRouteImport.update({
   path: '/account/',
   getParentRoute: () => ShopRoute,
 } as any)
+const ShopArticlesIndexRoute = ShopArticlesIndexRouteImport.update({
+  id: '/articles/',
+  path: '/articles/',
+  getParentRoute: () => ShopRoute,
+} as any)
+const ShopArticlesSlugRoute = ShopArticlesSlugRouteImport.update({
+  id: '/articles/$slug',
+  path: '/articles/$slug',
+  getParentRoute: () => ShopRoute,
+} as any)
+const ShopArticlesRssDotxmlRoute = ShopArticlesRssDotxmlRouteImport.update({
+  id: '/articles/rss.xml',
+  path: '/articles/rss.xml',
+  getParentRoute: () => ShopRoute,
+} as any)
 const ShopAuthIndexRoute = ShopAuthIndexRouteImport.update({
   id: '/auth/',
   path: '/auth/',
@@ -225,21 +245,6 @@ const ShopAuthResetRoute = ShopAuthResetRouteImport.update({
 const ShopAuthSignInRoute = ShopAuthSignInRouteImport.update({
   id: '/auth/sign-in',
   path: '/auth/sign-in',
-  getParentRoute: () => ShopRoute,
-} as any)
-const ShopBlogIndexRoute = ShopBlogIndexRouteImport.update({
-  id: '/blog/',
-  path: '/blog/',
-  getParentRoute: () => ShopRoute,
-} as any)
-const ShopBlogSlugRoute = ShopBlogSlugRouteImport.update({
-  id: '/blog/$slug',
-  path: '/blog/$slug',
-  getParentRoute: () => ShopRoute,
-} as any)
-const ShopBlogRssDotxmlRoute = ShopBlogRssDotxmlRouteImport.update({
-  id: '/blog/rss.xml',
-  path: '/blog/rss.xml',
   getParentRoute: () => ShopRoute,
 } as any)
 const ShopCollectionsIndexRoute = ShopCollectionsIndexRouteImport.update({
@@ -302,11 +307,6 @@ const AdminProductsImportRoute = AdminProductsImportRouteImport.update({
   path: '/products/import',
   getParentRoute: () => AdminRouteRoute,
 } as any)
-const AdminProductsNewRoute = AdminProductsNewRouteImport.update({
-  id: '/products/new',
-  path: '/products/new',
-  getParentRoute: () => AdminRouteRoute,
-} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -332,6 +332,7 @@ export interface FileRoutesByFullPath {
   '/cart': typeof ShopCartRoute
   '/search': typeof ShopSearchRoute
   '/shop': typeof ShopShopRoute
+  '/admin/articles': typeof AdminArticlesRoute
   '/admin/blog': typeof AdminBlogRoute
   '/admin/collections': typeof AdminCollectionsRoute
   '/admin/customers': typeof AdminCustomersRoute
@@ -351,11 +352,11 @@ export interface FileRoutesByFullPath {
   '/sitemap/{$kind}.xml': typeof SitemapChar123kindChar125DotxmlRoute
   '/admin/': typeof AdminIndexRoute
   '/checkout/': typeof CheckoutIndexRoute
+  '/articles/$slug': typeof ShopArticlesSlugRoute
+  '/articles/rss.xml': typeof ShopArticlesRssDotxmlRoute
   '/auth/forgot': typeof ShopAuthForgotRoute
   '/auth/reset': typeof ShopAuthResetRoute
   '/auth/sign-in': typeof ShopAuthSignInRoute
-  '/blog/$slug': typeof ShopBlogSlugRoute
-  '/blog/rss.xml': typeof ShopBlogRssDotxmlRoute
   '/collections/$slug': typeof ShopCollectionsSlugRoute
   '/pages/$slug': typeof ShopPagesSlugRoute
   '/products/$slug': typeof ShopProductsSlugRoute
@@ -365,13 +366,12 @@ export interface FileRoutesByFullPath {
   '/admin/pages/$id': typeof AdminPagesIdRoute
   '/admin/products/$id': typeof AdminProductsIdRoute
   '/admin/products/import': typeof AdminProductsImportRoute
-  '/admin/products/new': typeof AdminProductsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/checkout/guest-session': typeof ApiCheckoutGuestSessionRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
   '/account/': typeof ShopAccountIndexRoute
+  '/articles/': typeof ShopArticlesIndexRoute
   '/auth/': typeof ShopAuthIndexRoute
-  '/blog/': typeof ShopBlogIndexRoute
   '/collections/': typeof ShopCollectionsIndexRoute
   '/admin/orders/': typeof AdminOrdersIndexRoute
   '/admin/products/': typeof AdminProductsIndexRoute
@@ -382,6 +382,7 @@ export interface FileRoutesByTo {
   '/cart': typeof ShopCartRoute
   '/search': typeof ShopSearchRoute
   '/shop': typeof ShopShopRoute
+  '/admin/articles': typeof AdminArticlesRoute
   '/admin/blog': typeof AdminBlogRoute
   '/admin/collections': typeof AdminCollectionsRoute
   '/admin/customers': typeof AdminCustomersRoute
@@ -402,11 +403,11 @@ export interface FileRoutesByTo {
   '/': typeof ShopIndexRoute
   '/admin': typeof AdminIndexRoute
   '/checkout': typeof CheckoutIndexRoute
+  '/articles/$slug': typeof ShopArticlesSlugRoute
+  '/articles/rss.xml': typeof ShopArticlesRssDotxmlRoute
   '/auth/forgot': typeof ShopAuthForgotRoute
   '/auth/reset': typeof ShopAuthResetRoute
   '/auth/sign-in': typeof ShopAuthSignInRoute
-  '/blog/$slug': typeof ShopBlogSlugRoute
-  '/blog/rss.xml': typeof ShopBlogRssDotxmlRoute
   '/collections/$slug': typeof ShopCollectionsSlugRoute
   '/pages/$slug': typeof ShopPagesSlugRoute
   '/products/$slug': typeof ShopProductsSlugRoute
@@ -416,13 +417,12 @@ export interface FileRoutesByTo {
   '/admin/pages/$id': typeof AdminPagesIdRoute
   '/admin/products/$id': typeof AdminProductsIdRoute
   '/admin/products/import': typeof AdminProductsImportRoute
-  '/admin/products/new': typeof AdminProductsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/checkout/guest-session': typeof ApiCheckoutGuestSessionRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
   '/account': typeof ShopAccountIndexRoute
+  '/articles': typeof ShopArticlesIndexRoute
   '/auth': typeof ShopAuthIndexRoute
-  '/blog': typeof ShopBlogIndexRoute
   '/collections': typeof ShopCollectionsIndexRoute
   '/admin/orders': typeof AdminOrdersIndexRoute
   '/admin/products': typeof AdminProductsIndexRoute
@@ -437,6 +437,7 @@ export interface FileRoutesById {
   '/_shop/cart': typeof ShopCartRoute
   '/_shop/search': typeof ShopSearchRoute
   '/_shop/shop': typeof ShopShopRoute
+  '/admin/articles': typeof AdminArticlesRoute
   '/admin/blog': typeof AdminBlogRoute
   '/admin/collections': typeof AdminCollectionsRoute
   '/admin/customers': typeof AdminCustomersRoute
@@ -457,11 +458,11 @@ export interface FileRoutesById {
   '/_shop/': typeof ShopIndexRoute
   '/admin/': typeof AdminIndexRoute
   '/checkout/': typeof CheckoutIndexRoute
+  '/_shop/articles/$slug': typeof ShopArticlesSlugRoute
+  '/_shop/articles/rss.xml': typeof ShopArticlesRssDotxmlRoute
   '/_shop/auth/forgot': typeof ShopAuthForgotRoute
   '/_shop/auth/reset': typeof ShopAuthResetRoute
   '/_shop/auth/sign-in': typeof ShopAuthSignInRoute
-  '/_shop/blog/$slug': typeof ShopBlogSlugRoute
-  '/_shop/blog/rss.xml': typeof ShopBlogRssDotxmlRoute
   '/_shop/collections/$slug': typeof ShopCollectionsSlugRoute
   '/_shop/pages/$slug': typeof ShopPagesSlugRoute
   '/_shop/products/$slug': typeof ShopProductsSlugRoute
@@ -471,13 +472,12 @@ export interface FileRoutesById {
   '/admin/pages_/$id': typeof AdminPagesIdRoute
   '/admin/products/$id': typeof AdminProductsIdRoute
   '/admin/products/import': typeof AdminProductsImportRoute
-  '/admin/products/new': typeof AdminProductsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/checkout/guest-session': typeof ApiCheckoutGuestSessionRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
   '/_shop/account/': typeof ShopAccountIndexRoute
+  '/_shop/articles/': typeof ShopArticlesIndexRoute
   '/_shop/auth/': typeof ShopAuthIndexRoute
-  '/_shop/blog/': typeof ShopBlogIndexRoute
   '/_shop/collections/': typeof ShopCollectionsIndexRoute
   '/admin/orders/': typeof AdminOrdersIndexRoute
   '/admin/products/': typeof AdminProductsIndexRoute
@@ -493,6 +493,7 @@ export interface FileRouteTypes {
     | '/cart'
     | '/search'
     | '/shop'
+    | '/admin/articles'
     | '/admin/blog'
     | '/admin/collections'
     | '/admin/customers'
@@ -512,11 +513,11 @@ export interface FileRouteTypes {
     | '/sitemap/{$kind}.xml'
     | '/admin/'
     | '/checkout/'
+    | '/articles/$slug'
+    | '/articles/rss.xml'
     | '/auth/forgot'
     | '/auth/reset'
     | '/auth/sign-in'
-    | '/blog/$slug'
-    | '/blog/rss.xml'
     | '/collections/$slug'
     | '/pages/$slug'
     | '/products/$slug'
@@ -526,13 +527,12 @@ export interface FileRouteTypes {
     | '/admin/pages/$id'
     | '/admin/products/$id'
     | '/admin/products/import'
-    | '/admin/products/new'
     | '/api/auth/$'
     | '/api/checkout/guest-session'
     | '/api/webhooks/stripe'
     | '/account/'
+    | '/articles/'
     | '/auth/'
-    | '/blog/'
     | '/collections/'
     | '/admin/orders/'
     | '/admin/products/'
@@ -543,6 +543,7 @@ export interface FileRouteTypes {
     | '/cart'
     | '/search'
     | '/shop'
+    | '/admin/articles'
     | '/admin/blog'
     | '/admin/collections'
     | '/admin/customers'
@@ -563,11 +564,11 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/checkout'
+    | '/articles/$slug'
+    | '/articles/rss.xml'
     | '/auth/forgot'
     | '/auth/reset'
     | '/auth/sign-in'
-    | '/blog/$slug'
-    | '/blog/rss.xml'
     | '/collections/$slug'
     | '/pages/$slug'
     | '/products/$slug'
@@ -577,13 +578,12 @@ export interface FileRouteTypes {
     | '/admin/pages/$id'
     | '/admin/products/$id'
     | '/admin/products/import'
-    | '/admin/products/new'
     | '/api/auth/$'
     | '/api/checkout/guest-session'
     | '/api/webhooks/stripe'
     | '/account'
+    | '/articles'
     | '/auth'
-    | '/blog'
     | '/collections'
     | '/admin/orders'
     | '/admin/products'
@@ -597,6 +597,7 @@ export interface FileRouteTypes {
     | '/_shop/cart'
     | '/_shop/search'
     | '/_shop/shop'
+    | '/admin/articles'
     | '/admin/blog'
     | '/admin/collections'
     | '/admin/customers'
@@ -617,11 +618,11 @@ export interface FileRouteTypes {
     | '/_shop/'
     | '/admin/'
     | '/checkout/'
+    | '/_shop/articles/$slug'
+    | '/_shop/articles/rss.xml'
     | '/_shop/auth/forgot'
     | '/_shop/auth/reset'
     | '/_shop/auth/sign-in'
-    | '/_shop/blog/$slug'
-    | '/_shop/blog/rss.xml'
     | '/_shop/collections/$slug'
     | '/_shop/pages/$slug'
     | '/_shop/products/$slug'
@@ -631,13 +632,12 @@ export interface FileRouteTypes {
     | '/admin/pages_/$id'
     | '/admin/products/$id'
     | '/admin/products/import'
-    | '/admin/products/new'
     | '/api/auth/$'
     | '/api/checkout/guest-session'
     | '/api/webhooks/stripe'
     | '/_shop/account/'
+    | '/_shop/articles/'
     | '/_shop/auth/'
-    | '/_shop/blog/'
     | '/_shop/collections/'
     | '/admin/orders/'
     | '/admin/products/'
@@ -729,6 +729,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/admin/'
       preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/articles': {
+      id: '/admin/articles'
+      path: '/articles'
+      fullPath: '/admin/articles'
+      preLoaderRoute: typeof AdminArticlesRouteImport
       parentRoute: typeof AdminRouteRoute
     }
     '/admin/blog': {
@@ -864,6 +871,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShopAccountIndexRouteImport
       parentRoute: typeof ShopRoute
     }
+    '/_shop/articles/': {
+      id: '/_shop/articles/'
+      path: '/articles'
+      fullPath: '/articles/'
+      preLoaderRoute: typeof ShopArticlesIndexRouteImport
+      parentRoute: typeof ShopRoute
+    }
+    '/_shop/articles/$slug': {
+      id: '/_shop/articles/$slug'
+      path: '/articles/$slug'
+      fullPath: '/articles/$slug'
+      preLoaderRoute: typeof ShopArticlesSlugRouteImport
+      parentRoute: typeof ShopRoute
+    }
+    '/_shop/articles/rss.xml': {
+      id: '/_shop/articles/rss.xml'
+      path: '/articles/rss.xml'
+      fullPath: '/articles/rss.xml'
+      preLoaderRoute: typeof ShopArticlesRssDotxmlRouteImport
+      parentRoute: typeof ShopRoute
+    }
     '/_shop/auth/': {
       id: '/_shop/auth/'
       path: '/auth'
@@ -890,27 +918,6 @@ declare module '@tanstack/react-router' {
       path: '/auth/sign-in'
       fullPath: '/auth/sign-in'
       preLoaderRoute: typeof ShopAuthSignInRouteImport
-      parentRoute: typeof ShopRoute
-    }
-    '/_shop/blog/': {
-      id: '/_shop/blog/'
-      path: '/blog'
-      fullPath: '/blog/'
-      preLoaderRoute: typeof ShopBlogIndexRouteImport
-      parentRoute: typeof ShopRoute
-    }
-    '/_shop/blog/$slug': {
-      id: '/_shop/blog/$slug'
-      path: '/blog/$slug'
-      fullPath: '/blog/$slug'
-      preLoaderRoute: typeof ShopBlogSlugRouteImport
-      parentRoute: typeof ShopRoute
-    }
-    '/_shop/blog/rss.xml': {
-      id: '/_shop/blog/rss.xml'
-      path: '/blog/rss.xml'
-      fullPath: '/blog/rss.xml'
-      preLoaderRoute: typeof ShopBlogRssDotxmlRouteImport
       parentRoute: typeof ShopRoute
     }
     '/_shop/collections/': {
@@ -997,13 +1004,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminProductsImportRouteImport
       parentRoute: typeof AdminRouteRoute
     }
-    '/admin/products/new': {
-      id: '/admin/products/new'
-      path: '/products/new'
-      fullPath: '/admin/products/new'
-      preLoaderRoute: typeof AdminProductsNewRouteImport
-      parentRoute: typeof AdminRouteRoute
-    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -1029,6 +1029,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AdminRouteRouteChildren {
+  AdminArticlesRoute: typeof AdminArticlesRoute
   AdminBlogRoute: typeof AdminBlogRoute
   AdminCollectionsRoute: typeof AdminCollectionsRoute
   AdminCustomersRoute: typeof AdminCustomersRoute
@@ -1046,12 +1047,12 @@ interface AdminRouteRouteChildren {
   AdminPagesIdRoute: typeof AdminPagesIdRoute
   AdminProductsIdRoute: typeof AdminProductsIdRoute
   AdminProductsImportRoute: typeof AdminProductsImportRoute
-  AdminProductsNewRoute: typeof AdminProductsNewRoute
   AdminOrdersIndexRoute: typeof AdminOrdersIndexRoute
   AdminProductsIndexRoute: typeof AdminProductsIndexRoute
 }
 
 const AdminRouteRouteChildren: AdminRouteRouteChildren = {
+  AdminArticlesRoute: AdminArticlesRoute,
   AdminBlogRoute: AdminBlogRoute,
   AdminCollectionsRoute: AdminCollectionsRoute,
   AdminCustomersRoute: AdminCustomersRoute,
@@ -1069,7 +1070,6 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminPagesIdRoute: AdminPagesIdRoute,
   AdminProductsIdRoute: AdminProductsIdRoute,
   AdminProductsImportRoute: AdminProductsImportRoute,
-  AdminProductsNewRoute: AdminProductsNewRoute,
   AdminOrdersIndexRoute: AdminOrdersIndexRoute,
   AdminProductsIndexRoute: AdminProductsIndexRoute,
 }
@@ -1097,17 +1097,17 @@ interface ShopRouteChildren {
   ShopSearchRoute: typeof ShopSearchRoute
   ShopShopRoute: typeof ShopShopRoute
   ShopIndexRoute: typeof ShopIndexRoute
+  ShopArticlesSlugRoute: typeof ShopArticlesSlugRoute
+  ShopArticlesRssDotxmlRoute: typeof ShopArticlesRssDotxmlRoute
   ShopAuthForgotRoute: typeof ShopAuthForgotRoute
   ShopAuthResetRoute: typeof ShopAuthResetRoute
   ShopAuthSignInRoute: typeof ShopAuthSignInRoute
-  ShopBlogSlugRoute: typeof ShopBlogSlugRoute
-  ShopBlogRssDotxmlRoute: typeof ShopBlogRssDotxmlRoute
   ShopCollectionsSlugRoute: typeof ShopCollectionsSlugRoute
   ShopPagesSlugRoute: typeof ShopPagesSlugRoute
   ShopProductsSlugRoute: typeof ShopProductsSlugRoute
   ShopAccountIndexRoute: typeof ShopAccountIndexRoute
+  ShopArticlesIndexRoute: typeof ShopArticlesIndexRoute
   ShopAuthIndexRoute: typeof ShopAuthIndexRoute
-  ShopBlogIndexRoute: typeof ShopBlogIndexRoute
   ShopCollectionsIndexRoute: typeof ShopCollectionsIndexRoute
 }
 
@@ -1116,17 +1116,17 @@ const ShopRouteChildren: ShopRouteChildren = {
   ShopSearchRoute: ShopSearchRoute,
   ShopShopRoute: ShopShopRoute,
   ShopIndexRoute: ShopIndexRoute,
+  ShopArticlesSlugRoute: ShopArticlesSlugRoute,
+  ShopArticlesRssDotxmlRoute: ShopArticlesRssDotxmlRoute,
   ShopAuthForgotRoute: ShopAuthForgotRoute,
   ShopAuthResetRoute: ShopAuthResetRoute,
   ShopAuthSignInRoute: ShopAuthSignInRoute,
-  ShopBlogSlugRoute: ShopBlogSlugRoute,
-  ShopBlogRssDotxmlRoute: ShopBlogRssDotxmlRoute,
   ShopCollectionsSlugRoute: ShopCollectionsSlugRoute,
   ShopPagesSlugRoute: ShopPagesSlugRoute,
   ShopProductsSlugRoute: ShopProductsSlugRoute,
   ShopAccountIndexRoute: ShopAccountIndexRoute,
+  ShopArticlesIndexRoute: ShopArticlesIndexRoute,
   ShopAuthIndexRoute: ShopAuthIndexRoute,
-  ShopBlogIndexRoute: ShopBlogIndexRoute,
   ShopCollectionsIndexRoute: ShopCollectionsIndexRoute,
 }
 

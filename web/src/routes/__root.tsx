@@ -10,6 +10,7 @@ import {
 import { createServerFn } from '@tanstack/react-start';
 import { getStorefrontLayout } from '../server/catalog-read';
 import { cartCountFromCookie } from '../lib/cart-cookie';
+import { mediaUrl } from '../lib/media-url';
 import { BagIcon, MenuIcon, SearchIcon, UserIcon } from '../components/icons';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -122,7 +123,7 @@ function CartCount() {
 }
 
 export function StorefrontLayout() {
-  const { storeName, announcementText, collections, collectionsTotal, limits } =
+  const { storeName, logo, announcementText, collections, collectionsTotal, limits } =
     Route.useLoaderData();
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -144,7 +145,15 @@ export function StorefrontLayout() {
       <header className="sticky top-0 z-40 border-b border-zinc-200 bg-white">
         <div className="mx-auto flex h-16 w-full max-w-7xl items-center gap-2 px-4 sm:px-6 lg:px-8">
           <Link to="/" className="text-base font-normal tracking-tight text-zinc-950">
-            {storeName}
+            {logo ? (
+              <img
+                src={mediaUrl(logo, 320)}
+                alt={storeName}
+                className="h-8 w-auto max-w-56 object-contain"
+              />
+            ) : (
+              storeName
+            )}
           </Link>
           <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
             <SheetTrigger asChild>
@@ -197,11 +206,11 @@ export function StorefrontLayout() {
                   )}
                   <li>
                     <Link
-                      to="/blog"
+                      to="/articles"
                       onClick={() => setMenuOpen(false)}
                       className="block rounded-lg px-2 py-2 hover:bg-zinc-50"
                     >
-                      Journal
+                      Articles
                     </Link>
                   </li>
                   <li>
@@ -246,8 +255,8 @@ export function StorefrontLayout() {
                 All collections
               </Link>
             )}
-            <Link to="/blog" className={navLink}>
-              Journal
+            <Link to="/articles" className={navLink}>
+              Articles
             </Link>
           </nav>
           <div className="ml-auto flex items-center gap-0.5">
@@ -286,7 +295,15 @@ export function StorefrontLayout() {
       <footer className="mt-24 border-t border-zinc-100 bg-white">
         <div className="mx-auto grid w-full max-w-7xl gap-10 px-4 py-14 sm:grid-cols-2 sm:px-6 lg:grid-cols-4 lg:px-8">
           <div>
-            <p className="text-base font-normal tracking-tight text-zinc-950">{storeName}</p>
+            {logo ? (
+              <img
+                src={mediaUrl(logo, 320)}
+                alt={storeName}
+                className="h-8 w-auto max-w-56 object-contain"
+              />
+            ) : (
+              <p className="text-base font-normal tracking-tight text-zinc-950">{storeName}</p>
+            )}
             <p className="mt-3 max-w-xs text-sm leading-6 text-zinc-400">
               Considered goods, honest prices, and shipping you can track from our door to yours.
             </p>
@@ -311,8 +328,8 @@ export function StorefrontLayout() {
                 </li>
               ))}
               <li>
-                <Link to="/blog" className="hover:text-zinc-950">
-                  Journal
+                <Link to="/articles" className="hover:text-zinc-950">
+                  Articles
                 </Link>
               </li>
             </ul>

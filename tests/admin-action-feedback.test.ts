@@ -11,7 +11,8 @@ it('renders a submitted action as a neutral status without implying settlement',
   expect(html).toContain('role="status"');
   expect(html).toContain('aria-atomic="true"');
   expect(html).toContain(message);
-  expect(html).not.toContain('text-destructive');
+  expect(html).toContain('bg-green-600');
+  expect(html).not.toContain('bg-red-600');
 });
 
 it('announces a failed action as an error and renders nothing before an action', () => {
@@ -22,6 +23,6 @@ it('announces a failed action as an error and renders nothing before an action',
   );
   expect(html).toContain('role="alert"');
   expect(html).toContain('Refund failed');
-  expect(html).toContain('text-destructive');
+  expect(html).toContain('bg-red-600');
   expect(renderToStaticMarkup(createElement(AdminActionFeedback, { value: null }))).toBe('');
 });

@@ -54,7 +54,7 @@ async function publish() {
 
 /** Renames as the admin save does: the row, then its redirect. */
 async function rename(table: 'products' | 'posts', id: string, from: string, to: string) {
-  const prefix = table === 'products' ? '/products/' : '/blog/';
+  const prefix = table === 'products' ? '/products/' : '/articles/';
   await db.batch([
     db.prepare(`UPDATE ${table} SET slug=? WHERE id=?`).bind(to, id),
     db
@@ -104,7 +104,7 @@ it('redirects a renamed product slug from KV with a 301 and no D1 or limiter', a
 it('redirects a renamed post slug from KV with a 301 and no D1', async () => {
   await rename('posts', 'post', 'launch', 'launch-2');
   expect(await served((counted) => loadPostPage(counted, { CATALOG_KV: kv }, 'launch'))).toEqual(
-    moved('/blog/launch-2')
+    moved('/articles/launch-2')
   );
 });
 
@@ -117,7 +117,7 @@ it('points every earlier slug of a chain at the latest one', async () => {
     await served((counted, limit) => loadProductPage(counted, { CATALOG_KV: kv }, 'tee', limit))
   ).toEqual(moved('/products/tee-3'));
   expect(await served((counted) => loadPostPage(counted, { CATALOG_KV: kv }, 'launch'))).toEqual(
-    moved('/blog/launch-3')
+    moved('/articles/launch-3')
   );
 });
 
@@ -193,6 +193,6 @@ it('keeps redirect pointers through catalogue GC so old URLs still 301 from KV',
     await served((counted, limit) => loadProductPage(counted, { CATALOG_KV: kv }, 'tee', limit))
   ).toEqual(moved('/products/tee-2'));
   expect(await served((counted) => loadPostPage(counted, { CATALOG_KV: kv }, 'launch'))).toEqual(
-    moved('/blog/launch-2')
+    moved('/articles/launch-2')
   );
 });

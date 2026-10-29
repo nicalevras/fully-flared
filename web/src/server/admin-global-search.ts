@@ -28,7 +28,7 @@ export async function globalSearch(
   if (query.length < 2) return EMPTY;
 
   const byTitle = await adminProductDiscovery(db, { q: query, mode: 'title' });
-  const bySku = await adminProductDiscovery(db, { q: query, mode: 'sku-prefix' });
+  const bySku = await adminProductDiscovery(db, { q: query, mode: 'sku' });
   const productMap = new Map<string, GlobalSearchResult['products'][number]>();
   for (const p of [...byTitle.products, ...bySku.products]) {
     if (!productMap.has(p.id)) productMap.set(p.id, { id: p.id, title: p.title, status: p.status });
@@ -57,16 +57,16 @@ export async function globalSearch(
       db
         .prepare(
           `SELECT lower(customer_email) AS email FROM orders
-           WHERE customer_email >= ? AND customer_email < ?
-           GROUP BY email ORDER BY email LIMIT 5`
+           WHERE lower(customer_email) >= ? AND lower(customer_email) < ?
+           GROUP BY lower(customer_email) ORDER BY lower(customer_email) LIMIT 5`
         )
         .bind(prefix, prefixEnd)
         .all<{ email: string }>(),
       db
         .prepare(
           `SELECT lower(email) AS email FROM user
-           WHERE email >= ? AND email < ?
-           GROUP BY email ORDER BY email LIMIT 5`
+           WHERE lower(email) >= ? AND lower(email) < ?
+           GROUP BY lower(email) ORDER BY lower(email) LIMIT 5`
         )
         .bind(prefix, prefixEnd)
         .all<{ email: string }>(),

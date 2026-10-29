@@ -15,6 +15,7 @@ import {
   type CatalogLease,
 } from './catalog-exec';
 import { getSettings } from './settings';
+import { resolveMediaSources } from './media-source';
 import {
   ALL_LISTING,
   COLLECTION_PAGE_SIZE,
@@ -70,7 +71,7 @@ const CHUNK = 88;
 // editorial document, and one layout republish.
 const BUILD_STEP_STATEMENTS = 7;
 const EDITORIAL_DOC_STATEMENTS = 10;
-const LAYOUT_STATEMENTS = 14;
+const LAYOUT_STATEMENTS = 15;
 const RETIRE_STATEMENTS = 7;
 
 type KvLike = ReclaimKv & {
@@ -310,7 +311,7 @@ async function unpublishDocument(
 async function publishMoves(
   db: D1Database,
   put: PutFn,
-  section: 'products' | 'blog',
+  section: 'products' | 'articles',
   slug: string,
   previous: string | null
 ): Promise<void> {
@@ -334,7 +335,7 @@ async function publishMoves(
   );
   const pointer = JSON.stringify({ redirect: to });
   for (const key of keys) await put(key, pointer);
-  if (section === 'blog' && keys.length)
+  if (section === 'articles' && keys.length)
     await db
       .prepare('DELETE FROM catalog_documents WHERE key IN (SELECT value FROM json_each(?))')
       .bind(JSON.stringify(keys))
@@ -2211,6 +2212,7 @@ export async function requestCatalogSourceRebuild(db: D1Database): Promise<void>
 }
 
 async function buildLayoutModel(db: D1Database, settings: Awaited<ReturnType<typeof getSettings>>) {
+  const brandImages = await resolveMediaSources(db, [settings.logoMediaId, settings.heroMediaId]);
   // Layout contains a fixed navigation preview, never every collection.
   const navigation = await db
     .prepare('SELECT slug,title,description FROM collections ORDER BY title,id LIMIT 8')
@@ -2231,6 +2233,8 @@ async function buildLayoutModel(db: D1Database, settings: Awaited<ReturnType<typ
   return {
     limits: settings.limits as unknown as Record<string, number>,
     storeName: settings.storeName,
+    logo: brandImages.get(settings.logoMediaId) ?? null,
+    hero: brandImages.get(settings.heroMediaId) ?? null,
     announcementText: settings.announcementText,
     seoTitleTemplate: settings.seoTitleTemplate,
     canonicalBaseUrl: settings.canonicalBaseUrl,
@@ -2261,7 +2265,6 @@ async function buildProductDocuments(
       slug: string;
       title: string;
       description: string;
-      description_html: string | null;
       status: ProductDocument['status'];
       seo_title: string | null;
       seo_description: string | null;
@@ -2274,7 +2277,7 @@ async function buildProductDocuments(
       const ph = placeholders(chunk.length);
       const products = await db
         .prepare(
-          `SELECT id, slug, title, description, description_html, status, seo_title, seo_description FROM products WHERE status = 'active' AND id IN (${ph})`
+          `SELECT id, slug, title, description, status, seo_title, seo_description FROM products WHERE status = 'active' AND id IN (${ph})`
         )
         .bind(...chunk)
         .all<P>();
@@ -2349,7 +2352,6 @@ async function buildProductDocuments(
         slug: p.slug,
         title: p.title,
         description: p.description,
-        descriptionHtml: p.description_html,
         status: p.status,
         seoTitle: p.seo_title,
         seoDescription: p.seo_description,
@@ -3246,7 +3248,7 @@ export async function processCatalogWork(
           if (kind === 'post') invalidations.push({ scope: 'editorial', scopeId: 'index' });
           await publishDocument(db, kv, put, 'editorial', docKey, docValue);
           if (kind === 'post' && !durablePointer)
-            await publishMoves(db, put, 'blog', row.slug, null);
+            await publishMoves(db, put, 'articles', row.slug, null);
         }
       }
     }

@@ -1,0 +1,6049 @@
+{
+  "sourceSha": "6339f228c3dd7b9a71442d0983b73695bdab306e",
+  "runtime": "Node 24.21.0 + Miniflare/workerd local D1",
+  "startedAt": "2026-10-25T15:12:23.909Z",
+  "queries": [
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 0,
+      "name": "sku_exact",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku=? LIMIT 20",
+      "args": [
+        "SKU-000009"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku=?)"
+        }
+      ],
+      "elapsedMs": 3.6779169999999795,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 0,
+      "name": "sku_prefix_like",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku LIKE ? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000%"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 222,
+          "detail": "SCAN variants USING INDEX variants_sku_unique"
+        }
+      ],
+      "elapsedMs": 2.7718329999997877,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 10,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 0,
+      "name": "sku_prefix_range",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku>=? AND sku<? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000",
+        "SKU-001"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 163,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku>? AND sku<?)"
+        }
+      ],
+      "elapsedMs": 6.374624999999924,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 10,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 0,
+      "name": "product_fts",
+      "sql": "SELECT p.id FROM products_fts f JOIN products p ON p.rowid=f.rowid WHERE products_fts MATCH ? ORDER BY p.id LIMIT 20",
+      "args": [
+        "shirt"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 156,
+          "detail": "SCAN f VIRTUAL TABLE INDEX 0:M3"
+        },
+        {
+          "id": 10,
+          "parent": 0,
+          "notused": 45,
+          "detail": "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 4.777749999999742,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 30,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 0,
+      "name": "order_number",
+      "sql": "SELECT id,number FROM orders WHERE number=? LIMIT 20",
+      "args": [
+        "FF-009999"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH orders USING INDEX orders_number_unique (number=?)"
+        }
+      ],
+      "elapsedMs": 3.34512500000028,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 0,
+      "name": "order_email",
+      "sql": "SELECT id,created_at FROM orders WHERE customer_email=? ORDER BY created_at DESC,id DESC LIMIT 20",
+      "args": [
+        "buyer999@example.invalid"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 61,
+          "detail": "SEARCH orders USING INDEX orders_email_idx (customer_email=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 2.7040830000000824,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 21,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 1,
+      "name": "order_email",
+      "sql": "SELECT id,created_at FROM orders WHERE customer_email=? ORDER BY created_at DESC,id DESC LIMIT 20",
+      "args": [
+        "buyer999@example.invalid"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 61,
+          "detail": "SEARCH orders USING INDEX orders_email_idx (customer_email=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 2.5051250000001346,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 1
+        },
+        "duration": 1,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 21,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 1,
+      "name": "order_number",
+      "sql": "SELECT id,number FROM orders WHERE number=? LIMIT 20",
+      "args": [
+        "FF-009999"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH orders USING INDEX orders_number_unique (number=?)"
+        }
+      ],
+      "elapsedMs": 3.5785420000001977,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 1,
+      "name": "product_fts",
+      "sql": "SELECT p.id FROM products_fts f JOIN products p ON p.rowid=f.rowid WHERE products_fts MATCH ? ORDER BY p.id LIMIT 20",
+      "args": [
+        "shirt"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 156,
+          "detail": "SCAN f VIRTUAL TABLE INDEX 0:M3"
+        },
+        {
+          "id": 10,
+          "parent": 0,
+          "notused": 45,
+          "detail": "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 3.454083999999966,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 30,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 1,
+      "name": "sku_prefix_range",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku>=? AND sku<? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000",
+        "SKU-001"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 163,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku>? AND sku<?)"
+        }
+      ],
+      "elapsedMs": 3.0594169999999394,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 10,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 1,
+      "name": "sku_prefix_like",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku LIKE ? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000%"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 222,
+          "detail": "SCAN variants USING INDEX variants_sku_unique"
+        }
+      ],
+      "elapsedMs": 2.884292000000187,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 10,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 1,
+      "name": "sku_exact",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku=? LIMIT 20",
+      "args": [
+        "SKU-000009"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku=?)"
+        }
+      ],
+      "elapsedMs": 4.304833000000144,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 2,
+      "name": "sku_exact",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku=? LIMIT 20",
+      "args": [
+        "SKU-000009"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku=?)"
+        }
+      ],
+      "elapsedMs": 3.11587499999996,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 2,
+      "name": "sku_prefix_like",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku LIKE ? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000%"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 222,
+          "detail": "SCAN variants USING INDEX variants_sku_unique"
+        }
+      ],
+      "elapsedMs": 2.72524999999996,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 10,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 2,
+      "name": "sku_prefix_range",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku>=? AND sku<? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000",
+        "SKU-001"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 163,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku>? AND sku<?)"
+        }
+      ],
+      "elapsedMs": 3.2978330000000824,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 10,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 2,
+      "name": "product_fts",
+      "sql": "SELECT p.id FROM products_fts f JOIN products p ON p.rowid=f.rowid WHERE products_fts MATCH ? ORDER BY p.id LIMIT 20",
+      "args": [
+        "shirt"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 156,
+          "detail": "SCAN f VIRTUAL TABLE INDEX 0:M3"
+        },
+        {
+          "id": 10,
+          "parent": 0,
+          "notused": 45,
+          "detail": "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 2.757916000000023,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 30,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 2,
+      "name": "order_number",
+      "sql": "SELECT id,number FROM orders WHERE number=? LIMIT 20",
+      "args": [
+        "FF-009999"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH orders USING INDEX orders_number_unique (number=?)"
+        }
+      ],
+      "elapsedMs": 2.752208999999766,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 2,
+      "name": "order_email",
+      "sql": "SELECT id,created_at FROM orders WHERE customer_email=? ORDER BY created_at DESC,id DESC LIMIT 20",
+      "args": [
+        "buyer999@example.invalid"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 61,
+          "detail": "SEARCH orders USING INDEX orders_email_idx (customer_email=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 3.1807919999996557,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 21,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 3,
+      "name": "order_email",
+      "sql": "SELECT id,created_at FROM orders WHERE customer_email=? ORDER BY created_at DESC,id DESC LIMIT 20",
+      "args": [
+        "buyer999@example.invalid"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 61,
+          "detail": "SEARCH orders USING INDEX orders_email_idx (customer_email=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 2.6450409999997646,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 21,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 3,
+      "name": "order_number",
+      "sql": "SELECT id,number FROM orders WHERE number=? LIMIT 20",
+      "args": [
+        "FF-009999"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH orders USING INDEX orders_number_unique (number=?)"
+        }
+      ],
+      "elapsedMs": 2.940624999999727,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 3,
+      "name": "product_fts",
+      "sql": "SELECT p.id FROM products_fts f JOIN products p ON p.rowid=f.rowid WHERE products_fts MATCH ? ORDER BY p.id LIMIT 20",
+      "args": [
+        "shirt"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 156,
+          "detail": "SCAN f VIRTUAL TABLE INDEX 0:M3"
+        },
+        {
+          "id": 10,
+          "parent": 0,
+          "notused": 45,
+          "detail": "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 3.136833999999908,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 30,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 3,
+      "name": "sku_prefix_range",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku>=? AND sku<? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000",
+        "SKU-001"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 163,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku>? AND sku<?)"
+        }
+      ],
+      "elapsedMs": 6.0199579999998605,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 10,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 3,
+      "name": "sku_prefix_like",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku LIKE ? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000%"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 222,
+          "detail": "SCAN variants USING INDEX variants_sku_unique"
+        }
+      ],
+      "elapsedMs": 3.2655830000003334,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 10,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 3,
+      "name": "sku_exact",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku=? LIMIT 20",
+      "args": [
+        "SKU-000009"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku=?)"
+        }
+      ],
+      "elapsedMs": 2.717834000000039,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 4,
+      "name": "sku_exact",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku=? LIMIT 20",
+      "args": [
+        "SKU-000009"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku=?)"
+        }
+      ],
+      "elapsedMs": 3.2344160000002375,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 4,
+      "name": "sku_prefix_like",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku LIKE ? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000%"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 222,
+          "detail": "SCAN variants USING INDEX variants_sku_unique"
+        }
+      ],
+      "elapsedMs": 3.2053750000000036,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 10,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 4,
+      "name": "sku_prefix_range",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku>=? AND sku<? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000",
+        "SKU-001"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 163,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku>? AND sku<?)"
+        }
+      ],
+      "elapsedMs": 2.973417000000154,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 10,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 4,
+      "name": "product_fts",
+      "sql": "SELECT p.id FROM products_fts f JOIN products p ON p.rowid=f.rowid WHERE products_fts MATCH ? ORDER BY p.id LIMIT 20",
+      "args": [
+        "shirt"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 156,
+          "detail": "SCAN f VIRTUAL TABLE INDEX 0:M3"
+        },
+        {
+          "id": 10,
+          "parent": 0,
+          "notused": 45,
+          "detail": "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 3.159208999999919,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 30,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 4,
+      "name": "order_number",
+      "sql": "SELECT id,number FROM orders WHERE number=? LIMIT 20",
+      "args": [
+        "FF-009999"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH orders USING INDEX orders_number_unique (number=?)"
+        }
+      ],
+      "elapsedMs": 2.538250000000062,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 10,
+      "orders": 10000,
+      "run": 4,
+      "name": "order_email",
+      "sql": "SELECT id,created_at FROM orders WHERE customer_email=? ORDER BY created_at DESC,id DESC LIMIT 20",
+      "args": [
+        "buyer999@example.invalid"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 61,
+          "detail": "SEARCH orders USING INDEX orders_email_idx (customer_email=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 3.107332999999926,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 10000,
+        "changed_db": false,
+        "size_after": 4296704,
+        "rows_read": 21,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 0,
+      "name": "sku_exact",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku=? LIMIT 20",
+      "args": [
+        "SKU-004999"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku=?)"
+        }
+      ],
+      "elapsedMs": 4.476916999999958,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 0,
+      "name": "sku_prefix_like",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku LIKE ? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000%"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 222,
+          "detail": "SCAN variants USING INDEX variants_sku_unique"
+        }
+      ],
+      "elapsedMs": 3.5841660000000957,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 20,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 0,
+      "name": "sku_prefix_range",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku>=? AND sku<? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000",
+        "SKU-001"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 163,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku>? AND sku<?)"
+        }
+      ],
+      "elapsedMs": 3.1078339999999116,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 20,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 0,
+      "name": "product_fts",
+      "sql": "SELECT p.id FROM products_fts f JOIN products p ON p.rowid=f.rowid WHERE products_fts MATCH ? ORDER BY p.id LIMIT 20",
+      "args": [
+        "shirt"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 156,
+          "detail": "SCAN f VIRTUAL TABLE INDEX 0:M3"
+        },
+        {
+          "id": 10,
+          "parent": 0,
+          "notused": 45,
+          "detail": "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 3.3798750000000837,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 1
+        },
+        "duration": 1,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 15000,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 0,
+      "name": "order_number",
+      "sql": "SELECT id,number FROM orders WHERE number=? LIMIT 20",
+      "args": [
+        "FF-009999"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH orders USING INDEX orders_number_unique (number=?)"
+        }
+      ],
+      "elapsedMs": 2.9940409999999247,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 0,
+      "name": "order_email",
+      "sql": "SELECT id,created_at FROM orders WHERE customer_email=? ORDER BY created_at DESC,id DESC LIMIT 20",
+      "args": [
+        "buyer999@example.invalid"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 61,
+          "detail": "SEARCH orders USING INDEX orders_email_idx (customer_email=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 3.4682920000000195,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 21,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 1,
+      "name": "order_email",
+      "sql": "SELECT id,created_at FROM orders WHERE customer_email=? ORDER BY created_at DESC,id DESC LIMIT 20",
+      "args": [
+        "buyer999@example.invalid"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 61,
+          "detail": "SEARCH orders USING INDEX orders_email_idx (customer_email=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 9.392917000000125,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 1
+        },
+        "duration": 1,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 21,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 1,
+      "name": "order_number",
+      "sql": "SELECT id,number FROM orders WHERE number=? LIMIT 20",
+      "args": [
+        "FF-009999"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH orders USING INDEX orders_number_unique (number=?)"
+        }
+      ],
+      "elapsedMs": 2.459542000000056,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 1,
+      "name": "product_fts",
+      "sql": "SELECT p.id FROM products_fts f JOIN products p ON p.rowid=f.rowid WHERE products_fts MATCH ? ORDER BY p.id LIMIT 20",
+      "args": [
+        "shirt"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 156,
+          "detail": "SCAN f VIRTUAL TABLE INDEX 0:M3"
+        },
+        {
+          "id": 10,
+          "parent": 0,
+          "notused": 45,
+          "detail": "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 2.9343330000001515,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 15000,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 1,
+      "name": "sku_prefix_range",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku>=? AND sku<? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000",
+        "SKU-001"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 163,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku>? AND sku<?)"
+        }
+      ],
+      "elapsedMs": 2.3776249999996253,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 20,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 1,
+      "name": "sku_prefix_like",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku LIKE ? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000%"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 222,
+          "detail": "SCAN variants USING INDEX variants_sku_unique"
+        }
+      ],
+      "elapsedMs": 2.6369580000000497,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 20,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 1,
+      "name": "sku_exact",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku=? LIMIT 20",
+      "args": [
+        "SKU-004999"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku=?)"
+        }
+      ],
+      "elapsedMs": 2.215291999999863,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 2,
+      "name": "sku_exact",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku=? LIMIT 20",
+      "args": [
+        "SKU-004999"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku=?)"
+        }
+      ],
+      "elapsedMs": 2.241791999999805,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 2,
+      "name": "sku_prefix_like",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku LIKE ? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000%"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 222,
+          "detail": "SCAN variants USING INDEX variants_sku_unique"
+        }
+      ],
+      "elapsedMs": 2.828458999999839,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 20,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 2,
+      "name": "sku_prefix_range",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku>=? AND sku<? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000",
+        "SKU-001"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 163,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku>? AND sku<?)"
+        }
+      ],
+      "elapsedMs": 5.783500000000004,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 20,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 2,
+      "name": "product_fts",
+      "sql": "SELECT p.id FROM products_fts f JOIN products p ON p.rowid=f.rowid WHERE products_fts MATCH ? ORDER BY p.id LIMIT 20",
+      "args": [
+        "shirt"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 156,
+          "detail": "SCAN f VIRTUAL TABLE INDEX 0:M3"
+        },
+        {
+          "id": 10,
+          "parent": 0,
+          "notused": 45,
+          "detail": "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 3.6213330000000497,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 15000,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 2,
+      "name": "order_number",
+      "sql": "SELECT id,number FROM orders WHERE number=? LIMIT 20",
+      "args": [
+        "FF-009999"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH orders USING INDEX orders_number_unique (number=?)"
+        }
+      ],
+      "elapsedMs": 5.684624999999869,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 2,
+      "name": "order_email",
+      "sql": "SELECT id,created_at FROM orders WHERE customer_email=? ORDER BY created_at DESC,id DESC LIMIT 20",
+      "args": [
+        "buyer999@example.invalid"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 61,
+          "detail": "SEARCH orders USING INDEX orders_email_idx (customer_email=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 3.3132089999999152,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 21,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 3,
+      "name": "order_email",
+      "sql": "SELECT id,created_at FROM orders WHERE customer_email=? ORDER BY created_at DESC,id DESC LIMIT 20",
+      "args": [
+        "buyer999@example.invalid"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 61,
+          "detail": "SEARCH orders USING INDEX orders_email_idx (customer_email=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 4.855333999999857,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 21,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 3,
+      "name": "order_number",
+      "sql": "SELECT id,number FROM orders WHERE number=? LIMIT 20",
+      "args": [
+        "FF-009999"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH orders USING INDEX orders_number_unique (number=?)"
+        }
+      ],
+      "elapsedMs": 3.3936659999999392,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 3,
+      "name": "product_fts",
+      "sql": "SELECT p.id FROM products_fts f JOIN products p ON p.rowid=f.rowid WHERE products_fts MATCH ? ORDER BY p.id LIMIT 20",
+      "args": [
+        "shirt"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 156,
+          "detail": "SCAN f VIRTUAL TABLE INDEX 0:M3"
+        },
+        {
+          "id": 10,
+          "parent": 0,
+          "notused": 45,
+          "detail": "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 3.6368749999996908,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 15000,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 3,
+      "name": "sku_prefix_range",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku>=? AND sku<? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000",
+        "SKU-001"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 163,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku>? AND sku<?)"
+        }
+      ],
+      "elapsedMs": 2.781666999999743,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 20,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 3,
+      "name": "sku_prefix_like",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku LIKE ? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000%"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 222,
+          "detail": "SCAN variants USING INDEX variants_sku_unique"
+        }
+      ],
+      "elapsedMs": 2.7840839999998934,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 20,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 3,
+      "name": "sku_exact",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku=? LIMIT 20",
+      "args": [
+        "SKU-004999"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku=?)"
+        }
+      ],
+      "elapsedMs": 2.7259579999999914,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 4,
+      "name": "sku_exact",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku=? LIMIT 20",
+      "args": [
+        "SKU-004999"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku=?)"
+        }
+      ],
+      "elapsedMs": 2.3479999999999563,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 4,
+      "name": "sku_prefix_like",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku LIKE ? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000%"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 222,
+          "detail": "SCAN variants USING INDEX variants_sku_unique"
+        }
+      ],
+      "elapsedMs": 2.460124999999607,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 20,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 4,
+      "name": "sku_prefix_range",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku>=? AND sku<? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000",
+        "SKU-001"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 163,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku>? AND sku<?)"
+        }
+      ],
+      "elapsedMs": 3.0905840000000353,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 20,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 4,
+      "name": "product_fts",
+      "sql": "SELECT p.id FROM products_fts f JOIN products p ON p.rowid=f.rowid WHERE products_fts MATCH ? ORDER BY p.id LIMIT 20",
+      "args": [
+        "shirt"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 156,
+          "detail": "SCAN f VIRTUAL TABLE INDEX 0:M3"
+        },
+        {
+          "id": 10,
+          "parent": 0,
+          "notused": 45,
+          "detail": "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 2.84441599999991,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 15000,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 4,
+      "name": "order_number",
+      "sql": "SELECT id,number FROM orders WHERE number=? LIMIT 20",
+      "args": [
+        "FF-009999"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH orders USING INDEX orders_number_unique (number=?)"
+        }
+      ],
+      "elapsedMs": 2.406792000000223,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 5000,
+      "orders": 10000,
+      "run": 4,
+      "name": "order_email",
+      "sql": "SELECT id,created_at FROM orders WHERE customer_email=? ORDER BY created_at DESC,id DESC LIMIT 20",
+      "args": [
+        "buyer999@example.invalid"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 61,
+          "detail": "SEARCH orders USING INDEX orders_email_idx (customer_email=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 7.059334000000035,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 5000,
+        "changed_db": false,
+        "size_after": 6844416,
+        "rows_read": 21,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 0,
+      "name": "sku_exact",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku=? LIMIT 20",
+      "args": [
+        "SKU-099999"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku=?)"
+        }
+      ],
+      "elapsedMs": 2.747750000000451,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 0,
+      "name": "sku_prefix_like",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku LIKE ? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000%"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 222,
+          "detail": "SCAN variants USING INDEX variants_sku_unique"
+        }
+      ],
+      "elapsedMs": 2.7621250000001965,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 20,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 0,
+      "name": "sku_prefix_range",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku>=? AND sku<? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000",
+        "SKU-001"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 163,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku>? AND sku<?)"
+        }
+      ],
+      "elapsedMs": 2.506459000000177,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 20,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 0,
+      "name": "product_fts",
+      "sql": "SELECT p.id FROM products_fts f JOIN products p ON p.rowid=f.rowid WHERE products_fts MATCH ? ORDER BY p.id LIMIT 20",
+      "args": [
+        "shirt"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 156,
+          "detail": "SCAN f VIRTUAL TABLE INDEX 0:M3"
+        },
+        {
+          "id": 10,
+          "parent": 0,
+          "notused": 45,
+          "detail": "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 12.222042000000329,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 9
+        },
+        "duration": 9,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 300000,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 0,
+      "name": "order_number",
+      "sql": "SELECT id,number FROM orders WHERE number=? LIMIT 20",
+      "args": [
+        "FF-009999"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH orders USING INDEX orders_number_unique (number=?)"
+        }
+      ],
+      "elapsedMs": 2.463582999999744,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 0,
+      "name": "order_email",
+      "sql": "SELECT id,created_at FROM orders WHERE customer_email=? ORDER BY created_at DESC,id DESC LIMIT 20",
+      "args": [
+        "buyer999@example.invalid"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 61,
+          "detail": "SEARCH orders USING INDEX orders_email_idx (customer_email=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 2.843374999999469,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 21,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 1,
+      "name": "order_email",
+      "sql": "SELECT id,created_at FROM orders WHERE customer_email=? ORDER BY created_at DESC,id DESC LIMIT 20",
+      "args": [
+        "buyer999@example.invalid"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 61,
+          "detail": "SEARCH orders USING INDEX orders_email_idx (customer_email=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 3.603374999999687,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 21,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 1,
+      "name": "order_number",
+      "sql": "SELECT id,number FROM orders WHERE number=? LIMIT 20",
+      "args": [
+        "FF-009999"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH orders USING INDEX orders_number_unique (number=?)"
+        }
+      ],
+      "elapsedMs": 2.371874999999818,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 1,
+      "name": "product_fts",
+      "sql": "SELECT p.id FROM products_fts f JOIN products p ON p.rowid=f.rowid WHERE products_fts MATCH ? ORDER BY p.id LIMIT 20",
+      "args": [
+        "shirt"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 156,
+          "detail": "SCAN f VIRTUAL TABLE INDEX 0:M3"
+        },
+        {
+          "id": 10,
+          "parent": 0,
+          "notused": 45,
+          "detail": "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 21.30883300000005,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 18
+        },
+        "duration": 18,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 300000,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 1,
+      "name": "sku_prefix_range",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku>=? AND sku<? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000",
+        "SKU-001"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 163,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku>? AND sku<?)"
+        }
+      ],
+      "elapsedMs": 5.474709000000075,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 20,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 1,
+      "name": "sku_prefix_like",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku LIKE ? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000%"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 222,
+          "detail": "SCAN variants USING INDEX variants_sku_unique"
+        }
+      ],
+      "elapsedMs": 3.1004579999998896,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 20,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 1,
+      "name": "sku_exact",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku=? LIMIT 20",
+      "args": [
+        "SKU-099999"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku=?)"
+        }
+      ],
+      "elapsedMs": 2.269000000000233,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 2,
+      "name": "sku_exact",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku=? LIMIT 20",
+      "args": [
+        "SKU-099999"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku=?)"
+        }
+      ],
+      "elapsedMs": 2.418290999999954,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 2,
+      "name": "sku_prefix_like",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku LIKE ? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000%"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 222,
+          "detail": "SCAN variants USING INDEX variants_sku_unique"
+        }
+      ],
+      "elapsedMs": 2.5410830000000715,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 1
+        },
+        "duration": 1,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 20,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 2,
+      "name": "sku_prefix_range",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku>=? AND sku<? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000",
+        "SKU-001"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 163,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku>? AND sku<?)"
+        }
+      ],
+      "elapsedMs": 2.642291999999543,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 20,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 2,
+      "name": "product_fts",
+      "sql": "SELECT p.id FROM products_fts f JOIN products p ON p.rowid=f.rowid WHERE products_fts MATCH ? ORDER BY p.id LIMIT 20",
+      "args": [
+        "shirt"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 156,
+          "detail": "SCAN f VIRTUAL TABLE INDEX 0:M3"
+        },
+        {
+          "id": 10,
+          "parent": 0,
+          "notused": 45,
+          "detail": "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 12.127832999999555,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 9
+        },
+        "duration": 9,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 300000,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 2,
+      "name": "order_number",
+      "sql": "SELECT id,number FROM orders WHERE number=? LIMIT 20",
+      "args": [
+        "FF-009999"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH orders USING INDEX orders_number_unique (number=?)"
+        }
+      ],
+      "elapsedMs": 2.8428329999997004,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 1
+        },
+        "duration": 1,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 2,
+      "name": "order_email",
+      "sql": "SELECT id,created_at FROM orders WHERE customer_email=? ORDER BY created_at DESC,id DESC LIMIT 20",
+      "args": [
+        "buyer999@example.invalid"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 61,
+          "detail": "SEARCH orders USING INDEX orders_email_idx (customer_email=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 2.488416000000143,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 21,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 3,
+      "name": "order_email",
+      "sql": "SELECT id,created_at FROM orders WHERE customer_email=? ORDER BY created_at DESC,id DESC LIMIT 20",
+      "args": [
+        "buyer999@example.invalid"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 61,
+          "detail": "SEARCH orders USING INDEX orders_email_idx (customer_email=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 2.456083000000035,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 21,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 3,
+      "name": "order_number",
+      "sql": "SELECT id,number FROM orders WHERE number=? LIMIT 20",
+      "args": [
+        "FF-009999"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH orders USING INDEX orders_number_unique (number=?)"
+        }
+      ],
+      "elapsedMs": 2.9886670000005324,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 3,
+      "name": "product_fts",
+      "sql": "SELECT p.id FROM products_fts f JOIN products p ON p.rowid=f.rowid WHERE products_fts MATCH ? ORDER BY p.id LIMIT 20",
+      "args": [
+        "shirt"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 156,
+          "detail": "SCAN f VIRTUAL TABLE INDEX 0:M3"
+        },
+        {
+          "id": 10,
+          "parent": 0,
+          "notused": 45,
+          "detail": "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 11.696958999999879,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 9
+        },
+        "duration": 9,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 300000,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 3,
+      "name": "sku_prefix_range",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku>=? AND sku<? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000",
+        "SKU-001"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 163,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku>? AND sku<?)"
+        }
+      ],
+      "elapsedMs": 2.503208000000086,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 1
+        },
+        "duration": 1,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 20,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 3,
+      "name": "sku_prefix_like",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku LIKE ? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000%"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 222,
+          "detail": "SCAN variants USING INDEX variants_sku_unique"
+        }
+      ],
+      "elapsedMs": 2.368916000000354,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 20,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 3,
+      "name": "sku_exact",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku=? LIMIT 20",
+      "args": [
+        "SKU-099999"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku=?)"
+        }
+      ],
+      "elapsedMs": 2.1682920000002923,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 4,
+      "name": "sku_exact",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku=? LIMIT 20",
+      "args": [
+        "SKU-099999"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku=?)"
+        }
+      ],
+      "elapsedMs": 2.6435419999997976,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 4,
+      "name": "sku_prefix_like",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku LIKE ? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000%"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 222,
+          "detail": "SCAN variants USING INDEX variants_sku_unique"
+        }
+      ],
+      "elapsedMs": 3.0814999999993233,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 20,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 4,
+      "name": "sku_prefix_range",
+      "sql": "SELECT product_id,sku FROM variants WHERE sku>=? AND sku<? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-000",
+        "SKU-001"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 163,
+          "detail": "SEARCH variants USING INDEX variants_sku_unique (sku>? AND sku<?)"
+        }
+      ],
+      "elapsedMs": 10.706042000000707,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 20,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 4,
+      "name": "product_fts",
+      "sql": "SELECT p.id FROM products_fts f JOIN products p ON p.rowid=f.rowid WHERE products_fts MATCH ? ORDER BY p.id LIMIT 20",
+      "args": [
+        "shirt"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 156,
+          "detail": "SCAN f VIRTUAL TABLE INDEX 0:M3"
+        },
+        {
+          "id": 10,
+          "parent": 0,
+          "notused": 45,
+          "detail": "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 12.092499999999745,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 9
+        },
+        "duration": 9,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 300000,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 4,
+      "name": "order_number",
+      "sql": "SELECT id,number FROM orders WHERE number=? LIMIT 20",
+      "args": [
+        "FF-009999"
+      ],
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 39,
+          "detail": "SEARCH orders USING INDEX orders_number_unique (number=?)"
+        }
+      ],
+      "elapsedMs": 2.5697079999999914,
+      "returned": 1,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 1,
+        "rows_written": 0
+      }
+    },
+    {
+      "catalog": 100000,
+      "orders": 10000,
+      "run": 4,
+      "name": "order_email",
+      "sql": "SELECT id,created_at FROM orders WHERE customer_email=? ORDER BY created_at DESC,id DESC LIMIT 20",
+      "args": [
+        "buyer999@example.invalid"
+      ],
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 61,
+          "detail": "SEARCH orders USING INDEX orders_email_idx (customer_email=?)"
+        },
+        {
+          "id": 22,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      "elapsedMs": 2.551292000000103,
+      "returned": 10,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 57253888,
+        "rows_read": 21,
+        "rows_written": 0
+      }
+    }
+  ],
+  "publication": [
+    {
+      "run": 0,
+      "mode": "sequential",
+      "elapsedMs": 1840.7891249999993,
+      "logicalCommits": 3,
+      "units": 15,
+      "d1BudgetStatements": 360,
+      "kvGets": 21,
+      "kvPuts": 15,
+      "kvDeletes": 0,
+      "keys": [
+        "catalog:r1:product:p1:437eba78685a14b6",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:d70eab28bd4e129e",
+        "catalog:r1:dir:fecdbe92c59d5eb8",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p1:b8e9c763f71b77a7",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:3223d2cb41176795",
+        "catalog:r1:dir:94eaf24d346f5244",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p1:483c60f8944f900c",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:73e52b66cfa7c074",
+        "catalog:r1:dir:1db0532439a0d41e",
+        "catalog:r1:listing:all:current"
+      ],
+      "purgeCalls": 3,
+      "purgeTags": 6,
+      "sourceCaughtUp": true,
+      "queueMessages": null,
+      "workerCpuMs": null
+    },
+    {
+      "run": 0,
+      "mode": "reviewed",
+      "elapsedMs": 685.9591659999987,
+      "logicalCommits": 1,
+      "units": 5,
+      "d1BudgetStatements": 120,
+      "kvGets": 7,
+      "kvPuts": 5,
+      "kvDeletes": 0,
+      "keys": [
+        "catalog:r1:product:p1:e67b6dce46ce1714",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:69d82271d57a1398",
+        "catalog:r1:dir:be1eb2b462a4f738",
+        "catalog:r1:listing:all:current"
+      ],
+      "purgeCalls": 1,
+      "purgeTags": 2,
+      "sourceCaughtUp": true,
+      "queueMessages": null,
+      "workerCpuMs": null
+    },
+    {
+      "run": 1,
+      "mode": "reviewed",
+      "elapsedMs": 779.3669169999994,
+      "logicalCommits": 1,
+      "units": 5,
+      "d1BudgetStatements": 120,
+      "kvGets": 7,
+      "kvPuts": 5,
+      "kvDeletes": 0,
+      "keys": [
+        "catalog:r1:product:p1:4765b31abb22bf03",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:3ea0dbebe3967339",
+        "catalog:r1:dir:abe87111cbe9c496",
+        "catalog:r1:listing:all:current"
+      ],
+      "purgeCalls": 1,
+      "purgeTags": 2,
+      "sourceCaughtUp": true,
+      "queueMessages": null,
+      "workerCpuMs": null
+    },
+    {
+      "run": 1,
+      "mode": "sequential",
+      "elapsedMs": 2157.346791,
+      "logicalCommits": 3,
+      "units": 15,
+      "d1BudgetStatements": 360,
+      "kvGets": 21,
+      "kvPuts": 15,
+      "kvDeletes": 0,
+      "keys": [
+        "catalog:r1:product:p1:cba53ce6ed90c615",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:ed701b63dc73fe4f",
+        "catalog:r1:dir:ef53241284608761",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p1:864ff71c2a08e8c0",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:924ec16bcad50aa8",
+        "catalog:r1:dir:731c76fc26ac0b76",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p1:bbd9966896496f73",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:cb6fccefcbd6aa79",
+        "catalog:r1:dir:5589e99ec721130a",
+        "catalog:r1:listing:all:current"
+      ],
+      "purgeCalls": 3,
+      "purgeTags": 6,
+      "sourceCaughtUp": true,
+      "queueMessages": null,
+      "workerCpuMs": null
+    },
+    {
+      "run": 2,
+      "mode": "sequential",
+      "elapsedMs": 2478.352041,
+      "logicalCommits": 3,
+      "units": 15,
+      "d1BudgetStatements": 360,
+      "kvGets": 21,
+      "kvPuts": 15,
+      "kvDeletes": 0,
+      "keys": [
+        "catalog:r1:product:p1:9b1b45d380b51ab0",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:0c3090b5a4963d6c",
+        "catalog:r1:dir:5faa65a53e5e5a13",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p1:2ec134c806b934bd",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:64204444a3b7eff3",
+        "catalog:r1:dir:03f0e249f03d67e0",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p1:6f4ec5f4c08a4a72",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:cbb2a54a94637556",
+        "catalog:r1:dir:646f4bd837e3782e",
+        "catalog:r1:listing:all:current"
+      ],
+      "purgeCalls": 3,
+      "purgeTags": 6,
+      "sourceCaughtUp": true,
+      "queueMessages": null,
+      "workerCpuMs": null
+    },
+    {
+      "run": 2,
+      "mode": "reviewed",
+      "elapsedMs": 846.3253330000007,
+      "logicalCommits": 1,
+      "units": 5,
+      "d1BudgetStatements": 120,
+      "kvGets": 7,
+      "kvPuts": 5,
+      "kvDeletes": 0,
+      "keys": [
+        "catalog:r1:product:p1:14f9c30a3e12e6ca",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:859e9cea37c78ed2",
+        "catalog:r1:dir:58b725210381021d",
+        "catalog:r1:listing:all:current"
+      ],
+      "purgeCalls": 1,
+      "purgeTags": 2,
+      "sourceCaughtUp": true,
+      "queueMessages": null,
+      "workerCpuMs": null
+    },
+    {
+      "run": 3,
+      "mode": "reviewed",
+      "elapsedMs": 827.6932500000003,
+      "logicalCommits": 1,
+      "units": 5,
+      "d1BudgetStatements": 120,
+      "kvGets": 7,
+      "kvPuts": 5,
+      "kvDeletes": 0,
+      "keys": [
+        "catalog:r1:product:p1:c21ef383f87553b9",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:17c9c913445cd7e3",
+        "catalog:r1:dir:aa6dbd59e91e1112",
+        "catalog:r1:listing:all:current"
+      ],
+      "purgeCalls": 1,
+      "purgeTags": 2,
+      "sourceCaughtUp": true,
+      "queueMessages": null,
+      "workerCpuMs": null
+    },
+    {
+      "run": 3,
+      "mode": "sequential",
+      "elapsedMs": 3688.425124999998,
+      "logicalCommits": 3,
+      "units": 15,
+      "d1BudgetStatements": 360,
+      "kvGets": 21,
+      "kvPuts": 15,
+      "kvDeletes": 0,
+      "keys": [
+        "catalog:r1:product:p1:e912891466e9773f",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:df0bdde51b7b57c5",
+        "catalog:r1:dir:75bfb8ef7288208f",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p1:ddb478da6471c66e",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:28196ae3980c79ce",
+        "catalog:r1:dir:31791b455d2379ca",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p1:229310490a612069",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:adb1d70418e246eb",
+        "catalog:r1:dir:2ea2d2564dc4de99",
+        "catalog:r1:listing:all:current"
+      ],
+      "purgeCalls": 3,
+      "purgeTags": 6,
+      "sourceCaughtUp": true,
+      "queueMessages": null,
+      "workerCpuMs": null
+    },
+    {
+      "run": 4,
+      "mode": "sequential",
+      "elapsedMs": 2553.352417000002,
+      "logicalCommits": 3,
+      "units": 15,
+      "d1BudgetStatements": 360,
+      "kvGets": 21,
+      "kvPuts": 15,
+      "kvDeletes": 0,
+      "keys": [
+        "catalog:r1:product:p1:495bdae04328a2e2",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:c04a055148c758da",
+        "catalog:r1:dir:4922de4e02d3c0f6",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p1:eecece118fa06b2b",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:b4123c4e48cce211",
+        "catalog:r1:dir:7dfe35d34170f870",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p1:6eb525725679c710",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:eec10cefee91a260",
+        "catalog:r1:dir:382caae1570d8b16",
+        "catalog:r1:listing:all:current"
+      ],
+      "purgeCalls": 3,
+      "purgeTags": 6,
+      "sourceCaughtUp": true,
+      "queueMessages": null,
+      "workerCpuMs": null
+    },
+    {
+      "run": 4,
+      "mode": "reviewed",
+      "elapsedMs": 616.2293750000026,
+      "logicalCommits": 1,
+      "units": 5,
+      "d1BudgetStatements": 120,
+      "kvGets": 7,
+      "kvPuts": 5,
+      "kvDeletes": 0,
+      "keys": [
+        "catalog:r1:product:p1:6a197b9936936fd8",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:94c2867164c634f4",
+        "catalog:r1:dir:c9ce66a9b8823eaf",
+        "catalog:r1:listing:all:current"
+      ],
+      "purgeCalls": 1,
+      "purgeTags": 2,
+      "sourceCaughtUp": true,
+      "queueMessages": null,
+      "workerCpuMs": null
+    }
+  ],
+  "coexistence": [
+    {
+      "concurrency": 1,
+      "run": 0,
+      "activity": "baseline",
+      "checkout": {
+        "samples": [
+          38.88750000000073
+        ],
+        "p50": 38.88750000000073,
+        "p95": 38.88750000000073,
+        "min": 38.88750000000073,
+        "max": 38.88750000000073
+      },
+      "admin": null,
+      "completed": 1,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 1,
+      "run": 0,
+      "activity": "admin",
+      "checkout": {
+        "samples": [
+          183.38224999999875
+        ],
+        "p50": 183.38224999999875,
+        "p95": 183.38224999999875,
+        "min": 183.38224999999875,
+        "max": 183.38224999999875
+      },
+      "admin": {
+        "samples": [
+          245.40683300000092,
+          233.84691699999894,
+          225.04174999999668,
+          212.5057080000006,
+          205.9046249999992,
+          202.60458399999698,
+          195.63179200000013,
+          188.42854100000113,
+          182.0981670000001,
+          169.24720900000102
+        ],
+        "p50": 205.9046249999992,
+        "p95": 245.40683300000092,
+        "min": 169.24720900000102,
+        "max": 245.40683300000092
+      },
+      "completed": 1,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 1,
+      "run": 1,
+      "activity": "admin",
+      "checkout": {
+        "samples": [
+          210.03691700000127
+        ],
+        "p50": 210.03691700000127,
+        "p95": 210.03691700000127,
+        "min": 210.03691700000127,
+        "max": 210.03691700000127
+      },
+      "admin": {
+        "samples": [
+          275.2842500000006,
+          263.5434580000001,
+          255.348915999999,
+          247.0136670000029,
+          239.32133299999987,
+          229.85883300000205,
+          222.8184590000019,
+          211.13004100000035,
+          203.86283399999957,
+          195.56633299999885
+        ],
+        "p50": 239.32133299999987,
+        "p95": 275.2842500000006,
+        "min": 195.56633299999885,
+        "max": 275.2842500000006
+      },
+      "completed": 1,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 1,
+      "run": 1,
+      "activity": "baseline",
+      "checkout": {
+        "samples": [
+          36.55945900000006
+        ],
+        "p50": 36.55945900000006,
+        "p95": 36.55945900000006,
+        "min": 36.55945900000006,
+        "max": 36.55945900000006
+      },
+      "admin": null,
+      "completed": 1,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 1,
+      "run": 2,
+      "activity": "baseline",
+      "checkout": {
+        "samples": [
+          30.616582999999082
+        ],
+        "p50": 30.616582999999082,
+        "p95": 30.616582999999082,
+        "min": 30.616582999999082,
+        "max": 30.616582999999082
+      },
+      "admin": null,
+      "completed": 1,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 1,
+      "run": 2,
+      "activity": "admin",
+      "checkout": {
+        "samples": [
+          158.7123329999995
+        ],
+        "p50": 158.7123329999995,
+        "p95": 158.7123329999995,
+        "min": 158.7123329999995,
+        "max": 158.7123329999995
+      },
+      "admin": {
+        "samples": [
+          213.03179100000125,
+          203.429666,
+          195.92020799999955,
+          183.03320900000108,
+          175.88054199999897,
+          168.77462500000183,
+          160.7166670000006,
+          153.63524999999936,
+          146.49937500000306,
+          139.82724999999846
+        ],
+        "p50": 175.88054199999897,
+        "p95": 213.03179100000125,
+        "min": 139.82724999999846,
+        "max": 213.03179100000125
+      },
+      "completed": 1,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 1,
+      "run": 3,
+      "activity": "admin",
+      "checkout": {
+        "samples": [
+          355.1684170000008
+        ],
+        "p50": 355.1684170000008,
+        "p95": 355.1684170000008,
+        "min": 355.1684170000008,
+        "max": 355.1684170000008
+      },
+      "admin": {
+        "samples": [
+          495.19274999999834,
+          488.1865420000031,
+          478.19758300000103,
+          470.1277919999993,
+          462.5343749999993,
+          446.02695799999856,
+          425.1568750000006,
+          410.44174999999814,
+          386.94545800000196,
+          333.778624999999
+        ],
+        "p50": 462.5343749999993,
+        "p95": 495.19274999999834,
+        "min": 333.778624999999,
+        "max": 495.19274999999834
+      },
+      "completed": 1,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 1,
+      "run": 3,
+      "activity": "baseline",
+      "checkout": {
+        "samples": [
+          48.62308299999859
+        ],
+        "p50": 48.62308299999859,
+        "p95": 48.62308299999859,
+        "min": 48.62308299999859,
+        "max": 48.62308299999859
+      },
+      "admin": null,
+      "completed": 1,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 1,
+      "run": 4,
+      "activity": "baseline",
+      "checkout": {
+        "samples": [
+          48.85841699999946
+        ],
+        "p50": 48.85841699999946,
+        "p95": 48.85841699999946,
+        "min": 48.85841699999946,
+        "max": 48.85841699999946
+      },
+      "admin": null,
+      "completed": 1,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 1,
+      "run": 4,
+      "activity": "admin",
+      "checkout": {
+        "samples": [
+          245.00004199999967
+        ],
+        "p50": 245.00004199999967,
+        "p95": 245.00004199999967,
+        "min": 245.00004199999967,
+        "max": 245.00004199999967
+      },
+      "admin": {
+        "samples": [
+          331.3354169999984,
+          318.5397090000006,
+          305.1106660000005,
+          292.70524999999907,
+          273.1107499999998,
+          255.9073329999992,
+          239.5938750000023,
+          225.85808299999917,
+          217.03800000000047,
+          208.98004200000287
+        ],
+        "p50": 273.1107499999998,
+        "p95": 331.3354169999984,
+        "min": 208.98004200000287,
+        "max": 331.3354169999984
+      },
+      "completed": 1,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 5,
+      "run": 0,
+      "activity": "baseline",
+      "checkout": {
+        "samples": [
+          342.04829099999915,
+          342.66479099999924,
+          345.2573339999981,
+          341.82637500000055,
+          339.15370800000164
+        ],
+        "p50": 342.04829099999915,
+        "p95": 345.2573339999981,
+        "min": 339.15370800000164,
+        "max": 345.2573339999981
+      },
+      "admin": null,
+      "completed": 5,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 5,
+      "run": 0,
+      "activity": "admin",
+      "checkout": {
+        "samples": [
+          487.0921660000022,
+          486.75129200000083,
+          487.5786670000016,
+          488.98549999999886,
+          488.8762080000015
+        ],
+        "p50": 487.5786670000016,
+        "p95": 488.98549999999886,
+        "min": 486.75129200000083,
+        "max": 488.98549999999886
+      },
+      "admin": {
+        "samples": [
+          516.3210409999992,
+          507.9554160000007,
+          498.61504100000093,
+          491.7219580000019,
+          483.1491669999996,
+          473.24287500000355,
+          462.8752499999973,
+          450.7907079999968,
+          431.1062500000007,
+          409.06516700000066
+        ],
+        "p50": 483.1491669999996,
+        "p95": 516.3210409999992,
+        "min": 409.06516700000066,
+        "max": 516.3210409999992
+      },
+      "completed": 5,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 5,
+      "run": 1,
+      "activity": "admin",
+      "checkout": {
+        "samples": [
+          281.0272079999995,
+          280.6274169999997,
+          281.809874999999,
+          284.6733329999988,
+          284.9157500000001
+        ],
+        "p50": 281.809874999999,
+        "p95": 284.9157500000001,
+        "min": 280.6274169999997,
+        "max": 284.9157500000001
+      },
+      "admin": {
+        "samples": [
+          270.6702919999989,
+          264.68645900000047,
+          241.16912500000035,
+          235.48891600000206,
+          228.64479200000278,
+          221.33095799999865,
+          209.24354099999982,
+          200.3282500000023,
+          193.70245899999645,
+          186.1384169999983
+        ],
+        "p50": 228.64479200000278,
+        "p95": 270.6702919999989,
+        "min": 186.1384169999983,
+        "max": 270.6702919999989
+      },
+      "completed": 5,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 5,
+      "run": 1,
+      "activity": "baseline",
+      "checkout": {
+        "samples": [
+          152.95316599999933,
+          153.13674999999785,
+          155.73391700000138,
+          155.68420900000274,
+          155.63591599999927
+        ],
+        "p50": 155.63591599999927,
+        "p95": 155.73391700000138,
+        "min": 152.95316599999933,
+        "max": 155.73391700000138
+      },
+      "admin": null,
+      "completed": 5,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 5,
+      "run": 2,
+      "activity": "baseline",
+      "checkout": {
+        "samples": [
+          154.84870899999805,
+          155.67445800000132,
+          157.88220799999908,
+          157.8450419999972,
+          157.79141600000003
+        ],
+        "p50": 157.79141600000003,
+        "p95": 157.88220799999908,
+        "min": 154.84870899999805,
+        "max": 157.88220799999908
+      },
+      "admin": null,
+      "completed": 5,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 5,
+      "run": 2,
+      "activity": "admin",
+      "checkout": {
+        "samples": [
+          284.6542920000029,
+          284.9524999999994,
+          287.99645899999814,
+          287.9927920000009,
+          287.96062500000335
+        ],
+        "p50": 287.96062500000335,
+        "p95": 287.99645899999814,
+        "min": 284.6542920000029,
+        "max": 287.99645899999814
+      },
+      "admin": {
+        "samples": [
+          244.55374999999913,
+          238.22099999999773,
+          223.1017920000013,
+          216.52116699999897,
+          209.31716700000106,
+          203.04204200000095,
+          197.38895799999955,
+          190.2852079999975,
+          183.08500000000276,
+          176.03691700000127
+        ],
+        "p50": 209.31716700000106,
+        "p95": 244.55374999999913,
+        "min": 176.03691700000127,
+        "max": 244.55374999999913
+      },
+      "completed": 5,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 5,
+      "run": 3,
+      "activity": "admin",
+      "checkout": {
+        "samples": [
+          277.68291699999827,
+          277.46237499999916,
+          277.3867079999982,
+          278.0999589999992,
+          278.77224999999817
+        ],
+        "p50": 277.68291699999827,
+        "p95": 278.77224999999817,
+        "min": 277.3867079999982,
+        "max": 278.77224999999817
+      },
+      "admin": {
+        "samples": [
+          260.4667079999999,
+          254.05704199999673,
+          246.22583400000076,
+          239.31904099999883,
+          231.45779200000106,
+          224.9143750000003,
+          218.08637499999895,
+          211.14616699999897,
+          203.43454100000235,
+          196.5276249999988
+        ],
+        "p50": 231.45779200000106,
+        "p95": 260.4667079999999,
+        "min": 196.5276249999988,
+        "max": 260.4667079999999
+      },
+      "completed": 5,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 5,
+      "run": 3,
+      "activity": "baseline",
+      "checkout": {
+        "samples": [
+          120.51137500000186,
+          121.64362500000061,
+          123.84420899999895,
+          123.80883299999914,
+          123.76849999999831
+        ],
+        "p50": 123.76849999999831,
+        "p95": 123.84420899999895,
+        "min": 120.51137500000186,
+        "max": 123.84420899999895
+      },
+      "admin": null,
+      "completed": 5,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 5,
+      "run": 4,
+      "activity": "baseline",
+      "checkout": {
+        "samples": [
+          150.51866700000028,
+          151.37733300000036,
+          153.78625000000102,
+          153.7674999999981,
+          153.72100000000137
+        ],
+        "p50": 153.72100000000137,
+        "p95": 153.78625000000102,
+        "min": 150.51866700000028,
+        "max": 153.78625000000102
+      },
+      "admin": null,
+      "completed": 5,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 5,
+      "run": 4,
+      "activity": "admin",
+      "checkout": {
+        "samples": [
+          388.4805830000005,
+          388.2913750000007,
+          389.192791999998,
+          390.8017499999987,
+          390.7864580000023
+        ],
+        "p50": 389.192791999998,
+        "p95": 390.8017499999987,
+        "min": 388.2913750000007,
+        "max": 390.8017499999987
+      },
+      "admin": {
+        "samples": [
+          360.65070800000103,
+          355.13941700000214,
+          349.2426669999986,
+          342.67783300000156,
+          336.71920899999895,
+          330.5744169999998,
+          324.0062079999989,
+          318.0410840000004,
+          311.58041700000103,
+          305.4359169999989
+        ],
+        "p50": 336.71920899999895,
+        "p95": 360.65070800000103,
+        "min": 305.4359169999989,
+        "max": 360.65070800000103
+      },
+      "completed": 5,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 10,
+      "run": 0,
+      "activity": "baseline",
+      "checkout": {
+        "samples": [
+          266.19133299999885,
+          266.79012499999953,
+          275.84495799999786,
+          275.84999999999854,
+          275.8188749999972,
+          275.799500000001,
+          275.77750000000015,
+          275.74566600000253,
+          275.7134160000023,
+          275.6809170000015
+        ],
+        "p50": 275.77750000000015,
+        "p95": 275.84999999999854,
+        "min": 266.19133299999885,
+        "max": 275.84999999999854
+      },
+      "admin": null,
+      "completed": 10,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 10,
+      "run": 0,
+      "activity": "admin",
+      "checkout": {
+        "samples": [
+          399.64750000000276,
+          399.29745900000125,
+          400.0735829999976,
+          405.6938330000012,
+          405.7086670000026,
+          405.6790409999994,
+          405.6480420000007,
+          405.6312080000025,
+          405.6020419999986,
+          405.5757500000036
+        ],
+        "p50": 405.6312080000025,
+        "p95": 405.7086670000026,
+        "min": 399.29745900000125,
+        "max": 405.7086670000026
+      },
+      "admin": {
+        "samples": [
+          279.8988329999993,
+          252.79599999999846,
+          246.51283300000068,
+          240.3030409999992,
+          233.58758300000045,
+          227.61691699999938,
+          220.88474999999744,
+          214.73824999999852,
+          208.25354199999856,
+          204.9357080000009
+        ],
+        "p50": 233.58758300000045,
+        "p95": 279.8988329999993,
+        "min": 204.9357080000009,
+        "max": 279.8988329999993
+      },
+      "completed": 10,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 10,
+      "run": 1,
+      "activity": "admin",
+      "checkout": {
+        "samples": [
+          558.9798329999976,
+          558.6802089999983,
+          558.632583999999,
+          558.5793750000012,
+          558.5248750000028,
+          558.4599579999995,
+          558.4354999999996,
+          558.3858749999999,
+          558.7477080000026,
+          559.5834169999944
+        ],
+        "p50": 558.632583999999,
+        "p95": 559.5834169999944,
+        "min": 558.3858749999999,
+        "max": 559.5834169999944
+      },
+      "admin": {
+        "samples": [
+          421.65016599999944,
+          414.9013750000013,
+          407.7038329999996,
+          401.65062500000204,
+          388.3199170000007,
+          379.65120800000295,
+          372.6313749999972,
+          363.59616700000333,
+          352.5949580000015,
+          340.302125000002
+        ],
+        "p50": 388.3199170000007,
+        "p95": 421.65016599999944,
+        "min": 340.302125000002,
+        "max": 421.65016599999944
+      },
+      "completed": 10,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 10,
+      "run": 1,
+      "activity": "baseline",
+      "checkout": {
+        "samples": [
+          395.2548339999994,
+          395.09529199999815,
+          395.7561249999999,
+          401.00545799999963,
+          401.0519589999967,
+          401.1327919999967,
+          401.1478339999958,
+          401.1512920000023,
+          401.1414999999979,
+          401.1233330000032
+        ],
+        "p50": 401.1233330000032,
+        "p95": 401.1512920000023,
+        "min": 395.09529199999815,
+        "max": 401.1512920000023
+      },
+      "admin": null,
+      "completed": 10,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 10,
+      "run": 2,
+      "activity": "baseline",
+      "checkout": {
+        "samples": [
+          464.83045900000434,
+          461.7348750000019,
+          462.2486250000002,
+          468.03295900000376,
+          467.887917,
+          467.3518330000006,
+          465.52841700000135,
+          465.1084169999958,
+          464.91004099999554,
+          464.8047080000033
+        ],
+        "p50": 465.1084169999958,
+        "p95": 468.03295900000376,
+        "min": 461.7348750000019,
+        "max": 468.03295900000376
+      },
+      "admin": null,
+      "completed": 10,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 10,
+      "run": 2,
+      "activity": "admin",
+      "checkout": {
+        "samples": [
+          418.74575000000186,
+          419.32687499999884,
+          425.213791999995,
+          425.2065419999999,
+          425.1672080000062,
+          425.1179160000029,
+          425.0011669999949,
+          424.93849999999657,
+          424.887999999999,
+          424.83358299999963
+        ],
+        "p50": 425.0011669999949,
+        "p95": 425.213791999995,
+        "min": 418.74575000000186,
+        "max": 425.213791999995
+      },
+      "admin": {
+        "samples": [
+          312.0721249999988,
+          303.58541700000205,
+          295.0880000000034,
+          288.05266700000357,
+          281.9647909999985,
+          275.4340000000011,
+          268.4864170000001,
+          262.0472080000036,
+          255.18595800000185,
+          248.2464170000021
+        ],
+        "p50": 281.9647909999985,
+        "p95": 312.0721249999988,
+        "min": 248.2464170000021,
+        "max": 312.0721249999988
+      },
+      "completed": 10,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 10,
+      "run": 3,
+      "activity": "admin",
+      "checkout": {
+        "samples": [
+          393.76091599999927,
+          393.54237499999726,
+          394.61445800000365,
+          399.94079200000124,
+          399.92058300000645,
+          399.8810830000002,
+          399.83725000000413,
+          399.80487500000163,
+          399.7649170000004,
+          399.7311669999981
+        ],
+        "p50": 399.80487500000163,
+        "p95": 399.94079200000124,
+        "min": 393.54237499999726,
+        "max": 399.94079200000124
+      },
+      "admin": {
+        "samples": [
+          292.8275829999984,
+          283.5480000000025,
+          278.80224999999336,
+          268.3138749999998,
+          262.38558300000295,
+          256.0037080000038,
+          250.20799999999872,
+          243.88620800000353,
+          216.65087499999936,
+          210.34766600000148
+        ],
+        "p50": 262.38558300000295,
+        "p95": 292.8275829999984,
+        "min": 210.34766600000148,
+        "max": 292.8275829999984
+      },
+      "completed": 10,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 10,
+      "run": 3,
+      "activity": "baseline",
+      "checkout": {
+        "samples": [
+          298.8172080000004,
+          299.4192089999997,
+          306.0639999999985,
+          306.3207089999996,
+          306.28312500000175,
+          306.2418340000004,
+          306.1944169999988,
+          306.1502920000057,
+          306.10483399999794,
+          306.0642919999955
+        ],
+        "p50": 306.1502920000057,
+        "p95": 306.3207089999996,
+        "min": 298.8172080000004,
+        "max": 306.3207089999996
+      },
+      "admin": null,
+      "completed": 10,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 10,
+      "run": 4,
+      "activity": "baseline",
+      "checkout": {
+        "samples": [
+          516.6028330000045,
+          516.3448750000025,
+          525.1549999999988,
+          525.3273749999935,
+          525.3578339999949,
+          525.3581249999988,
+          525.3387090000033,
+          525.3249169999981,
+          525.3163330000025,
+          525.2897910000029
+        ],
+        "p50": 525.3249169999981,
+        "p95": 525.3581249999988,
+        "min": 516.3448750000025,
+        "max": 525.3581249999988
+      },
+      "admin": null,
+      "completed": 10,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    },
+    {
+      "concurrency": 10,
+      "run": 4,
+      "activity": "admin",
+      "checkout": {
+        "samples": [
+          644.3233749999999,
+          644.9336250000051,
+          655.0215420000022,
+          655.2355419999949,
+          655.2008750000023,
+          655.1559999999954,
+          654.044458999997,
+          653.9067080000023,
+          653.7802919999958,
+          653.7122090000048
+        ],
+        "p50": 654.044458999997,
+        "p95": 655.2355419999949,
+        "min": 644.3233749999999,
+        "max": 655.2355419999949
+      },
+      "admin": {
+        "samples": [
+          520.6665409999987,
+          503.5608749999956,
+          496.0642919999955,
+          489.30512499999895,
+          482.3431249999994,
+          476.09466699999757,
+          469.94266599999537,
+          462.92537500000617,
+          455.9661250000063,
+          448.25170900000376
+        ],
+        "p50": 482.3431249999994,
+        "p95": 520.6665409999987,
+        "min": 448.25170900000376,
+        "max": 520.6665409999987
+      },
+      "completed": 10,
+      "errors": 0,
+      "surface": "createPendingOrder plus reservation helper, no HTTP/auth/provider/admission"
+    }
+  ],
+  "errors": [],
+  "supplemental": [
+    {
+      "run": 0,
+      "name": "late_like",
+      "sql": "SELECT sku FROM variants WHERE sku LIKE ? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-0999%"
+      ],
+      "elapsedMs": 44.4471250000006,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 37
+        },
+        "duration": 37,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 51593216,
+        "rows_read": 99920,
+        "rows_written": 0
+      },
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 210,
+          "detail": "SCAN variants USING COVERING INDEX variants_sku_unique"
+        }
+      ]
+    },
+    {
+      "run": 0,
+      "name": "late_range",
+      "sql": "SELECT sku FROM variants WHERE sku>=? AND sku<? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-0999",
+        "SKU-099:"
+      ],
+      "elapsedMs": 6.238499999999476,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 51593216,
+        "rows_read": 20,
+        "rows_written": 0
+      },
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 150,
+          "detail": "SEARCH variants USING COVERING INDEX variants_sku_unique (sku>? AND sku<?)"
+        }
+      ]
+    },
+    {
+      "run": 0,
+      "name": "production_fts",
+      "sql": "SELECT p.id,p.created_at FROM products_fts f JOIN products p ON p.rowid=f.rowid WHERE products_fts MATCH ? AND p.status='active' ORDER BY p.created_at DESC,p.id DESC LIMIT 21",
+      "args": [
+        "\"Shirt\""
+      ],
+      "elapsedMs": 51.9932919999992,
+      "returned": 21,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 48
+        },
+        "duration": 48,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 51593216,
+        "rows_read": 300000,
+        "rows_written": 0
+      },
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 156,
+          "detail": "SCAN f VIRTUAL TABLE INDEX 0:M3"
+        },
+        {
+          "id": 10,
+          "parent": 0,
+          "notused": 45,
+          "detail": "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 25,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ]
+    },
+    {
+      "run": 1,
+      "name": "late_like",
+      "sql": "SELECT sku FROM variants WHERE sku LIKE ? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-0999%"
+      ],
+      "elapsedMs": 8.661292000000685,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 5
+        },
+        "duration": 5,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 51593216,
+        "rows_read": 99920,
+        "rows_written": 0
+      },
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 210,
+          "detail": "SCAN variants USING COVERING INDEX variants_sku_unique"
+        }
+      ]
+    },
+    {
+      "run": 1,
+      "name": "late_range",
+      "sql": "SELECT sku FROM variants WHERE sku>=? AND sku<? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-0999",
+        "SKU-099:"
+      ],
+      "elapsedMs": 2.6953749999993306,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 51593216,
+        "rows_read": 20,
+        "rows_written": 0
+      },
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 150,
+          "detail": "SEARCH variants USING COVERING INDEX variants_sku_unique (sku>? AND sku<?)"
+        }
+      ]
+    },
+    {
+      "run": 1,
+      "name": "production_fts",
+      "sql": "SELECT p.id,p.created_at FROM products_fts f JOIN products p ON p.rowid=f.rowid WHERE products_fts MATCH ? AND p.status='active' ORDER BY p.created_at DESC,p.id DESC LIMIT 21",
+      "args": [
+        "\"Shirt\""
+      ],
+      "elapsedMs": 17.124667000000045,
+      "returned": 21,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 13
+        },
+        "duration": 13,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 51593216,
+        "rows_read": 300000,
+        "rows_written": 0
+      },
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 156,
+          "detail": "SCAN f VIRTUAL TABLE INDEX 0:M3"
+        },
+        {
+          "id": 10,
+          "parent": 0,
+          "notused": 45,
+          "detail": "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 25,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ]
+    },
+    {
+      "run": 2,
+      "name": "late_like",
+      "sql": "SELECT sku FROM variants WHERE sku LIKE ? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-0999%"
+      ],
+      "elapsedMs": 8.801415999998426,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 4
+        },
+        "duration": 4,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 51593216,
+        "rows_read": 99920,
+        "rows_written": 0
+      },
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 210,
+          "detail": "SCAN variants USING COVERING INDEX variants_sku_unique"
+        }
+      ]
+    },
+    {
+      "run": 2,
+      "name": "late_range",
+      "sql": "SELECT sku FROM variants WHERE sku>=? AND sku<? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-0999",
+        "SKU-099:"
+      ],
+      "elapsedMs": 3.1277500000014697,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 51593216,
+        "rows_read": 20,
+        "rows_written": 0
+      },
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 150,
+          "detail": "SEARCH variants USING COVERING INDEX variants_sku_unique (sku>? AND sku<?)"
+        }
+      ]
+    },
+    {
+      "run": 2,
+      "name": "production_fts",
+      "sql": "SELECT p.id,p.created_at FROM products_fts f JOIN products p ON p.rowid=f.rowid WHERE products_fts MATCH ? AND p.status='active' ORDER BY p.created_at DESC,p.id DESC LIMIT 21",
+      "args": [
+        "\"Shirt\""
+      ],
+      "elapsedMs": 17.45129199999974,
+      "returned": 21,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 14
+        },
+        "duration": 14,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 51593216,
+        "rows_read": 300000,
+        "rows_written": 0
+      },
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 156,
+          "detail": "SCAN f VIRTUAL TABLE INDEX 0:M3"
+        },
+        {
+          "id": 10,
+          "parent": 0,
+          "notused": 45,
+          "detail": "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 25,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ]
+    },
+    {
+      "run": 3,
+      "name": "late_like",
+      "sql": "SELECT sku FROM variants WHERE sku LIKE ? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-0999%"
+      ],
+      "elapsedMs": 7.509083000000828,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 4
+        },
+        "duration": 4,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 51593216,
+        "rows_read": 99920,
+        "rows_written": 0
+      },
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 210,
+          "detail": "SCAN variants USING COVERING INDEX variants_sku_unique"
+        }
+      ]
+    },
+    {
+      "run": 3,
+      "name": "late_range",
+      "sql": "SELECT sku FROM variants WHERE sku>=? AND sku<? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-0999",
+        "SKU-099:"
+      ],
+      "elapsedMs": 3.68933399999878,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 51593216,
+        "rows_read": 20,
+        "rows_written": 0
+      },
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 150,
+          "detail": "SEARCH variants USING COVERING INDEX variants_sku_unique (sku>? AND sku<?)"
+        }
+      ]
+    },
+    {
+      "run": 3,
+      "name": "production_fts",
+      "sql": "SELECT p.id,p.created_at FROM products_fts f JOIN products p ON p.rowid=f.rowid WHERE products_fts MATCH ? AND p.status='active' ORDER BY p.created_at DESC,p.id DESC LIMIT 21",
+      "args": [
+        "\"Shirt\""
+      ],
+      "elapsedMs": 17.479832999999417,
+      "returned": 21,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 15
+        },
+        "duration": 15,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 51593216,
+        "rows_read": 300000,
+        "rows_written": 0
+      },
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 156,
+          "detail": "SCAN f VIRTUAL TABLE INDEX 0:M3"
+        },
+        {
+          "id": 10,
+          "parent": 0,
+          "notused": 45,
+          "detail": "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 25,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ]
+    },
+    {
+      "run": 4,
+      "name": "late_like",
+      "sql": "SELECT sku FROM variants WHERE sku LIKE ? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-0999%"
+      ],
+      "elapsedMs": 8.38787500000035,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 5
+        },
+        "duration": 5,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 51593216,
+        "rows_read": 99920,
+        "rows_written": 0
+      },
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 210,
+          "detail": "SCAN variants USING COVERING INDEX variants_sku_unique"
+        }
+      ]
+    },
+    {
+      "run": 4,
+      "name": "late_range",
+      "sql": "SELECT sku FROM variants WHERE sku>=? AND sku<? ORDER BY sku LIMIT 20",
+      "args": [
+        "SKU-0999",
+        "SKU-099:"
+      ],
+      "elapsedMs": 2.841374999999971,
+      "returned": 20,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 51593216,
+        "rows_read": 20,
+        "rows_written": 0
+      },
+      "plan": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 150,
+          "detail": "SEARCH variants USING COVERING INDEX variants_sku_unique (sku>? AND sku<?)"
+        }
+      ]
+    },
+    {
+      "run": 4,
+      "name": "production_fts",
+      "sql": "SELECT p.id,p.created_at FROM products_fts f JOIN products p ON p.rowid=f.rowid WHERE products_fts MATCH ? AND p.status='active' ORDER BY p.created_at DESC,p.id DESC LIMIT 21",
+      "args": [
+        "\"Shirt\""
+      ],
+      "elapsedMs": 18.395958000000974,
+      "returned": 21,
+      "meta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 15
+        },
+        "duration": 15,
+        "changes": 0,
+        "last_row_id": 100000,
+        "changed_db": false,
+        "size_after": 51593216,
+        "rows_read": 300000,
+        "rows_written": 0
+      },
+      "plan": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 156,
+          "detail": "SCAN f VIRTUAL TABLE INDEX 0:M3"
+        },
+        {
+          "id": 10,
+          "parent": 0,
+          "notused": 45,
+          "detail": "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+        },
+        {
+          "id": 25,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ]
+    },
+    {
+      "run": 0,
+      "name": "twentyfive_variants",
+      "elapsedMs": 823.2715000000007,
+      "changed": 25,
+      "editMeta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 1
+        },
+        "duration": 1,
+        "changes": 100,
+        "last_row_id": 4,
+        "changed_db": true,
+        "size_after": 1110016,
+        "rows_read": 201,
+        "rows_written": 125
+      },
+      "units": 5,
+      "d1": 120,
+      "kvGets": 7,
+      "kvPuts": 5,
+      "kvDeletes": 0,
+      "purgeCalls": 1,
+      "purgeTags": 2,
+      "keys": [
+        "catalog:r1:product:p1:ecdaa401dfad64f1",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:2a5b507b07d01222",
+        "catalog:r1:dir:062bd0204ab325e1",
+        "catalog:r1:listing:all:current"
+      ],
+      "sourceCaughtUp": true
+    },
+    {
+      "run": 0,
+      "name": "twenty_products",
+      "elapsedMs": 12985.980583,
+      "changed": 20,
+      "editMeta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 160,
+        "last_row_id": 4,
+        "changed_db": true,
+        "size_after": 1118208,
+        "rows_read": 220,
+        "rows_written": 140
+      },
+      "units": 81,
+      "d1": 2134,
+      "kvGets": 102,
+      "kvPuts": 100,
+      "kvDeletes": 0,
+      "purgeCalls": 1,
+      "purgeTags": 21,
+      "keys": [
+        "catalog:r1:product:p0:0c2f79bb8d3d071c",
+        "catalog:r1:slug:product:p0",
+        "catalog:r1:listing:all:page:2:f702a664ed748f78",
+        "catalog:r1:dir:ad30726d48fd5522",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p1:38b1139856a7bae9",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:8b24820605d00074",
+        "catalog:r1:dir:2c491a8c014f4145",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p2:f32bf54bc3a18084",
+        "catalog:r1:slug:product:p2",
+        "catalog:r1:listing:all:page:1:1c8f502c71cb921e",
+        "catalog:r1:dir:0e155eb47ca4e390",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p10:634f5c399f39c3d8",
+        "catalog:r1:slug:product:p10",
+        "catalog:r1:listing:all:page:2:dd27b4549d701c88",
+        "catalog:r1:dir:5f8b99cc4fee1e72",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p11:b406e0112d8dcba4",
+        "catalog:r1:slug:product:p11",
+        "catalog:r1:listing:all:page:2:6443f55a6638f254",
+        "catalog:r1:dir:823eb538d1b17ed6",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p12:f461618b83c5c3fc",
+        "catalog:r1:slug:product:p12",
+        "catalog:r1:listing:all:page:2:011a8bddd34c576c",
+        "catalog:r1:dir:2d8cbc2164baae90",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p13:d3e7f404575ff0a0",
+        "catalog:r1:slug:product:p13",
+        "catalog:r1:listing:all:page:2:89c56c3b47b050d4",
+        "catalog:r1:dir:c5d12383e979a6eb",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p14:202f609cbb0cd488",
+        "catalog:r1:slug:product:p14",
+        "catalog:r1:listing:all:page:1:c9222e635a362564",
+        "catalog:r1:dir:1229d8a004b6d63d",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p15:d2a48da7ece3a294",
+        "catalog:r1:slug:product:p15",
+        "catalog:r1:listing:all:page:1:13e4dbc96c23d3da",
+        "catalog:r1:dir:84adb8edb9592004",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p16:1a6ec8694713a2f4",
+        "catalog:r1:slug:product:p16",
+        "catalog:r1:listing:all:page:1:1b7d755d7cfeb7b4",
+        "catalog:r1:dir:46fc5118809fd2f2",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p17:62d6bdfded3fc358",
+        "catalog:r1:slug:product:p17",
+        "catalog:r1:listing:all:page:1:2cbedea2d14e0a76",
+        "catalog:r1:dir:93d61540e5dcdc93",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p18:fff48e8ff8158288",
+        "catalog:r1:slug:product:p18",
+        "catalog:r1:listing:all:page:1:53a74780af8df524",
+        "catalog:r1:dir:278154cb085f2f2c",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p19:5d79fb3830d54474",
+        "catalog:r1:slug:product:p19",
+        "catalog:r1:listing:all:page:1:fa26c5d07f63c33a",
+        "catalog:r1:dir:dd756bb94a818c40",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p20:5dcb210d6a8690e8",
+        "catalog:r1:slug:product:p20",
+        "catalog:r1:listing:all:page:1:1e32644bd0869218",
+        "catalog:r1:dir:89fd96616061c196",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p21:eab8f752ff507c94",
+        "catalog:r1:slug:product:p21",
+        "catalog:r1:listing:all:page:1:396c7971c1656182",
+        "catalog:r1:dir:5d1c7a646a329a78",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p22:1f36cbcc8a546d74",
+        "catalog:r1:slug:product:p22",
+        "catalog:r1:listing:all:page:1:4f39345094103dcc",
+        "catalog:r1:dir:8c496970cf3697ac",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p23:8f0f5831c7913710",
+        "catalog:r1:slug:product:p23",
+        "catalog:r1:listing:all:page:1:ccfd071268730ab2",
+        "catalog:r1:dir:f52f0f229c4518e4",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p24:c3efa605f2539f58",
+        "catalog:r1:slug:product:p24",
+        "catalog:r1:listing:all:page:1:d96013fd6c677f88",
+        "catalog:r1:dir:56f53ae9cd8a0f71",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p25:8960a19d5b46437c",
+        "catalog:r1:slug:product:p25",
+        "catalog:r1:listing:all:page:1:e4cf71e180113a62",
+        "catalog:r1:dir:1212c97e147d671b",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p26:84a640908c25d46c",
+        "catalog:r1:slug:product:p26",
+        "catalog:r1:listing:all:page:1:18f11c95f3b2243c",
+        "catalog:r1:dir:84e4eb5dae608464",
+        "catalog:r1:listing:all:current"
+      ],
+      "sourceCaughtUp": true
+    },
+    {
+      "run": 1,
+      "name": "twenty_products",
+      "elapsedMs": 26826.203625000002,
+      "changed": 20,
+      "editMeta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 1
+        },
+        "duration": 1,
+        "changes": 160,
+        "last_row_id": 80,
+        "changed_db": true,
+        "size_after": 1204224,
+        "rows_read": 220,
+        "rows_written": 140
+      },
+      "units": 81,
+      "d1": 2134,
+      "kvGets": 102,
+      "kvPuts": 100,
+      "kvDeletes": 0,
+      "purgeCalls": 1,
+      "purgeTags": 21,
+      "keys": [
+        "catalog:r1:product:p0:26d61d5b29fc731f",
+        "catalog:r1:slug:product:p0",
+        "catalog:r1:listing:all:page:2:9fe9bc02c472a7b5",
+        "catalog:r1:dir:9f2a61a6003c09b4",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p1:da2dddc2deb0ba24",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:a778979716522ce8",
+        "catalog:r1:dir:1575beab978d3e5a",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p2:ef4d6ab97b540f97",
+        "catalog:r1:slug:product:p2",
+        "catalog:r1:listing:all:page:1:983fc26eaa90be39",
+        "catalog:r1:dir:a51c142dc964ff57",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p10:8c98e5ea2de6879f",
+        "catalog:r1:slug:product:p10",
+        "catalog:r1:listing:all:page:2:ce6122a2958606cd",
+        "catalog:r1:dir:44f32cd7cf5e3521",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p11:f5dbfe9ef882973f",
+        "catalog:r1:slug:product:p11",
+        "catalog:r1:listing:all:page:2:9dd45fa5dded8aec",
+        "catalog:r1:dir:23f53ee271582108",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p12:668863ba0812b617",
+        "catalog:r1:slug:product:p12",
+        "catalog:r1:listing:all:page:2:05c5d0f55e30ada5",
+        "catalog:r1:dir:d6006fb2ec3fddb2",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p13:9441f169f015349f",
+        "catalog:r1:slug:product:p13",
+        "catalog:r1:listing:all:page:2:ac5a9ac544eb9bf4",
+        "catalog:r1:dir:75a65c7cf2bacc54",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p14:e0aa5548cb047fdf",
+        "catalog:r1:slug:product:p14",
+        "catalog:r1:listing:all:page:1:fb0e4d020e50ec98",
+        "catalog:r1:dir:b3d8346eb30599ac",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p15:cab9375ef0754cb7",
+        "catalog:r1:slug:product:p15",
+        "catalog:r1:listing:all:page:1:4e261c9327ec0e65",
+        "catalog:r1:dir:abe5e2291c6f56f0",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p16:645acfb217d29b77",
+        "catalog:r1:slug:product:p16",
+        "catalog:r1:listing:all:page:1:8b2e6c4df6de4de0",
+        "catalog:r1:dir:c3f5af0d5be04ab8",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p17:fdc3f8bcea214f07",
+        "catalog:r1:slug:product:p17",
+        "catalog:r1:listing:all:page:1:25cf87ce6ecb502d",
+        "catalog:r1:dir:827f107081e77194",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p18:eccf9e20c05b62ef",
+        "catalog:r1:slug:product:p18",
+        "catalog:r1:listing:all:page:1:cff10fbf881a51dc",
+        "catalog:r1:dir:77c1c812c103c5cb",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p19:3690cf983a0208ff",
+        "catalog:r1:slug:product:p19",
+        "catalog:r1:listing:all:page:1:072311854857a329",
+        "catalog:r1:dir:4abf82e69c416c7c",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p20:a24ff4f3a97bc607",
+        "catalog:r1:slug:product:p20",
+        "catalog:r1:listing:all:page:1:50fe5b8a144ff654",
+        "catalog:r1:dir:b8cb21a16ac2645c",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p21:14df847ae2cc204f",
+        "catalog:r1:slug:product:p21",
+        "catalog:r1:listing:all:page:1:d8f54ea8a287d77d",
+        "catalog:r1:dir:db02a4a9a3f5902b",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p22:caf5c93b5bed5587",
+        "catalog:r1:slug:product:p22",
+        "catalog:r1:listing:all:page:1:03a3b1ebf9cb4fc4",
+        "catalog:r1:dir:d0a1143f6e814c10",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p23:d45b09cb32844f5f",
+        "catalog:r1:slug:product:p23",
+        "catalog:r1:listing:all:page:1:fdb1d1a12a497f1d",
+        "catalog:r1:dir:a57f92154b5d628e",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p24:2b83ea702fb960c7",
+        "catalog:r1:slug:product:p24",
+        "catalog:r1:listing:all:page:1:d3240ea10b027280",
+        "catalog:r1:dir:d7f9402a3eb4c0a3",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p25:c35ae7751d5667bf",
+        "catalog:r1:slug:product:p25",
+        "catalog:r1:listing:all:page:1:397cddc6a8407849",
+        "catalog:r1:dir:c40d357009c16564",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p26:ad6edf4dda1b5347",
+        "catalog:r1:slug:product:p26",
+        "catalog:r1:listing:all:page:1:d414fa29652bd678",
+        "catalog:r1:dir:bb0948c41cb47e51",
+        "catalog:r1:listing:all:current"
+      ],
+      "sourceCaughtUp": true
+    },
+    {
+      "run": 1,
+      "name": "twentyfive_variants",
+      "elapsedMs": 867.1462500000052,
+      "changed": 25,
+      "editMeta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 100,
+        "last_row_id": 80,
+        "changed_db": true,
+        "size_after": 1294336,
+        "rows_read": 201,
+        "rows_written": 125
+      },
+      "units": 5,
+      "d1": 120,
+      "kvGets": 7,
+      "kvPuts": 5,
+      "kvDeletes": 0,
+      "purgeCalls": 1,
+      "purgeTags": 2,
+      "keys": [
+        "catalog:r1:product:p1:685917702ee9f1ed",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:6f18a91419b41af7",
+        "catalog:r1:dir:d3a10db4247b0674",
+        "catalog:r1:listing:all:current"
+      ],
+      "sourceCaughtUp": true
+    },
+    {
+      "run": 2,
+      "name": "twentyfive_variants",
+      "elapsedMs": 623.2607080000016,
+      "changed": 25,
+      "editMeta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 100,
+        "last_row_id": 4,
+        "changed_db": true,
+        "size_after": 1302528,
+        "rows_read": 201,
+        "rows_written": 125
+      },
+      "units": 5,
+      "d1": 120,
+      "kvGets": 7,
+      "kvPuts": 5,
+      "kvDeletes": 0,
+      "purgeCalls": 1,
+      "purgeTags": 2,
+      "keys": [
+        "catalog:r1:product:p1:cf2d32ae4feb78a6",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:db41bbf07a243766",
+        "catalog:r1:dir:80423dcb59582a90",
+        "catalog:r1:listing:all:current"
+      ],
+      "sourceCaughtUp": true
+    },
+    {
+      "run": 2,
+      "name": "twenty_products",
+      "elapsedMs": 19712.214541999994,
+      "changed": 20,
+      "editMeta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 2
+        },
+        "duration": 2,
+        "changes": 160,
+        "last_row_id": 4,
+        "changed_db": true,
+        "size_after": 1306624,
+        "rows_read": 220,
+        "rows_written": 140
+      },
+      "units": 81,
+      "d1": 2134,
+      "kvGets": 102,
+      "kvPuts": 100,
+      "kvDeletes": 0,
+      "purgeCalls": 1,
+      "purgeTags": 21,
+      "keys": [
+        "catalog:r1:product:p0:0bbc8d06fada2876",
+        "catalog:r1:slug:product:p0",
+        "catalog:r1:listing:all:page:2:401fffa3813ca7e9",
+        "catalog:r1:dir:6bc67f0d90ddb1bb",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p1:b5b5dbee2f6ff481",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:065a772935ee19de",
+        "catalog:r1:dir:12a4f01a53806f47",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p2:aa097366260f2526",
+        "catalog:r1:slug:product:p2",
+        "catalog:r1:listing:all:page:1:d44029feb95d107f",
+        "catalog:r1:dir:a46c1b7ab95bb254",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p10:396a284aebeb312a",
+        "catalog:r1:slug:product:p10",
+        "catalog:r1:listing:all:page:2:c3a64e5bbe02ec15",
+        "catalog:r1:dir:92f873b3d31959a4",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p11:92482f11cd584062",
+        "catalog:r1:slug:product:p11",
+        "catalog:r1:listing:all:page:2:9848d29aa971419e",
+        "catalog:r1:dir:a047d7924e6ab6de",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p12:13d5354fb6d85c86",
+        "catalog:r1:slug:product:p12",
+        "catalog:r1:listing:all:page:2:32d0532a7be51c2d",
+        "catalog:r1:dir:b3c650d00d7baec1",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p13:bc9a755835e4d92e",
+        "catalog:r1:slug:product:p13",
+        "catalog:r1:listing:all:page:2:2dfb7b19177362d2",
+        "catalog:r1:dir:60acd8affe98a105",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p14:5f0d3949b95088d2",
+        "catalog:r1:slug:product:p14",
+        "catalog:r1:listing:all:page:1:0c3e4ed56075fda0",
+        "catalog:r1:dir:a2ec65b81b5ae521",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p15:037c6738e4078d52",
+        "catalog:r1:slug:product:p15",
+        "catalog:r1:listing:all:page:1:abe7b5bfe1706da7",
+        "catalog:r1:dir:eccc34c089cc556a",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p16:23b6a0fa3ebd9536",
+        "catalog:r1:slug:product:p16",
+        "catalog:r1:listing:all:page:1:b2e82a17e9840058",
+        "catalog:r1:dir:1f434ea947913718",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p17:25f45fca045f3e46",
+        "catalog:r1:slug:product:p17",
+        "catalog:r1:listing:all:page:1:c0ee8ec06941a443",
+        "catalog:r1:dir:c1e4f0628fa795c0",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p18:8191c2ac7ac3327a",
+        "catalog:r1:slug:product:p18",
+        "catalog:r1:listing:all:page:1:4c2bcb07b204c4bc",
+        "catalog:r1:dir:712250b90808ff1a",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p19:60b9f4ae0aee5d22",
+        "catalog:r1:slug:product:p19",
+        "catalog:r1:listing:all:page:1:d790610fe72df103",
+        "catalog:r1:dir:cbf88976a0b5e166",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p20:6ec965c4e831742e",
+        "catalog:r1:slug:product:p20",
+        "catalog:r1:listing:all:page:1:24d3ae0ea5e95ed0",
+        "catalog:r1:dir:6b469d10662f1d5d",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p21:efa6ad3ff59b36ae",
+        "catalog:r1:slug:product:p21",
+        "catalog:r1:listing:all:page:1:85c1c36d029e182f",
+        "catalog:r1:dir:c95a1acdd093a3ff",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p22:9a6636a8f99c08c2",
+        "catalog:r1:slug:product:p22",
+        "catalog:r1:listing:all:page:1:bf956d537f62ca8c",
+        "catalog:r1:dir:203762c500837bc5",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p23:04eb7a747fb1721a",
+        "catalog:r1:slug:product:p23",
+        "catalog:r1:listing:all:page:1:0faa756472200d77",
+        "catalog:r1:dir:fc49760b4dcaa854",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p24:eec3e3f40d9ff0e6",
+        "catalog:r1:slug:product:p24",
+        "catalog:r1:listing:all:page:1:686415ccc0825084",
+        "catalog:r1:dir:507de82e80f3e051",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p25:9249adffa1b9c9b6",
+        "catalog:r1:slug:product:p25",
+        "catalog:r1:listing:all:page:1:17a4817227c74cab",
+        "catalog:r1:dir:078e66787d62da49",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p26:59b8b7596dc12f72",
+        "catalog:r1:slug:product:p26",
+        "catalog:r1:listing:all:page:1:a6b269a59a75a4b8",
+        "catalog:r1:dir:653f5147338a48d6",
+        "catalog:r1:listing:all:current"
+      ],
+      "sourceCaughtUp": true
+    },
+    {
+      "run": 3,
+      "name": "twenty_products",
+      "elapsedMs": 20230.594415999993,
+      "changed": 20,
+      "editMeta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 1
+        },
+        "duration": 1,
+        "changes": 160,
+        "last_row_id": 80,
+        "changed_db": true,
+        "size_after": 1421312,
+        "rows_read": 220,
+        "rows_written": 140
+      },
+      "units": 81,
+      "d1": 2134,
+      "kvGets": 102,
+      "kvPuts": 100,
+      "kvDeletes": 0,
+      "purgeCalls": 1,
+      "purgeTags": 21,
+      "keys": [
+        "catalog:r1:product:p0:ab951872f6456f91",
+        "catalog:r1:slug:product:p0",
+        "catalog:r1:listing:all:page:2:bf51610703f3f373",
+        "catalog:r1:dir:f4e2de01d1b09726",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p1:b04db70e2a78834c",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:a6f3a414858703aa",
+        "catalog:r1:dir:3e790c10fd7a53aa",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p2:2f9cb7880bff7df1",
+        "catalog:r1:slug:product:p2",
+        "catalog:r1:listing:all:page:1:07cc99d6fbf3d235",
+        "catalog:r1:dir:f15488d76ffdd8cf",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p10:abe5a380e99abb81",
+        "catalog:r1:slug:product:p10",
+        "catalog:r1:listing:all:page:2:fb692cdc7a2633ab",
+        "catalog:r1:dir:2646c2a8971483c0",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p11:dc15975809c908bd",
+        "catalog:r1:slug:product:p11",
+        "catalog:r1:listing:all:page:2:8ae59d65b25a3a06",
+        "catalog:r1:dir:bfde22b4fca6483f",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p12:c2224e4b53e347a9",
+        "catalog:r1:slug:product:p12",
+        "catalog:r1:listing:all:page:2:d81f81b55173c8a3",
+        "catalog:r1:dir:e808c52080321c48",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p13:74c041a71e6de5a5",
+        "catalog:r1:slug:product:p13",
+        "catalog:r1:listing:all:page:2:a13c190bb0885cfe",
+        "catalog:r1:dir:52a5de656e751d21",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p14:4e483257c85e60c1",
+        "catalog:r1:slug:product:p14",
+        "catalog:r1:listing:all:page:1:f1a84a0f7f317b54",
+        "catalog:r1:dir:e479e45ff5d6863f",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p15:500f5e077294265d",
+        "catalog:r1:slug:product:p15",
+        "catalog:r1:listing:all:page:1:087fc4a15a40eb21",
+        "catalog:r1:dir:853eacabf2735f2f",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p16:fc0535b92c0d2c49",
+        "catalog:r1:slug:product:p16",
+        "catalog:r1:listing:all:page:1:044b9e7a7bc2377c",
+        "catalog:r1:dir:a6addc2867ba40f3",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p17:f0684f506dcdfe05",
+        "catalog:r1:slug:product:p17",
+        "catalog:r1:listing:all:page:1:9e02151c5c615321",
+        "catalog:r1:dir:e14cf386966144ed",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p18:5ddf94a0ada47921",
+        "catalog:r1:slug:product:p18",
+        "catalog:r1:listing:all:page:1:27c9d4454836d318",
+        "catalog:r1:dir:b5b0c223f0056234",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p19:a5ec474f3772499d",
+        "catalog:r1:slug:product:p19",
+        "catalog:r1:listing:all:page:1:5fc3e68b31c4f7a5",
+        "catalog:r1:dir:94b0dd2e33de94b1",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p20:fddac473ed18eb35",
+        "catalog:r1:slug:product:p20",
+        "catalog:r1:listing:all:page:1:fc03b15ffb953d70",
+        "catalog:r1:dir:7d81863ef66b65e1",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p21:9db127bbe953fd31",
+        "catalog:r1:slug:product:p21",
+        "catalog:r1:listing:all:page:1:80d6970303b1f5f9",
+        "catalog:r1:dir:9906c61c55c11c0a",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p22:876ecb256f86c705",
+        "catalog:r1:slug:product:p22",
+        "catalog:r1:listing:all:page:1:92afcda4447b9130",
+        "catalog:r1:dir:90fb6f4d69ee22f9",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p23:f212401d4caac5b9",
+        "catalog:r1:slug:product:p23",
+        "catalog:r1:listing:all:page:1:1c2d727d22f47299",
+        "catalog:r1:dir:7ea9ca200ff4a258",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p24:f0571ab868c76eb5",
+        "catalog:r1:slug:product:p24",
+        "catalog:r1:listing:all:page:1:68626576e4453f74",
+        "catalog:r1:dir:d1076934a8846121",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p25:095c5e23e8734c89",
+        "catalog:r1:slug:product:p25",
+        "catalog:r1:listing:all:page:1:7ef1493ef1c11e35",
+        "catalog:r1:dir:6f7dc68da345c088",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p26:d5a58a08d839b725",
+        "catalog:r1:slug:product:p26",
+        "catalog:r1:listing:all:page:1:0485125b543f36c4",
+        "catalog:r1:dir:065de5e7e3e28d00",
+        "catalog:r1:listing:all:current"
+      ],
+      "sourceCaughtUp": true
+    },
+    {
+      "run": 3,
+      "name": "twentyfive_variants",
+      "elapsedMs": 574.924915999989,
+      "changed": 25,
+      "editMeta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 1
+        },
+        "duration": 1,
+        "changes": 100,
+        "last_row_id": 80,
+        "changed_db": true,
+        "size_after": 1515520,
+        "rows_read": 201,
+        "rows_written": 125
+      },
+      "units": 5,
+      "d1": 120,
+      "kvGets": 7,
+      "kvPuts": 5,
+      "kvDeletes": 0,
+      "purgeCalls": 1,
+      "purgeTags": 2,
+      "keys": [
+        "catalog:r1:product:p1:dae4589afa534f75",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:ed77b55c211e7345",
+        "catalog:r1:dir:e08428e7ace9fb53",
+        "catalog:r1:listing:all:current"
+      ],
+      "sourceCaughtUp": true
+    },
+    {
+      "run": 4,
+      "name": "twentyfive_variants",
+      "elapsedMs": 779.2205830000021,
+      "changed": 25,
+      "editMeta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 0
+        },
+        "duration": 0,
+        "changes": 100,
+        "last_row_id": 4,
+        "changed_db": true,
+        "size_after": 1523712,
+        "rows_read": 201,
+        "rows_written": 125
+      },
+      "units": 5,
+      "d1": 120,
+      "kvGets": 7,
+      "kvPuts": 5,
+      "kvDeletes": 0,
+      "purgeCalls": 1,
+      "purgeTags": 2,
+      "keys": [
+        "catalog:r1:product:p1:9f7a0311c9c208f2",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:b3c70d952dff6578",
+        "catalog:r1:dir:b05be0e40d05a14c",
+        "catalog:r1:listing:all:current"
+      ],
+      "sourceCaughtUp": true
+    },
+    {
+      "run": 4,
+      "name": "twenty_products",
+      "elapsedMs": 14575.563917000007,
+      "changed": 20,
+      "editMeta": {
+        "served_by": "miniflare.db",
+        "served_by_primary": true,
+        "total_attempts": 1,
+        "timings": {
+          "sql_duration_ms": 2
+        },
+        "duration": 2,
+        "changes": 160,
+        "last_row_id": 4,
+        "changed_db": true,
+        "size_after": 1527808,
+        "rows_read": 220,
+        "rows_written": 140
+      },
+      "units": 81,
+      "d1": 2134,
+      "kvGets": 102,
+      "kvPuts": 100,
+      "kvDeletes": 0,
+      "purgeCalls": 1,
+      "purgeTags": 21,
+      "keys": [
+        "catalog:r1:product:p0:aebb460cfe7bf7f8",
+        "catalog:r1:slug:product:p0",
+        "catalog:r1:listing:all:page:2:27865c483884e993",
+        "catalog:r1:dir:04deb4e48183ee63",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p1:2938748b84c1b4a1",
+        "catalog:r1:slug:product:p1",
+        "catalog:r1:listing:all:page:2:71b22254b3d234c4",
+        "catalog:r1:dir:a8106c14ed82344f",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p2:3513a7a604579798",
+        "catalog:r1:slug:product:p2",
+        "catalog:r1:listing:all:page:1:9c56e45363e3f247",
+        "catalog:r1:dir:d51a79dab57b7568",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p10:0790b7586a711c9c",
+        "catalog:r1:slug:product:p10",
+        "catalog:r1:listing:all:page:2:2f8ef30b0114685f",
+        "catalog:r1:dir:c161653b3624f469",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p11:c3a2dcdbbd7ee2e8",
+        "catalog:r1:slug:product:p11",
+        "catalog:r1:listing:all:page:2:6d0ed9f414776e4c",
+        "catalog:r1:dir:f9936fda6d062687",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p12:c4c004989a4f6390",
+        "catalog:r1:slug:product:p12",
+        "catalog:r1:listing:all:page:2:346b70cdc8eaab77",
+        "catalog:r1:dir:f4f5f7a654b17d2b",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p13:b5c62c8f32ce0a9c",
+        "catalog:r1:slug:product:p13",
+        "catalog:r1:listing:all:page:2:7e482743f4f12800",
+        "catalog:r1:dir:00420fc04aa5d2f7",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p14:de2a1b01f2fd824c",
+        "catalog:r1:slug:product:p14",
+        "catalog:r1:listing:all:page:1:c2536093394e04e4",
+        "catalog:r1:dir:30753ffb9e2b5ee8",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p15:b6cb09b92caa00f8",
+        "catalog:r1:slug:product:p15",
+        "catalog:r1:listing:all:page:1:161b1e8bd994aa3f",
+        "catalog:r1:dir:526458aa13438658",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p16:3d6e7d19e8c949b8",
+        "catalog:r1:slug:product:p16",
+        "catalog:r1:listing:all:page:1:afe2fce3ac9280fc",
+        "catalog:r1:dir:efd4834fe712a3a2",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p17:8790ba259098ba14",
+        "catalog:r1:slug:product:p17",
+        "catalog:r1:listing:all:page:1:266434a1fdb8fbcb",
+        "catalog:r1:dir:12b10c67b53d4c5d",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p18:ed055c0069be314c",
+        "catalog:r1:slug:product:p18",
+        "catalog:r1:listing:all:page:1:257fbb92fb6f2128",
+        "catalog:r1:dir:c245e6c314d9aa97",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p19:e087fbe9f767f7b8",
+        "catalog:r1:slug:product:p19",
+        "catalog:r1:listing:all:page:1:ac93d8656f46ed03",
+        "catalog:r1:dir:68ee4c2f8724b8da",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p20:cae5d25b99e824a4",
+        "catalog:r1:slug:product:p20",
+        "catalog:r1:listing:all:page:1:f32c2353c6e9398c",
+        "catalog:r1:dir:a5d2d8dc9f9d4460",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p21:0ae2d52e195781f8",
+        "catalog:r1:slug:product:p21",
+        "catalog:r1:listing:all:page:1:e6edfeffebaac18f",
+        "catalog:r1:dir:5927309cc899f1cf",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p22:850707e92e32af60",
+        "catalog:r1:slug:product:p22",
+        "catalog:r1:listing:all:page:1:a6e0779ec393da30",
+        "catalog:r1:dir:ee8e0c2f2fe6b153",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p23:c6a89d0a45ab238c",
+        "catalog:r1:slug:product:p23",
+        "catalog:r1:listing:all:page:1:07b327fa1db8155f",
+        "catalog:r1:dir:d806c069fe88aac5",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p24:4c756b6909f80b34",
+        "catalog:r1:slug:product:p24",
+        "catalog:r1:listing:all:page:1:90701721bfc64100",
+        "catalog:r1:dir:4b4f01504333acb4",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p25:56ff3dadbdebc700",
+        "catalog:r1:slug:product:p25",
+        "catalog:r1:listing:all:page:1:403b6f87eee94843",
+        "catalog:r1:dir:199a61a14bf75a24",
+        "catalog:r1:listing:all:current",
+        "catalog:r1:product:p26:0df0735e5c642b48",
+        "catalog:r1:slug:product:p26",
+        "catalog:r1:listing:all:page:1:9b0ab5127c222ce4",
+        "catalog:r1:dir:ad41d0d4d2f5fd4d",
+        "catalog:r1:listing:all:current"
+      ],
+      "sourceCaughtUp": true
+    }
+  ]
+}

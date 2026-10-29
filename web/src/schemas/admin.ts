@@ -21,6 +21,7 @@ const variantInput = z.object({
   sku: nonEmptyString(100),
   title: nonEmptyString(200),
   priceCents: centsInt,
+  compareAtCents: nullableCents,
   continueSelling: z.boolean().optional().default(false),
   weightGrams: z.number().int().min(0).max(1_000_000).nullable().optional().default(null),
   stock: z.number().int().min(0).max(1_000_000).optional().default(0),
@@ -35,7 +36,6 @@ export const adminActionSchema = z.discriminatedUnion('action', [
     status: z.enum(['draft', 'active']).optional().default('draft'),
     seoTitle: optText(300),
     seoDescription: optText(500),
-    taxCode: optText(100),
     variants: z.array(variantInput).min(1).max(100),
   }),
   z.object({
@@ -45,11 +45,9 @@ export const adminActionSchema = z.discriminatedUnion('action', [
     title: nonEmptyString(300),
     slug: slugString,
     description: text(20_000),
-    descriptionHtml: text(50_000).optional(),
     status: z.enum(['draft', 'active']),
     seoTitle: optText(300),
     seoDescription: optText(500),
-    taxCode: optText(100),
   }),
   z.object({
     action: z.literal('product.updateStatus'),

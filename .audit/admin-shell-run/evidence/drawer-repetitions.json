@@ -1,0 +1,27 @@
+[
+  {
+    "run": 1,
+    "labelled": true,
+    "focus": "Open admin navigation"
+  },
+  {
+    "run": 2,
+    "labelled": true,
+    "focus": "Open admin navigation"
+  },
+  {
+    "run": 3,
+    "labelled": true,
+    "focus": "Open admin navigation"
+  },
+  {
+    "run": 4,
+    "labelled": true,
+    "focus": "Open admin navigation"
+  },
+  {
+    "run": 5,
+    "labelled": true,
+    "focus": "Open admin navigation"
+  }
+]

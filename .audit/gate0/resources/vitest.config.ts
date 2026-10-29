@@ -1,0 +1,2 @@
+import { defineConfig } from 'vitest/config';
+export default defineConfig({resolve:{alias:{'@baseline':'/tmp/fully-flared-gate0-baseline','cloudflare:workers':'/tmp/fully-flared-gate0-baseline/tests/helpers/cloudflare-workers-stub.ts','@':'/tmp/fully-flared-gate0-baseline/web/src'}},test:{globals:true,environment:'node',include:['.audit/gate0/resources/*.test.ts'],testTimeout:600000,hookTimeout:120000,pool:'forks',poolOptions:{forks:{maxForks:1,minForks:1}}}});

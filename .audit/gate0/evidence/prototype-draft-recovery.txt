@@ -1,0 +1,120 @@
+- complementary:
+  - generic: ƒƒ FULLY FLARED
+  - text: ◉ Fully Flared Store
+  - generic: ⌄
+  - navigation "Main navigation":
+    - button "⌂ Overview":
+      - generic: ⌂
+      - text: Overview
+    - button "▣ Orders":
+      - generic: ▣
+      - text: Orders
+    - button "◇ Products":
+      - generic: ◇
+      - text: Products
+    - button "▤ Inventory":
+      - generic: ▤
+      - text: Inventory
+    - button "♧ Customers":
+      - generic: ♧
+      - text: Customers
+    - generic: Store
+    - button "% Discounts":
+      - generic: "%"
+      - text: Discounts
+    - button "▧ Content":
+      - generic: ▧
+      - text: Content
+    - button "↗ Analytics":
+      - generic: ↗
+      - text: Analytics
+    - generic: Manage
+    - button "⚙ Settings":
+      - generic: ⚙
+      - text: Settings
+  - generic: "N"
+  - text: Nic Store owner
+- main:
+  - text: Gate 0 / Design study
+  - generic: Simulated data · No commerce writes
+  - combobox "Design direction":
+    - option "A · Full workspaces" [selected]
+    - option "B · Contextual panels"
+  - combobox "Draft storage":
+    - option "Memory Save/Publish"
+    - option "IndexedDB recovery" [selected]
+  - combobox "Scenario":
+    - option "Normal state" [selected]
+    - option "Loading"
+    - option "Empty"
+    - option "Permission denied"
+    - option "Success"
+    - option "Error"
+    - option "Uncertain submission"
+    - option "Conflict"
+    - option "Storage unavailable"
+  - button "← Products"
+  - text: / Everyday Heavyweight Tee
+  - text: Product workspace
+  - heading "Everyday Heavyweight Tee" [level=1]
+  - generic: Active
+  - heading "Make it yours" [level=2]
+  - generic: Product name
+  - textbox "Product name":
+    - /placeholder: A name your customers will remember
+    - text: Everyday Heavyweight Tee
+  - generic: Description
+  - textbox "Description": Recoverable Gate 0 content draft
+  - generic: Plain-text prototype. Rich content requires a separate rendering and sanitization contract.
+  - heading "Photos" [level=2]
+  - img "Illustrative product placeholder": ♜
+  - button "Add product photo": +
+  - heading "Options and variants" [level=2]
+  - paragraph: Build the combinations your customers can buy.
+  - button "Edit options"
+  - table:
+    - rowgroup:
+      - row "Variant SKU Price":
+        - columnheader "Variant"
+        - columnheader "SKU"
+        - columnheader "Price"
+    - rowgroup:
+      - row "Small / Black FF-TEE-BLK-S $48.00":
+        - cell "Small / Black"
+        - cell "FF-TEE-BLK-S"
+        - cell "$48.00"
+      - row "Small / Stone FF-TEE-STN-S $48.00":
+        - cell "Small / Stone"
+        - cell "FF-TEE-STN-S"
+        - cell "$48.00"
+      - row "Medium / Black FF-TEE-BLK-M $48.00":
+        - cell "Medium / Black"
+        - cell "FF-TEE-BLK-M"
+        - cell "$48.00"
+      - row "Medium / Stone FF-TEE-STN-M $48.00":
+        - cell "Medium / Stone"
+        - cell "FF-TEE-STN-M"
+        - cell "$48.00"
+      - row "Large / Black FF-TEE-BLK-L $48.00":
+        - cell "Large / Black"
+        - cell "FF-TEE-BLK-L"
+        - cell "$48.00"
+      - row "Large / Stone FF-TEE-STN-L $48.00":
+        - cell "Large / Stone"
+        - cell "FF-TEE-STN-L"
+        - cell "$48.00"
+  - heading "Storefront" [level=3]
+  - paragraph: This product is available in your online store. Content edits stay unpublished until you choose Publish.
+  - generic: Active
+  - heading "Inventory is immediate" [level=3]
+  - paragraph: Stock changes belong in Inventory. They are not collected in a content draft.
+  - button "View inventory ↗"
+  - heading "Draft recovery" [level=3]
+  - paragraph: Saved only in this browser. Device storage can be cleared or lost.
+  - button "Try a conflict"
+- strong: 1 pending change
+- text: Recovered on this device
+- button "Discard"
+- button "Review"
+- button "Publish"
+- status: Recovered this record’s local draft.

@@ -117,7 +117,10 @@ Cloudflare dashboard when they are no longer needed.
 
 ## Verify
 
-Run `npm test` and `npm run lint` from the root. From `web`, run `npm run check`
+For a small change, run only the affected suites: `npx vitest run tests/<file>.test.ts`,
+or `npm run test:changed` for suites affected by uncommitted changes. Run the full
+`npm test` and `npm run lint` from the root once before merging; CI runs the full
+suite on every PR anyway. From `web`, run `npm run check`
 and `npm run check:migrations`. HTTP, browser and load checks require a running
 local server; see the web README for commands.
 

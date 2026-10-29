@@ -1,0 +1,205 @@
+{
+  "scope": "Local Vite HTTP full body reads; no guarantee of cold or warm edge caches; installed dependencies; no deployed CPU",
+  "samples": [
+    {
+      "round": 0,
+      "path": "/",
+      "status": 200,
+      "bytes": 14050,
+      "ms": 593.037625,
+      "cacheControl": "public, max-age=0, s-maxage=60",
+      "cfCache": null,
+      "valid": true
+    },
+    {
+      "round": 0,
+      "path": "/products/tracer-tee",
+      "status": 200,
+      "bytes": 16431,
+      "ms": 252.17087500000002,
+      "cacheControl": "public, max-age=0, s-maxage=60",
+      "cfCache": null,
+      "valid": true
+    },
+    {
+      "round": 0,
+      "path": "/shop",
+      "status": 200,
+      "bytes": 15755,
+      "ms": 322.308,
+      "cacheControl": "public, max-age=0, s-maxage=60",
+      "cfCache": null,
+      "valid": true
+    },
+    {
+      "round": 0,
+      "path": "/blog",
+      "status": 200,
+      "bytes": 11221,
+      "ms": 154.55549999999994,
+      "cacheControl": "public, max-age=0, s-maxage=60",
+      "cfCache": null,
+      "valid": true
+    },
+    {
+      "round": 1,
+      "path": "/blog",
+      "status": 200,
+      "bytes": 11221,
+      "ms": 81.26700000000005,
+      "cacheControl": "public, max-age=0, s-maxage=60",
+      "cfCache": null,
+      "valid": true
+    },
+    {
+      "round": 1,
+      "path": "/shop",
+      "status": 200,
+      "bytes": 15755,
+      "ms": 54.39041700000007,
+      "cacheControl": "public, max-age=0, s-maxage=60",
+      "cfCache": null,
+      "valid": true
+    },
+    {
+      "round": 1,
+      "path": "/products/tracer-tee",
+      "status": 200,
+      "bytes": 16431,
+      "ms": 34.391166999999996,
+      "cacheControl": "public, max-age=0, s-maxage=60",
+      "cfCache": null,
+      "valid": true
+    },
+    {
+      "round": 1,
+      "path": "/",
+      "status": 200,
+      "bytes": 14050,
+      "ms": 31.551166000000194,
+      "cacheControl": "public, max-age=0, s-maxage=60",
+      "cfCache": null,
+      "valid": true
+    },
+    {
+      "round": 2,
+      "path": "/",
+      "status": 200,
+      "bytes": 14050,
+      "ms": 30.58375000000001,
+      "cacheControl": "public, max-age=0, s-maxage=60",
+      "cfCache": null,
+      "valid": true
+    },
+    {
+      "round": 2,
+      "path": "/products/tracer-tee",
+      "status": 200,
+      "bytes": 16431,
+      "ms": 36.03954199999998,
+      "cacheControl": "public, max-age=0, s-maxage=60",
+      "cfCache": null,
+      "valid": true
+    },
+    {
+      "round": 2,
+      "path": "/shop",
+      "status": 200,
+      "bytes": 15755,
+      "ms": 41.22808299999997,
+      "cacheControl": "public, max-age=0, s-maxage=60",
+      "cfCache": null,
+      "valid": true
+    },
+    {
+      "round": 2,
+      "path": "/blog",
+      "status": 200,
+      "bytes": 11221,
+      "ms": 29.01933299999996,
+      "cacheControl": "public, max-age=0, s-maxage=60",
+      "cfCache": null,
+      "valid": true
+    },
+    {
+      "round": 3,
+      "path": "/blog",
+      "status": 200,
+      "bytes": 11221,
+      "ms": 29.40620799999988,
+      "cacheControl": "public, max-age=0, s-maxage=60",
+      "cfCache": null,
+      "valid": true
+    },
+    {
+      "round": 3,
+      "path": "/shop",
+      "status": 200,
+      "bytes": 15755,
+      "ms": 41.58054199999992,
+      "cacheControl": "public, max-age=0, s-maxage=60",
+      "cfCache": null,
+      "valid": true
+    },
+    {
+      "round": 3,
+      "path": "/products/tracer-tee",
+      "status": 200,
+      "bytes": 16431,
+      "ms": 33.115125000000035,
+      "cacheControl": "public, max-age=0, s-maxage=60",
+      "cfCache": null,
+      "valid": true
+    },
+    {
+      "round": 3,
+      "path": "/",
+      "status": 200,
+      "bytes": 14050,
+      "ms": 44.931084000000055,
+      "cacheControl": "public, max-age=0, s-maxage=60",
+      "cfCache": null,
+      "valid": true
+    },
+    {
+      "round": 4,
+      "path": "/",
+      "status": 200,
+      "bytes": 14050,
+      "ms": 30.066082999999935,
+      "cacheControl": "public, max-age=0, s-maxage=60",
+      "cfCache": null,
+      "valid": true
+    },
+    {
+      "round": 4,
+      "path": "/products/tracer-tee",
+      "status": 200,
+      "bytes": 16431,
+      "ms": 55.365084000000024,
+      "cacheControl": "public, max-age=0, s-maxage=60",
+      "cfCache": null,
+      "valid": true
+    },
+    {
+      "round": 4,
+      "path": "/shop",
+      "status": 200,
+      "bytes": 15755,
+      "ms": 26.7126659999999,
+      "cacheControl": "public, max-age=0, s-maxage=60",
+      "cfCache": null,
+      "valid": true
+    },
+    {
+      "round": 4,
+      "path": "/blog",
+      "status": 200,
+      "bytes": 11221,
+      "ms": 23.94329199999993,
+      "cacheControl": "public, max-age=0, s-maxage=60",
+      "cfCache": null,
+      "valid": true
+    }
+  ]
+}

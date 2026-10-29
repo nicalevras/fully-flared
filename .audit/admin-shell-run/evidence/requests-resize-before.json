@@ -1,0 +1,18 @@
+{
+  "scope": "Local Vite Worker root spans, excludes static assets; not deployed CPU/capacity",
+  "origin": "http://127.0.0.1:8902",
+  "before": {
+    "GET": 20,
+    "POST": 1
+  },
+  "started": "2026-10-26T04:43:38.298Z",
+  "after": {
+    "GET": 22,
+    "POST": 1
+  },
+  "finished": "2026-10-26T04:43:45.852Z",
+  "delta": {
+    "GET": 2,
+    "POST": 0
+  }
+}

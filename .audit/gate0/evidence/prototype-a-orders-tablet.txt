@@ -1,0 +1,146 @@
+- complementary:
+  - generic: ƒƒ FULLY FLARED
+  - text: ◉ Fully Flared Store
+  - generic: ⌄
+  - navigation "Main navigation":
+    - button "⌂ Overview":
+      - generic: ⌂
+      - text: Overview
+    - button "▣ Orders" [active]:
+      - generic: ▣
+      - text: Orders
+    - button "◇ Products":
+      - generic: ◇
+      - text: Products
+    - button "▤ Inventory":
+      - generic: ▤
+      - text: Inventory
+    - button "♧ Customers":
+      - generic: ♧
+      - text: Customers
+    - generic: Store
+    - button "% Discounts":
+      - generic: "%"
+      - text: Discounts
+    - button "▧ Content":
+      - generic: ▧
+      - text: Content
+    - button "↗ Analytics":
+      - generic: ↗
+      - text: Analytics
+    - generic: Manage
+    - button "⚙ Settings":
+      - generic: ⚙
+      - text: Settings
+  - generic: "N"
+  - text: Nic Store owner
+- main:
+  - text: Gate 0 / Design study
+  - generic: Simulated data · No commerce writes
+  - combobox "Design direction":
+    - option "A · Full workspaces" [selected]
+    - option "B · Contextual panels"
+  - combobox "Draft storage":
+    - option "Memory Save/Publish" [selected]
+    - option "IndexedDB recovery"
+  - combobox "Scenario":
+    - option "Normal state" [selected]
+    - option "Loading"
+    - option "Empty"
+    - option "Permission denied"
+    - option "Success"
+    - option "Error"
+    - option "Uncertain submission"
+    - option "Conflict"
+    - option "Storage unavailable"
+  - text: Daily operations
+  - heading "Orders" [level=1]
+  - paragraph: A clear next step for every order.
+  - button "Print packing slips"
+  - text: To fulfill
+  - strong: "2"
+  - text: Paid and ready to pack
+  - text: Shipped today
+  - strong: "1"
+  - text: On the way
+  - text: Returns
+  - strong: "1"
+  - text: Needs a decision
+  - group "Order views":
+    - button "All" [pressed]
+    - button "Unfulfilled"
+    - button "Shipped"
+    - button "Returns"
+  - searchbox "Search orders by number or email"
+  - table:
+    - rowgroup:
+      - row "Select visible records Order Customer Payment Fulfillment Total":
+        - columnheader "Select visible records":
+          - checkbox "Select visible records"
+        - columnheader "Order"
+        - columnheader "Customer"
+        - columnheader "Payment"
+        - columnheader "Fulfillment"
+        - columnheader "Total"
+    - rowgroup:
+      - 'row "Select #FF1048 #FF1048 Today, 10:42 am Alex Morgan alex@example.com Paid Unfulfilled $96.00"':
+        - 'cell "Select #FF1048"':
+          - 'checkbox "Select #FF1048"'
+        - cell "#FF1048 Today, 10:42 am":
+          - button "#FF1048"
+          - generic: Today, 10:42 am
+        - cell "Alex Morgan alex@example.com":
+          - text: Alex Morgan
+          - generic: alex@example.com
+        - cell "Paid":
+          - generic: Paid
+        - cell "Unfulfilled":
+          - generic: Unfulfilled
+        - cell "$96.00"
+      - 'row "Select #FF1047 #FF1047 Today, 9:18 am Jamie Chen jamie@example.com Paid Unfulfilled $62.00"':
+        - 'cell "Select #FF1047"':
+          - 'checkbox "Select #FF1047"'
+        - cell "#FF1047 Today, 9:18 am":
+          - button "#FF1047"
+          - generic: Today, 9:18 am
+        - cell "Jamie Chen jamie@example.com":
+          - text: Jamie Chen
+          - generic: jamie@example.com
+        - cell "Paid":
+          - generic: Paid
+        - cell "Unfulfilled":
+          - generic: Unfulfilled
+        - cell "$62.00"
+      - 'row "Select #FF1046 #FF1046 Yesterday, 4:30 pm Taylor Brooks taylor@example.com Paid Shipped $128.00"':
+        - 'cell "Select #FF1046"':
+          - 'checkbox "Select #FF1046"'
+        - cell "#FF1046 Yesterday, 4:30 pm":
+          - button "#FF1046"
+          - generic: Yesterday, 4:30 pm
+        - cell "Taylor Brooks taylor@example.com":
+          - text: Taylor Brooks
+          - generic: taylor@example.com
+        - cell "Paid":
+          - generic: Paid
+        - cell "Shipped":
+          - generic: Shipped
+        - cell "$128.00"
+      - 'row "Select #FF1045 #FF1045 Yesterday, 2:16 pm Sam Rivera sam@example.com Paid Return requested $48.00"':
+        - 'cell "Select #FF1045"':
+          - 'checkbox "Select #FF1045"'
+        - cell "#FF1045 Yesterday, 2:16 pm":
+          - button "#FF1045"
+          - generic: Yesterday, 2:16 pm
+        - cell "Sam Rivera sam@example.com":
+          - text: Sam Rivera
+          - generic: sam@example.com
+        - cell "Paid":
+          - generic: Paid
+        - cell "Return requested":
+          - generic: Return requested
+        - cell "$48.00"
+  - generic: Showing 4 orders · Demo dataset
+  - button "Previous" [disabled]
+  - button "Next" [disabled]
+  - paragraph: Direction A · Records open in dedicated workspaces. All data and actions in this study are simulated.
+- status

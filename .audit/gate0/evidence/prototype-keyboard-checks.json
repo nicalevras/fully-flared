@@ -1,0 +1,14 @@
+{
+  "focusLast": {
+    "label": "⚙Settings",
+    "tag": "BUTTON"
+  },
+  "focusFirst": {
+    "label": "⌂Overview",
+    "tag": "BUTTON"
+  },
+  "focusClosed": {
+    "label": "Open navigation",
+    "tag": "BUTTON"
+  }
+}

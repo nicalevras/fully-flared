@@ -9,7 +9,7 @@ export interface CheckoutRequest {
   attemptId: string;
   email: string;
   currency: string;
-  lineItems: { name: string; unitAmountCents: number; qty: number; taxCode?: string | null }[];
+  lineItems: { name: string; unitAmountCents: number; qty: number }[];
   /** Server-computed discount (cents). Sent to Stripe as a single
    *  amount-off coupon so the charged total always equals the order total;
    *  a percent coupon would also discount the shipping amount. */
@@ -347,7 +347,6 @@ export class StripeProvider implements PaymentProvider {
               currency: req.currency.toLowerCase(),
               product_data: {
                 name: i.name,
-                ...(req.automaticTax && i.taxCode ? { tax_code: i.taxCode } : {}),
               },
               unit_amount: i.unitAmountCents,
               tax_behavior: 'exclusive',

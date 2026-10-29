@@ -1,0 +1,119 @@
+- link "Skip to content":
+  - /url: "#admin-content"
+- navigation "Admin":
+  - link "Home":
+    - /url: /admin
+    - text: Home
+  - link "Products":
+    - /url: /admin/products
+    - text: Products
+  - link "Collections":
+    - /url: /admin/collections
+    - text: Collections
+  - link "Discounts":
+    - /url: /admin/discounts
+    - text: Discounts
+  - link "Orders":
+    - /url: /admin/orders
+    - text: Orders
+  - link "Customers":
+    - /url: /admin/customers
+    - text: Customers
+  - link "Shipping":
+    - /url: /admin/shipping
+    - text: Shipping
+  - link "Blog":
+    - /url: /admin/blog
+    - text: Blog
+  - link "Media":
+    - /url: /admin/media
+    - text: Media
+  - link "Pages":
+    - /url: /admin/pages
+    - text: Pages
+  - link "Reports":
+    - /url: /admin/reports
+    - text: Reports
+  - link "Settings":
+    - /url: /admin/settings
+    - text: Settings
+- main:
+  - heading "Customers" [level=1]
+  - paragraph: 3 accounts. Everyone who signs up appears here with their order history. Staff roles control what someone can do in this admin.
+  - navigation "Customers pagination":
+    - button "Previous" [disabled]
+    - generic: Page 1 of 1 · 3 total
+    - button "Next" [disabled]
+  - table "Customers and staff":
+    - caption: Customers and staff
+    - rowgroup:
+      - row "Customer Role Orders Data Gross spending (includes refunds) Last order Joined":
+        - columnheader "Customer"
+        - columnheader "Role"
+        - columnheader "Orders"
+        - columnheader "Data"
+        - columnheader "Gross spending (includes refunds)"
+        - columnheader "Last order"
+        - columnheader "Joined"
+    - rowgroup:
+      - row "Gate 0 warehouse warehouse@gate0.invalid Role for warehouse@gate0.invalid warehouse 0 Export Delete — Never October 25, 2026":
+        - cell "Gate 0 warehouse warehouse@gate0.invalid":
+          - generic: G
+          - generic: Gate 0 warehouse
+          - generic: warehouse@gate0.invalid
+        - cell "Role for warehouse@gate0.invalid warehouse":
+          - generic: Role for warehouse@gate0.invalid
+          - combobox "Role for warehouse@gate0.invalid":
+            - option "customer"
+            - option "support"
+            - option "warehouse" [selected]
+            - option "manager"
+            - option "owner"
+        - cell "0"
+        - cell "Export Delete":
+          - button "Export"
+          - button "Delete"
+        - cell "—"
+        - cell "Never"
+        - cell "October 25, 2026"
+      - row "Gate 0 support support@gate0.invalid Role for support@gate0.invalid support 1 Export Delete USD $29.99 October 25, 2026 October 25, 2026":
+        - cell "Gate 0 support support@gate0.invalid":
+          - generic: G
+          - generic: Gate 0 support
+          - generic: support@gate0.invalid
+        - cell "Role for support@gate0.invalid support":
+          - generic: Role for support@gate0.invalid
+          - combobox "Role for support@gate0.invalid":
+            - option "customer"
+            - option "support" [selected]
+            - option "warehouse"
+            - option "manager"
+            - option "owner"
+        - cell "1"
+        - cell "Export Delete":
+          - button "Export"
+          - button "Delete"
+        - cell "USD $29.99":
+          - generic: USD $29.99
+        - cell "October 25, 2026"
+        - cell "October 25, 2026"
+      - row "Gate 0 owner owner@gate0.invalid Role for owner@gate0.invalid owner 0 Export Delete — Never October 25, 2026":
+        - cell "Gate 0 owner owner@gate0.invalid":
+          - generic: G
+          - generic: Gate 0 owner
+          - generic: owner@gate0.invalid
+        - cell "Role for owner@gate0.invalid owner":
+          - generic: Role for owner@gate0.invalid
+          - combobox "Role for owner@gate0.invalid":
+            - option "customer"
+            - option "support"
+            - option "warehouse"
+            - option "manager"
+            - option "owner" [selected]
+        - cell "0"
+        - cell "Export Delete":
+          - button "Export"
+          - button "Delete"
+        - cell "—"
+        - cell "Never"
+        - cell "October 25, 2026"

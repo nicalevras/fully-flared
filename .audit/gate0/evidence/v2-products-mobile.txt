@@ -1,0 +1,115 @@
+- button "Open navigation" [active]:
+- generic: Fully Flared
+- main:
+  - generic: Fully Flared
+  - generic: /
+  - button "Products"
+  - heading "Products" [level=1]
+  - paragraph: 8 products
+  - button "Add product":
+    - text: Add product
+  - tablist "Product views":
+    - tab "All" [selected]
+    - tab "Active"
+    - tab "Draft"
+  - textbox "Search products by title or SKU":
+    - /placeholder: Search products
+  - generic: ⌘ K
+  - button "Filter records":
+  - table:
+    - rowgroup:
+      - row "Select visible records Product Status Price":
+        - columnheader "Select visible records":
+          - checkbox "Select visible records"
+        - columnheader "Product":
+          - text: Product
+        - columnheader "Status"
+        - columnheader "Price"
+    - rowgroup:
+      - row "Select Heavyweight T-Shirt Heavyweight T-Shirt FF-TEE-BLK-M · 6 variants 124 available Active $48.00":
+        - cell "Select Heavyweight T-Shirt":
+          - checkbox "Select Heavyweight T-Shirt"
+        - cell "Heavyweight T-Shirt FF-TEE-BLK-M · 6 variants 124 available":
+          - button "Heavyweight T-Shirt"
+          - generic: FF-TEE-BLK-M · 6 variants
+          - generic: 124 available
+        - cell "Active":
+          - generic: Active
+        - cell "$48.00"
+      - row "Select Canvas Tote Canvas Tote FF-TOTE-NAT · 1 variant 86 available Active $32.00":
+        - cell "Select Canvas Tote":
+          - checkbox "Select Canvas Tote"
+        - cell "Canvas Tote FF-TOTE-NAT · 1 variant 86 available":
+          - button "Canvas Tote"
+          - generic: FF-TOTE-NAT · 1 variant
+          - generic: 86 available
+        - cell "Active":
+          - generic: Active
+        - cell "$32.00"
+      - row "Select Studio Overshirt Studio Overshirt FF-SHIRT-SND-L · 4 variants 38 available Active $128.00":
+        - cell "Select Studio Overshirt":
+          - checkbox "Select Studio Overshirt"
+        - cell "Studio Overshirt FF-SHIRT-SND-L · 4 variants 38 available":
+          - button "Studio Overshirt"
+          - generic: FF-SHIRT-SND-L · 4 variants
+          - generic: 38 available
+        - cell "Active":
+          - generic: Active
+        - cell "$128.00"
+      - row "Select Heavyweight T-Shirt — Stone Heavyweight T-Shirt — Stone FF-TEE-STN-M · 6 variants 72 available Active $48.00":
+        - cell "Select Heavyweight T-Shirt — Stone":
+          - checkbox "Select Heavyweight T-Shirt — Stone"
+        - cell "Heavyweight T-Shirt — Stone FF-TEE-STN-M · 6 variants 72 available":
+          - button "Heavyweight T-Shirt — Stone"
+          - generic: FF-TEE-STN-M · 6 variants
+          - generic: 72 available
+        - cell "Active":
+          - generic: Active
+        - cell "$48.00"
+      - row "Select Six Panel Cap Six Panel Cap FF-CAP-OLV · 1 variant 18 available Active $34.00":
+        - cell "Select Six Panel Cap":
+          - checkbox "Select Six Panel Cap"
+        - cell "Six Panel Cap FF-CAP-OLV · 1 variant 18 available":
+          - button "Six Panel Cap"
+          - generic: FF-CAP-OLV · 1 variant
+          - generic: 18 available
+        - cell "Active":
+          - generic: Active
+        - cell "$34.00"
+      - row "Select Ribbed Crew Socks Ribbed Crew Socks FF-SOCK-WHT · 2 variants Out of stock Active $18.00":
+        - cell "Select Ribbed Crew Socks":
+          - checkbox "Select Ribbed Crew Socks"
+        - cell "Ribbed Crew Socks FF-SOCK-WHT · 2 variants Out of stock":
+          - button "Ribbed Crew Socks"
+          - generic: FF-SOCK-WHT · 2 variants
+          - generic: Out of stock
+        - cell "Active":
+          - generic: Active
+        - cell "$18.00"
+      - row "Select Everyday Hoodie Everyday Hoodie FF-HOOD-GRY-M · 5 variants Out of stock Draft $96.00":
+        - cell "Select Everyday Hoodie":
+          - checkbox "Select Everyday Hoodie"
+        - cell "Everyday Hoodie FF-HOOD-GRY-M · 5 variants Out of stock":
+          - button "Everyday Hoodie"
+          - generic: FF-HOOD-GRY-M · 5 variants
+          - generic: Out of stock
+        - cell "Draft":
+          - generic: Draft
+        - cell "$96.00"
+      - row "Select Utility Shorts Utility Shorts FF-SHORT-BLK-M · 4 variants Out of stock Draft $74.00":
+        - cell "Select Utility Shorts":
+          - checkbox "Select Utility Shorts"
+        - cell "Utility Shorts FF-SHORT-BLK-M · 4 variants Out of stock":
+          - button "Utility Shorts"
+          - generic: FF-SHORT-BLK-M · 4 variants
+          - generic: Out of stock
+        - cell "Draft":
+          - generic: Draft
+        - cell "$74.00"
+  - generic: 8 products
+  - generic: Page 1 of 1
+  - button "Previous page" [disabled]:
+  - button "Next page" [disabled]:
+  - generic: Design prototype · Sample data
+  - button "Design study":
+    - text: Design study

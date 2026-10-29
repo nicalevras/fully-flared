@@ -1,4 +1,13 @@
 import { useState } from 'react';
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../components/ui/table';
 import { staffMiddleware } from '../../server/staff-middleware';
 import { requireStaffPermission } from '../../server/session';
 import { adminCustomers } from '../../server/admin-lists';
@@ -8,21 +17,13 @@ import { contactHistory, lookupContact } from '../../server/admin-contacts';
 import { btnPrimary, labelCls } from '../../components/ui';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { validateServerInput } from '../../server/function-boundary';
-import { AdminPager } from '../../components/AdminPager';
+import { AdminPagination } from '../../components/AdminPagination';
 import { formatDate } from '../../lib/format';
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import { useAdminAction } from '../../components/AdminNav';
 import { formatMoney } from '../../components/ProductCard';
-import {
-  Badge,
-  cardCls,
-  inputCls,
-  pageSub,
-  pageTitle,
-  tableCls,
-  tableWrap,
-} from '../../components/ui';
+import { Badge, cardCls, inputCls, pageSub, pageTitle } from '../../components/ui';
 
 const ROLES = ['customer', 'support', 'warehouse', 'manager', 'owner'];
 
@@ -50,6 +51,7 @@ const getData = createServerFn({ method: 'GET' })
   });
 
 export const Route = createFileRoute('/admin/customers')({
+  staleTime: 30_000,
   validateSearch: (search: Record<string, unknown>) => ({
     page:
       typeof search.page === 'number' && Number.isInteger(search.page) && search.page >= 1
@@ -228,7 +230,16 @@ function AdminCustomers() {
                         a.download = `guest-${history.email}.json`;
                         a.click();
                         URL.revokeObjectURL(url);
-                        setMsg(`Exported guest purchases for ${history.email}.`);
+                        const truncated =
+                          typeof r.data === 'object' &&
+                          r.data !== null &&
+                          'truncated' in r.data &&
+                          r.data.truncated === true;
+                        setMsg(
+                          truncated
+                            ? `Downloaded a partial export for ${history.email}. Some records were omitted because export limits were exceeded.`
+                            : `Exported guest purchases for ${history.email}.`
+                        );
                       } else setMsg(r.error ?? 'Guest export failed');
                     }}
                   >
@@ -241,7 +252,7 @@ function AdminCustomers() {
         </section>
       ) : null}
 
-      <AdminPager
+      <AdminPagination
         label="Customers pagination"
         page={page}
         total={total}
@@ -256,24 +267,24 @@ function AdminCustomers() {
             No accounts yet.
           </p>
         ) : (
-          <div className={tableWrap}>
-            <table className={tableCls}>
-              <caption className="sr-only">Customers and staff</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Customer</th>
-                  <th scope="col">Role</th>
-                  <th scope="col">Orders</th>
-                  <th scope="col">Data</th>
-                  <th scope="col">Gross spending (includes refunds)</th>
-                  <th scope="col">Last order</th>
-                  <th scope="col">Joined</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div>
+            <Table>
+              <TableCaption className="sr-only">Customers and staff</TableCaption>
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope="col">Customer</TableHead>
+                  <TableHead scope="col">Role</TableHead>
+                  <TableHead scope="col">Orders</TableHead>
+                  <TableHead scope="col">Data</TableHead>
+                  <TableHead scope="col">Gross spending (includes refunds)</TableHead>
+                  <TableHead scope="col">Last order</TableHead>
+                  <TableHead scope="col">Joined</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {customers.map((c) => (
-                  <tr key={c.id}>
-                    <td>
+                  <TableRow key={c.id}>
+                    <TableCell className="whitespace-normal">
                       <span className="flex items-center gap-3">
                         <span
                           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-[13px] font-medium text-zinc-600"
@@ -294,8 +305,8 @@ function AdminCustomers() {
                           <span className="block text-[13px] text-zinc-500">{c.email}</span>
                         </span>
                       </span>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       {canManageRoles ? (
                         <span className="flex items-center gap-2">
                           <label className="sr-only" htmlFor={`role-${c.id}`}>
@@ -330,9 +341,9 @@ function AdminCustomers() {
                       ) : (
                         <Badge tone={c.role === 'customer' ? 'gray' : 'green'}>{c.role}</Badge>
                       )}
-                    </td>
-                    <td>{c.orders}</td>
-                    <td>
+                    </TableCell>
+                    <TableCell>{c.orders}</TableCell>
+                    <TableCell>
                       <span className="flex items-center gap-2">
                         <button
                           className="text-[13px] font-medium text-zinc-950 underline-offset-2 hover:underline"
@@ -365,8 +376,8 @@ function AdminCustomers() {
                           Delete
                         </button>
                       </span>
-                    </td>
-                    <td className="font-medium">
+                    </TableCell>
+                    <TableCell className="font-medium">
                       {c.spending.length
                         ? c.spending.map((amount) => (
                             <span key={amount.currency} className="block">
@@ -374,15 +385,15 @@ function AdminCustomers() {
                             </span>
                           ))
                         : '—'}
-                    </td>
-                    <td className="text-zinc-500">
+                    </TableCell>
+                    <TableCell className="text-zinc-500">
                       {c.last_order_at ? formatDate(c.last_order_at) : 'Never'}
-                    </td>
-                    <td className="text-zinc-500">{formatDate(c.created_at)}</td>
-                  </tr>
+                    </TableCell>
+                    <TableCell className="text-zinc-500">{formatDate(c.created_at)}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
       </section>

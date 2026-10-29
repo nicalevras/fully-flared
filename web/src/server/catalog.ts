@@ -88,7 +88,10 @@ async function queryProducts(
     const match = opts.search
       .split(/\s+/)
       .filter(Boolean)
-      .map((t) => `"${t.replace(/"/g, '')}"`)
+      .map((t) => {
+        const quoted = `"${t.replace(/"/g, '')}"`;
+        return [...t].length >= 3 ? `${quoted}*` : quoted;
+      })
       .join(' ');
     if (match) {
       conditions.push(

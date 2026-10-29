@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { createTestDb } from './helpers/d1';
 import { loadAccountOrders } from '../web/src/server/account-orders';
+import { claimVerifiedGuestOrders } from '../web/src/server/account';
 
 let db: D1Database, dispose: () => Promise<void>;
 beforeEach(async () => {
@@ -115,4 +116,20 @@ it('isolates customers and keeps return data complete for displayed orders', asy
   expect(mine.returns.map((r) => r.id).sort()).toEqual(['r1', 'r2']);
   const oldest = mine.orders.find((o) => o.id === 'o000');
   expect(oldest?.items[0]?.returned_qty).toBe(2);
+});
+
+it('claims a mixed-case guest order for its verified owner', async () => {
+  await db
+    .prepare(
+      "INSERT INTO orders(id,number,customer_email,user_id,subtotal_cents,total_cents,status,payment_status,created_at,updated_at) VALUES('g1','g1','Ada@Example.com',NULL,100,100,'paid','paid','2026-01-01','2026-01-01')"
+    )
+    .run();
+  const claimed = await claimVerifiedGuestOrders(db, {
+    id: 'u1',
+    email: 'ada@example.com',
+    emailVerified: true,
+  });
+  expect(claimed).toBe(1);
+  const row = await db.prepare('SELECT user_id FROM orders WHERE id = ?').bind('g1').first();
+  expect(row).toEqual({ user_id: 'u1' });
 });

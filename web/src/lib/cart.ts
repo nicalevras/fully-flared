@@ -26,8 +26,51 @@ function dispatchCartChanged(view: CartView) {
   window.dispatchEvent(new CustomEvent('cart-changed', { detail: { count: view.count, view } }));
 }
 
+export class CartLockUnavailableError extends Error {
+  constructor() {
+    super(
+      'Cart needs a browser with tab coordination (Web Locks). Try a current browser; nothing was added.'
+    );
+    this.name = 'CartLockUnavailableError';
+  }
+}
+
+/** Minimal structural view of the Web Locks API used for cart mutations. */
+export type CartMutationLocks = {
+  request(
+    name: string,
+    options: { mode: 'exclusive' },
+    callback: () => Promise<void>
+  ): Promise<void>;
+};
+
+function browserCartLocks(): CartMutationLocks | undefined {
+  return typeof navigator !== 'undefined' && 'locks' in navigator
+    ? (navigator.locks as unknown as CartMutationLocks)
+    : undefined;
+}
+
+/** Serialize cart-creating mutations across tabs, mirroring
+ * ensureGuestBootstrap: the exclusive lock is held across the whole
+ * round-trip, so a second tab's request only leaves after the first
+ * response has set the cart cookie. No Web Locks means no safe
+ * serialization — fail closed and create nothing. */
+export async function withCartMutationLock<T>(
+  locks: CartMutationLocks | undefined,
+  run: () => Promise<T>
+): Promise<T> {
+  if (!locks) throw new CartLockUnavailableError();
+  let result: T | undefined;
+  await locks.request('cart-mutation', { mode: 'exclusive' }, async () => {
+    result = await run();
+  });
+  return result as T;
+}
+
 export async function addToCart(sku: string, qty: number): Promise<void> {
-  const view = await addCartLineFn({ data: { sku, qty } });
+  const view = await withCartMutationLock(browserCartLocks(), () =>
+    addCartLineFn({ data: { sku, qty } })
+  );
   dispatchCartChanged(view);
 }
 
@@ -115,11 +158,17 @@ export function useServerCart(initial: CartView) {
       setPending(true);
       setError('');
       try {
-        const next = await write({ data: { sku, qty } });
+        const next = await withCartMutationLock(browserCartLocks(), () =>
+          write({ data: { sku, qty } })
+        );
         setView(next);
         dispatchCartChanged(next);
-      } catch {
-        setError('Cart could not update. Try again.');
+      } catch (error) {
+        setError(
+          error instanceof CartLockUnavailableError
+            ? error.message
+            : 'Cart could not update. Try again.'
+        );
       } finally {
         setPending(false);
       }

@@ -47,10 +47,10 @@ export async function deleteAccountAtomically(
           "UPDATE outbox SET payload_json='{}', status=CASE WHEN status='sent' THEN 'sent' ELSE 'failed' END, attempts=CASE WHEN status='sent' THEN attempts ELSE MAX(attempts,3) END WHERE json_extract(payload_json,'$.to')=(SELECT email FROM user WHERE id=?)"
         )
         .bind(userId),
-      // Pending events still have to be processed; retention removes them afterwards.
+      // Unprocessed events, including dead letters, still need their payload for recovery.
       db
         .prepare(
-          "UPDATE webhook_inbox SET payload_json='{}' WHERE status IN ('processed','dead') AND instr(lower(payload_json),lower((SELECT email FROM user WHERE id=?)))>0"
+          "UPDATE webhook_inbox SET payload_json='{}' WHERE status='processed' AND instr(lower(payload_json),lower((SELECT email FROM user WHERE id=?)))>0"
         )
         .bind(userId),
       db

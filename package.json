@@ -15,7 +15,9 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "verify:reclamation": "node web/scripts/verify-reclamation.mjs"
+    "verify:reclamation": "node web/scripts/verify-reclamation.mjs",
+    "test:changed": "vitest run --changed",
+    "test:file": "vitest run"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241205.0",

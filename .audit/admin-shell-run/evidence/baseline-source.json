@@ -1,0 +1,7 @@
+{
+  "base": "6339f228c3dd7b9a71442d0983b73695bdab306e",
+  "baselineOrigin": "http://localhost:8899",
+  "headOrigin": "http://127.0.0.1:8902",
+  "whySeparateHosts": "Avoid cross-database session cookie collisions during interleaved browser comparison",
+  "scope": "local Vite/workerd only, not deployed CPU or capacity"
+}

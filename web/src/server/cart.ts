@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { getDb } from '../db/client';
 import { sha256Hex } from '../lib/hash';
+import type { MediaSource } from '../lib/media-url';
 import { getSettings } from './settings';
 import { StoreLimitError } from '../lib/settings-definitions';
 import {
@@ -26,6 +27,7 @@ export type PricedLine = CartLine & {
   priceCents: number;
   productTitle: string;
   available: number;
+  cover: MediaSource | null;
 };
 export type CartCreds = { id: string; token: string };
 
@@ -122,6 +124,13 @@ export async function ensureCart(
   return { creds: fresh, created: true };
 }
 
+export class CartConflictError extends Error {
+  constructor() {
+    super('Your cart changed. Reload it and try again.');
+    this.name = 'CartConflictError';
+  }
+}
+
 /** Set one line's absolute quantity (0 removes it). Creates the cart first
  *  when the cookie is missing or no longer valid. */
 export async function setCartLine(
@@ -140,9 +149,17 @@ export async function setCartLine(
     throw new StoreLimitError(`Quantity is limited to ${limits.cart_max_qty}`);
   const clamped = qty;
   const now = new Date().toISOString();
-  const d = getDb(db);
+  const statements: D1PreparedStatement[] = [
+    db
+      .prepare(
+        "INSERT INTO batch_guard SELECT 1 WHERE NOT EXISTS(SELECT 1 FROM carts WHERE id=? AND status='open' AND expires_at>?)"
+      )
+      .bind(cart.id, now),
+  ];
   if (clamped === 0) {
-    await d.delete(cartItems).where(and(eq(cartItems.cartId, cart.id), eq(cartItems.sku, sku)));
+    statements.push(
+      db.prepare('DELETE FROM cart_items WHERE cart_id=? AND sku=?').bind(cart.id, sku)
+    );
   } else {
     if (!existing.some((l) => l.sku === sku) && existing.length >= limits.cart_max_lines) {
       throw new StoreLimitError(`Cart is limited to ${limits.cart_max_lines} lines`);
@@ -154,21 +171,22 @@ export async function setCartLine(
       .bind(sku)
       .first<{ priceCents: number }>();
     if (!variant) throw new Error('Item is no longer available');
-    await d
-      .insert(cartItems)
-      .values({
-        id: crypto.randomUUID(),
-        cartId: cart.id,
-        sku,
-        qty: clamped,
-        unitPriceCents: variant?.priceCents ?? 0,
-      })
-      .onConflictDoUpdate({
-        target: [cartItems.cartId, cartItems.sku],
-        set: { qty: clamped, unitPriceCents: variant?.priceCents ?? 0 },
-      });
+    statements.push(
+      db
+        .prepare(
+          'INSERT INTO cart_items(id,cart_id,sku,qty,unit_price_cents) VALUES(?,?,?,?,?) ON CONFLICT(cart_id,sku) DO UPDATE SET qty=excluded.qty,unit_price_cents=excluded.unit_price_cents'
+        )
+        .bind(crypto.randomUUID(), cart.id, sku, clamped, variant.priceCents)
+    );
   }
-  await d.update(carts).set({ updatedAt: now }).where(eq(carts.id, cart.id));
+  statements.push(db.prepare('UPDATE carts SET updated_at=? WHERE id=?').bind(now, cart.id));
+  try {
+    await db.batch(statements);
+  } catch (error) {
+    const current = await cartIdentity(db, cart);
+    if (!current || current.status !== 'open') throw new CartConflictError();
+    throw error;
+  }
   return { creds: cart, created: ensured.created, lines: await getCartLines(db, cart) };
 }
 
@@ -237,6 +255,15 @@ export async function priceCartLines(db: D1Database, lines: CartLine[]): Promise
           continueSelling: variantsT.continueSelling,
           productTitle: productsT.title,
           available: sql<number>`COALESCE(${stockT.onHand} - ${stockT.reserved}, 0)`,
+          coverKey: sql<
+            string | null
+          >`(SELECT m.r2_key FROM product_media pm JOIN media m ON m.id=pm.media_id WHERE pm.product_id=${productsT.id} AND m.ready=1 AND m.deletion_pending=0 ORDER BY pm.position, pm.media_id LIMIT 1)`,
+          coverPublicUrl: sql<
+            string | null
+          >`(SELECT m.public_url FROM product_media pm JOIN media m ON m.id=pm.media_id WHERE pm.product_id=${productsT.id} AND m.ready=1 AND m.deletion_pending=0 ORDER BY pm.position, pm.media_id LIMIT 1)`,
+          coverVariantsJson: sql<
+            string | null
+          >`(SELECT json_group_array(json_object('width',v.width,'url',COALESCE(v.public_url,'/media/'||m.r2_key||'?w='||v.width))) FROM media_variants v JOIN media m ON m.id=v.media_id WHERE v.ready=1 AND m.ready=1 AND m.deletion_pending=0 AND m.id=(SELECT media_id FROM product_media WHERE product_id=${productsT.id} ORDER BY position, media_id LIMIT 1) ORDER BY v.width)`,
         })
         .from(variantsT)
         .innerJoin(productsT, eq(productsT.id, variantsT.productId))
@@ -255,7 +282,29 @@ export async function priceCartLines(db: D1Database, lines: CartLine[]): Promise
   const bySku = new Map(rows.map((r) => [r.sku, r]));
   return lines.flatMap((l) => {
     const priced = bySku.get(l.sku);
-    return priced ? [{ ...l, ...priced }] : [];
+    if (!priced) return [];
+    const { coverKey, coverPublicUrl, coverVariantsJson, ...rest } = priced;
+    let variants: MediaSource['variants'] = [];
+    try {
+      const parsed: unknown = coverVariantsJson ? JSON.parse(coverVariantsJson) : [];
+      if (Array.isArray(parsed))
+        variants = parsed.filter(
+          (v): v is { width: number; url: string } =>
+            typeof v === 'object' &&
+            v !== null &&
+            typeof (v as { width?: unknown }).width === 'number' &&
+            typeof (v as { url?: unknown }).url === 'string'
+        );
+    } catch {
+      variants = [];
+    }
+    return [
+      {
+        ...l,
+        ...rest,
+        cover: coverKey ? { key: coverKey, publicUrl: coverPublicUrl ?? null, variants } : null,
+      },
+    ];
   });
 }
 

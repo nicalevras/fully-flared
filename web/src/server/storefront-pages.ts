@@ -43,7 +43,7 @@ export async function loadPostPage(db: D1Database, env: StorefrontEnv, slug: str
   ]);
   if (doc && 'redirect' in doc) throw redirect({ to: doc.redirect, statusCode: 301 });
   if (doc) return { layout, doc };
-  const moved = await movedPath(db, `/blog/${slug}`);
+  const moved = await movedPath(db, `/articles/${slug}`);
   if (moved) throw redirect({ to: moved, statusCode: 301 });
   throw notFound();
 }

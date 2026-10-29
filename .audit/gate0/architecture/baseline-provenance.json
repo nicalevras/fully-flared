@@ -1,0 +1,157 @@
+{
+  "remote_main": "6339f228c3dd7b9a71442d0983b73695bdab306e",
+  "archive": "/tmp/fully-flared-gate0-baseline",
+  "note": "Archive has no .git directory; compare files byte-for-byte. Parent owns archive fetch provenance.",
+  "files": [
+    {
+      "path": "web/src/lib/adminFns.ts",
+      "sha256": "a0ee8cf3b6a30bdce28941ca38d7e14a69944002d805c150b88975705221dcea",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/src/server/admin-actions.ts",
+      "sha256": "69cf4ee3f74753beb9361bd1c79a4808ac78be43da2c4fe03443c7e2060508ce",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/src/server/catalog-publisher.ts",
+      "sha256": "a0ccc80f2846fa87f815e6a86f582fb697d3535e5c58d2fe7c692ab47c15ccc7",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/src/server/catalog-read.ts",
+      "sha256": "634288f18843f40dc7ab4a1ea320784c96bcc83ca3f2902eeb04e5da7bdfbd6d",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/src/server/inventory.ts",
+      "sha256": "0870688b86c6621c50abb90435503591ef11c11a160bb8b91039545f9c816b2a",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/src/server/account-deletion.ts",
+      "sha256": "22d6c9ef1f53c5ca41f41469e30d471b5886e332802917def215192c5e83a5c8",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/src/server/cart.ts",
+      "sha256": "4514b9a4d288f7cfa41acd6935b19271a2f71621633c4289fd3701538927420d",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/src/lib/permissions.ts",
+      "sha256": "fb122e48fdc19c7fe1fdca78124296622805f23dfe0413de1b04f354b037d02e",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/src/server/admin-lists.ts",
+      "sha256": "3a429b225f3f86840c80e57ed7ef8a990170a3d404bc648e25494b08c2ba6723",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/src/server/session.ts",
+      "sha256": "31f53d202585c2d8c754e79b72b2315586e82d8363a7d9da999840d81b3d22c9",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/src/routes/_shop.products/$slug.tsx",
+      "sha256": "57ea4499daea4e674595d584a4b117e39f95d6d21c8f9d5f8171f0cc3499c81b",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/migrations/0002_checkout_quote_guards.sql",
+      "sha256": "3ec0c08beed3919e7c19ba3a99c3eb27300dcacbc9486bf02f68c6da620e8507",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/migrations/0001_checkout_intents.sql",
+      "sha256": "b39ef06cb6eabbd5da949d38aedea97b15e596cd5b0e9d532d2214da856859a4",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/migrations/0007_admission_setting_guards.sql",
+      "sha256": "a8cc1b66dd2f940b7a75f70bd8a6ed8611f3ec9f92fbba09f81bf085b691c158",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/migrations/0004_catalog_work_capture.sql",
+      "sha256": "ab2ca202b5da80da1589087c8cd4b4ccb3cd97a82cf1f3aa9502deba06bfb0d8",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/migrations/0017_due_recovery_indexes.sql",
+      "sha256": "ed8d66b3078f2f517bdab4fb82dfe2a6d6294e271a774a92446c3c3d39499b74",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/migrations/0009_checkout_recovery_guards.sql",
+      "sha256": "27dd568682dee0f20fb2405b43b8e4aab82052eb0772d9353579a5298f8209c7",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/migrations/0014_event_driven_operations.sql",
+      "sha256": "d62625c3a6affac803f95206202062645f2a85d6a4351097a75095fd820e9d6d",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/migrations/0016_checkout_and_media_recovery.sql",
+      "sha256": "75569062c7e9d87be52d917677c8f86179dcd8d3af3dd9fd7160009b4ffaa73d",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/migrations/0015_public_media_delivery.sql",
+      "sha256": "def66c955d2797fdd1256bc0c00568d9076fc7668e5eaf2fb46962502b0ff32e",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/migrations/0010_catalog_execution.sql",
+      "sha256": "513433c2c2250e309f581b008a522c60fa2728f3fc3582fbc58ab215f5ae1c63",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/migrations/0003_catalog_read_models.sql",
+      "sha256": "d53d7c5fa70a1dd4ed3a31d1974d75ca9d51c10c89e78f64120e06fa6498c31f",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/migrations/0012_catalog_reclamation.sql",
+      "sha256": "67aa62ef2d91f005b14fa9657091cdd7cfb1fa7476894f5ba5035bb2a8af65e1",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/migrations/0011_public_reader_indexes.sql",
+      "sha256": "d19e406b86f259ec250d896216f1db3f04f469706d062184cac9038cf25516a9",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/migrations/0018_journal_cover_index.sql",
+      "sha256": "daecec7025aed5f5b32b6d0b341eb5cc59ddb79cb1928760cf97120d6027fded",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/migrations/0008_publication_progress.sql",
+      "sha256": "b5fcf405cb3a119ab6baba1eddb3f299b63537ea89aecc380bf4f81705644a92",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/migrations/0006_catalog_work_entity_slug.sql",
+      "sha256": "6ddca9aa97d6d2f24b0231a28c48d46e4c829f08a4a44d00c624c8ee547fc93c",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/migrations/0005_drop_catalog_publication.sql",
+      "sha256": "43a8700dbc2764146cbed4c30682deb251e2c793fe767c7c0012aa914047ac09",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/migrations/0000_initial.sql",
+      "sha256": "33ffff1289b14efb5a389a77f4dc3ff5297060a6f86333e29412b730d723fb20",
+      "matches_inspected_checkout": true
+    },
+    {
+      "path": "web/migrations/0013_authorized_checkout.sql",
+      "sha256": "e0c1876cbaf8b4a768374c30389d5e340c332f05a3143ae4491280a1eb3b71b0",
+      "matches_inspected_checkout": true
+    }
+  ]
+}

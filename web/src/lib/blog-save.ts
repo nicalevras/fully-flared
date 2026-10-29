@@ -1,6 +1,6 @@
 import { resolveScheduledIso, slugify, type LoadedSchedule } from './format';
 
-export type BlogActionResult = { ok: boolean; error?: string };
+export type BlogActionResult = { ok: boolean; error?: string; data?: unknown };
 export type BlogAction = (
   action: string,
   payload: Record<string, string>
@@ -29,7 +29,10 @@ export async function saveBlogPost(
   action: BlogAction,
   form: BlogPostForm,
   loaded?: LoadedSchedule | null
-): Promise<{ ok: true; created: boolean } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; created: boolean; postId: string; updatedAt?: string | undefined }
+  | { ok: false; error: string }
+> {
   const scheduled = resolveScheduledIso(form.status, form.publishedAt, loaded);
   if (!scheduled.ok) return { ok: false, error: scheduled.error };
   const result = await action('post.save', {
@@ -48,7 +51,13 @@ export async function saveBlogPost(
     publishedAt: scheduled.iso,
   });
   if (!result.ok) return { ok: false, error: result.error ?? 'Save failed' };
-  return { ok: true, created: !form.id };
+  const data = result.data as { postId?: unknown; updatedAt?: unknown } | undefined;
+  return {
+    ok: true,
+    created: !form.id,
+    postId: typeof data?.postId === 'string' ? data.postId : form.id,
+    updatedAt: typeof data?.updatedAt === 'string' ? data.updatedAt : form.updatedAt,
+  };
 }
 
 /** Run an editor save with saving-state bookkeeping that cannot wedge:

@@ -1,0 +1,82 @@
+- link "Skip to content":
+  - /url: "#admin-content"
+- complementary "Admin":
+  - generic: M
+  - generic: My Store
+  - generic: Store admin
+  - navigation:
+    - list:
+      - link "Home":
+        - /url: /admin
+        - text: Home
+    - paragraph: Catalog
+    - list:
+      - link "Products":
+        - /url: /admin/products
+        - text: Products
+      - link "Collections":
+        - /url: /admin/collections
+        - text: Collections
+      - link "Discounts":
+        - /url: /admin/discounts
+        - text: Discounts
+    - paragraph: Sales
+    - list:
+      - link "Orders":
+        - /url: /admin/orders
+        - text: Orders
+      - link "Customers":
+        - /url: /admin/customers
+        - text: Customers
+      - link "Shipping":
+        - /url: /admin/shipping
+        - text: Shipping
+    - paragraph: Content
+    - list:
+      - link "Blog":
+        - /url: /admin/blog
+        - text: Blog
+      - link "Media":
+        - /url: /admin/media
+        - text: Media
+      - link "Pages":
+        - /url: /admin/pages
+        - text: Pages
+    - paragraph: Insights
+    - list:
+      - link "Reports":
+        - /url: /admin/reports
+        - text: Reports
+  - link "Settings":
+    - /url: /admin/settings
+    - text: Settings
+  - link "View store":
+    - /url: /
+    - text: View store
+- main:
+  - heading "Pages" [level=1]
+  - paragraph: Shipping, returns, privacy, and terms pages linked from your store footer. Click a page to edit it.
+  - button "Privacy /pages/privacy Edit":
+    - generic: Privacy
+    - generic: /pages/privacy
+    - generic: Edit
+  - button "Returns /pages/returns Edit":
+    - generic: Returns
+    - generic: /pages/returns
+    - generic: Edit
+  - button "Shipping /pages/shipping Edit":
+    - generic: Shipping
+    - generic: /pages/shipping
+    - generic: Edit
+  - button "Terms /pages/terms Edit":
+    - generic: Terms
+    - generic: /pages/terms
+    - generic: Edit
+  - heading "New page" [level=2]
+  - generic: Slug
+  - textbox "Slug"
+  - generic: Title
+  - textbox "Title"
+  - generic: Content (HTML)
+  - textbox "Content (HTML)"
+  - button "Save page"

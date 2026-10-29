@@ -193,8 +193,8 @@ export function GlobalSearchDialog() {
                   {result.products.map((p, i) => (
                     <li key={p.id}>
                       <Link
-                        to="/admin/products/$id"
-                        params={{ id: p.id }}
+                        to="/admin/products"
+                        search={{ edit: p.id }}
                         onClick={close}
                         className={
                           i === active

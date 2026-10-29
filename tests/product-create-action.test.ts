@@ -25,7 +25,6 @@ function createPayload(skus: string[]) {
     status: 'draft',
     seoTitle: '',
     seoDescription: '',
-    taxCode: '',
     variants: skus.map((sku, index) => ({
       sku,
       title: `Variant ${index + 1}`,
@@ -60,6 +59,18 @@ describe('product.create action', () => {
       .bind('TOTE-001')
       .first();
     expect(stock).toMatchObject({ on_hand: 5 });
+  });
+
+  it('persists compareAtCents as the variant original price', async () => {
+    const payload = createPayload(['TOTE-SALE']);
+    payload.variants[0] = { ...payload.variants[0]!, compareAtCents: 4999 } as never;
+    const result = await runAdminAction(db, {} as never, owner, 'product.create', payload);
+    expect(result.ok).toBe(true);
+    const variant = await db
+      .prepare('SELECT price_cents, compare_at_cents FROM variants WHERE sku = ?')
+      .bind('TOTE-SALE')
+      .first();
+    expect(variant).toMatchObject({ price_cents: 2999, compare_at_cents: 4999 });
   });
 
   it('creates six variants with matching stock and ledger rows', async () => {

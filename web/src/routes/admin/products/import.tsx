@@ -1,4 +1,12 @@
 import { useMemo, useState } from 'react';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../../components/ui/table';
 import { Link, createFileRoute } from '@tanstack/react-router';
 import {
   AdminActionFeedback,
@@ -107,29 +115,25 @@ function AdminProductsImport() {
                 ))}
               </div>
             ) : (
-              <div className="mt-2 overflow-x-auto">
-                <table className="min-w-[560px] text-left text-sm">
-                  <thead>
-                    <tr className="text-xs text-zinc-500">
+              <div className="mt-2">
+                <Table className="min-w-[560px]">
+                  <TableHeader>
+                    <TableRow>
                       {preview.headers.map((header) => (
-                        <th key={header} className="py-1 pr-3">
-                          {header}
-                        </th>
+                        <TableHead key={header}>{header}</TableHead>
                       ))}
-                    </tr>
-                  </thead>
-                  <tbody>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {preview.previewRows.map((row, index) => (
-                      <tr key={index}>
+                      <TableRow key={index}>
                         {row.map((cell, cellIndex) => (
-                          <td key={cellIndex} className="py-1 pr-3">
-                            {cell}
-                          </td>
+                          <TableCell key={cellIndex}>{cell}</TableCell>
                         ))}
-                      </tr>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
             )}
           </div>

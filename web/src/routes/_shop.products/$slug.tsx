@@ -21,7 +21,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { addToCart, openCart } from '../../lib/cart';
 import type { StoreLimits } from '../../lib/settings-definitions';
 import { mediaUrl, mediaSrcSet, type MediaSource } from '../../lib/media-url';
-import { richTextCls } from '../../lib/rich-text';
 
 type Variant = {
   id: string;
@@ -39,7 +38,6 @@ type ProductDetail = {
   slug: string;
   title: string;
   description: string;
-  descriptionHtml?: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
   variants: Variant[];
@@ -218,13 +216,10 @@ function ProductPage() {
               ) : null}
             </p>
           ) : null}
-          {product.descriptionHtml ? (
-            <div
-              className={`${richTextCls} mt-4`}
-              dangerouslySetInnerHTML={{ __html: product.descriptionHtml }}
-            />
-          ) : product.description ? (
-            <p className="mt-4 leading-7 text-zinc-600">{product.description}</p>
+          {product.description ? (
+            <p className="mt-4 leading-7 whitespace-pre-wrap text-zinc-600">
+              {product.description}
+            </p>
           ) : null}
 
           {activeVariants.length > 1 ? (

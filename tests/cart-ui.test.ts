@@ -3,9 +3,12 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import {
+  CartLockUnavailableError,
   nextQtyOnIncrement,
   ratePriceLabel,
+  withCartMutationLock,
   zoneForCountry,
+  type CartMutationLocks,
   type Zone,
   type ZoneRate,
 } from '../web/src/lib/cart';
@@ -88,5 +91,57 @@ describe('delivery option label', () => {
     const cartPage = readFileSync('web/src/routes/_shop.cart.tsx', 'utf8');
     expect(cartPage).toContain('ratePriceLabel(r, subtotal, totalWeight, currency)');
     expect(cartPage).not.toContain('formatMoney(r.amountCents, currency)');
+  });
+});
+
+describe('cart mutation lock', () => {
+  function fakeLocks() {
+    let tail: Promise<void> = Promise.resolve();
+    let active = 0;
+    let maxActive = 0;
+    const locks: CartMutationLocks = {
+      request: async (_name, _options, callback) => {
+        const run = tail.then(async () => {
+          active++;
+          maxActive = Math.max(maxActive, active);
+          try {
+            await callback();
+          } finally {
+            active--;
+          }
+        });
+        tail = run.catch(() => {});
+        await run;
+      },
+    };
+    return { locks, maxActive: () => maxActive };
+  }
+
+  it('serializes two concurrent mutations into one-at-a-time runs', async () => {
+    const { locks, maxActive } = fakeLocks();
+    const order: string[] = [];
+    const slow = (label: string) => async () => {
+      order.push(`${label}:start`);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      order.push(`${label}:end`);
+      return label;
+    };
+    const results = await Promise.all([
+      withCartMutationLock(locks, slow('a')),
+      withCartMutationLock(locks, slow('b')),
+    ]);
+    expect(results).toEqual(['a', 'b']);
+    expect(maxActive()).toBe(1);
+    expect(order).toEqual(['a:start', 'a:end', 'b:start', 'b:end']);
+  });
+
+  it('fails closed with no locks and never runs the mutation', async () => {
+    let ran = false;
+    await expect(
+      withCartMutationLock(undefined, async () => {
+        ran = true;
+      })
+    ).rejects.toBeInstanceOf(CartLockUnavailableError);
+    expect(ran).toBe(false);
   });
 });

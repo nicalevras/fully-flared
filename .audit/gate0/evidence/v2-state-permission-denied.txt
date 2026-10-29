@@ -1,0 +1,47 @@
+- complementary:
+  - text: Fully Flared
+  - navigation "Main navigation":
+    - button "Orders 3":
+      - text: Orders
+      - generic: "3"
+    - button "Products":
+      - text: Products
+    - button "Inventory":
+      - text: Inventory
+    - button "Customers":
+      - text: Customers
+    - generic: Store
+    - button "Content":
+      - text: Content
+    - button "Discounts":
+      - text: Discounts
+  - button "Settings":
+    - text: Settings
+  - link "View store":
+    - /url: http://localhost:8899/
+    - text: View store
+  - generic: "N"
+  - text: Nic Alevras
+  - generic: Store owner
+- main:
+  - generic: Fully Flared
+  - generic: /
+  - button "Products"
+  - heading "Products" [level=1]
+  - paragraph: 8 products
+  - button "Import"
+  - button "Add product":
+    - text: Add product
+  - tablist "Product views":
+    - tab "All" [selected]
+    - tab "Active"
+    - tab "Draft"
+  - textbox "Search products by title or SKU":
+    - /placeholder: Search products
+  - generic: ⌘ K
+  - button "Filter records":
+  - heading "You don’t have access to these records" [level=2]
+  - paragraph: Ask the store owner to update your permissions.
+  - generic: Design prototype · Sample data
+  - button "Design study":
+    - text: Design study

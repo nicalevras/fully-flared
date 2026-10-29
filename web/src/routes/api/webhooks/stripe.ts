@@ -3,6 +3,8 @@ import { inboxStripeEvent } from '../../../server/checkout';
 import { WebhookSignatureError, getStripeProvider } from '../../../server/payments';
 import { enqueueJob } from '../../../server/email';
 
+const MAX_WEBHOOK_BYTES = 1024 * 1024;
+
 export const Route = createFileRoute('/api/webhooks/stripe')({
   server: {
     handlers: {
@@ -12,10 +14,30 @@ export const Route = createFileRoute('/api/webhooks/stripe')({
         if (!provider) return new Response('Stripe is not configured', { status: 503 });
         const signature = request.headers.get('stripe-signature');
         if (!signature) return new Response('Missing stripe-signature', { status: 400 });
-        const payload = await request.text();
         let eventId: string;
         let duplicate: boolean;
         try {
+          let payload = '';
+          const reader = request.body?.getReader();
+          if (reader) {
+            const decoder = new TextDecoder();
+            let bytes = 0;
+            try {
+              for (;;) {
+                const chunk = await reader.read();
+                if (chunk.done) break;
+                bytes += chunk.value.byteLength;
+                if (bytes > MAX_WEBHOOK_BYTES) {
+                  await reader.cancel().catch(() => {});
+                  return new Response('Webhook payload exceeds 1 MiB', { status: 413 });
+                }
+                payload += decoder.decode(chunk.value, { stream: true });
+              }
+              payload += decoder.decode();
+            } finally {
+              reader.releaseLock();
+            }
+          }
           ({ eventId, duplicate } = await inboxStripeEvent(env.DB, provider, payload, signature));
         } catch (err) {
           if (err instanceof WebhookSignatureError)

@@ -12,7 +12,7 @@ import { createTestDb, seedProduct } from './helpers/d1';
 import { enqueueCatalogRebuild } from '../web/src/server/catalog-publisher';
 import { readListingPage } from '../web/src/server/catalog-read';
 import { getStorefrontLayout } from '../web/src/server/catalog-read';
-import { ALL_LISTING } from '../web/src/server/catalog-models';
+import { ALL_LISTING, layoutModelSchema } from '../web/src/server/catalog-models';
 let db: D1Database, dispose: () => Promise<void>;
 beforeAll(async () => {
   const t = await createTestDb();
@@ -272,3 +272,67 @@ it('partitioned readers never query stock and ignore fabricated references', asy
 });
 import { buildCatalogReadModels, catalogWork } from './helpers/catalog-driver';
 import { heldOrder } from './helpers/pending-intent';
+
+it('brand image settings republish the layout with resolved images', async () => {
+  const now = new Date().toISOString();
+  await db.batch([
+    db
+      .prepare(
+        "INSERT INTO media (id,r2_key,filename,content_type,created_at,ready) VALUES ('m-logo','logo.jpg','logo.jpg','image/png',?,1),('m-hero','hero.jpg','hero.jpg','image/jpeg',?,1)"
+      )
+      .bind(now, now),
+    db
+      .prepare(
+        "INSERT INTO media_variants (media_id,width,r2_key,content_type,bytes,sha256,created_at,ready) VALUES ('m-logo',320,'logo.w320.png','image/png',100,'a',?,1),('m-hero',960,'hero.w960.jpg','image/jpeg',300,'b',?,1)"
+      )
+      .bind(now, now),
+  ]);
+  const before = await revision();
+  await db
+    .prepare(
+      "INSERT OR REPLACE INTO settings(key,value,updated_at) VALUES('logo_media_id','m-logo','now')"
+    )
+    .run();
+  expect(await revision()).toBe(before + 1);
+  await db
+    .prepare(
+      "INSERT OR REPLACE INTO settings(key,value,updated_at) VALUES('hero_media_id','m-hero','now')"
+    )
+    .run();
+  expect(await revision()).toBe(before + 2);
+  const values = new Map<string, string>();
+  const kv = {
+    get: async (k: string) => values.get(k) ?? null,
+    put: async (k: string, v: string) => {
+      values.set(k, v);
+    },
+    delete: async (k: string) => {
+      values.delete(k);
+    },
+  };
+  const env = { DB: db, CATALOG_JOBS: { send: vi.fn() } as never, CATALOG_KV: kv as never };
+  await buildCatalogReadModels(db, kv as never);
+  await catalogWork(db, kv as never);
+  const layout = await getStorefrontLayout(db, env);
+  expect(layout.logo?.key).toBe('logo.jpg');
+  expect(layout.logo?.variants).toContainEqual({ width: 320, url: '/media/logo.jpg?w=320' });
+  expect(layout.hero?.key).toBe('hero.jpg');
+  expect(layout.hero?.variants).toContainEqual({ width: 960, url: '/media/hero.jpg?w=960' });
+  // Layout artifacts published before logo/hero existed still parse.
+  const legacy = layoutModelSchema.parse({
+    limits: {},
+    storeName: 'Old',
+    announcementText: '',
+    seoTitleTemplate: '',
+    canonicalBaseUrl: '',
+    currency: 'USD',
+    collections: [],
+    collectionsTotal: 0,
+    collectionTeasers: [],
+    featured: [],
+    posts: [],
+    revision: 'r',
+  });
+  expect(legacy.logo).toBeNull();
+  expect(legacy.hero).toBeNull();
+});

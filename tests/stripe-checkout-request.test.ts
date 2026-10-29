@@ -45,3 +45,31 @@ it('uses Stripe 23 supported card allowlist for manual-capture Checkout Sessions
   expect(params).not.toHaveProperty('shipping_address_collection');
   create.mockRestore();
 });
+
+it('enables automatic tax without any per-product tax code', async () => {
+  const provider = new StripeProvider('sk_test_fixture', 'whsec_fixture');
+  const stripe = (provider as unknown as { stripe: Stripe }).stripe;
+  const create = vi.spyOn(stripe.checkout.sessions, 'create').mockResolvedValue({
+    id: 'cs_fixture_tax',
+    url: 'https://checkout.stripe.com/fixture',
+  } as Stripe.Response<Stripe.Checkout.Session>);
+  const request: CheckoutRequest = {
+    orderId: 'order-fixture-tax',
+    attemptId: 'attempt-fixture-tax',
+    email: 'fixture@example.test',
+    currency: 'USD',
+    lineItems: [{ name: 'Fixture', unitAmountCents: 1000, qty: 1 }],
+    successUrl: 'https://example.test/checkout/success',
+    cancelUrl: 'https://example.test/checkout',
+    shippingCents: 0,
+    collectShipping: false,
+    shippingCountries: ['US'],
+    automaticTax: true,
+    expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + 1920,
+  };
+  await provider.createCheckoutSession(request);
+  const params = create.mock.calls[0]![0]!;
+  expect(params.automatic_tax).toEqual({ enabled: true });
+  expect(params.line_items?.[0]?.price_data?.product_data).not.toHaveProperty('tax_code');
+  create.mockRestore();
+});

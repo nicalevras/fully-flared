@@ -1,28 +1,47 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { EllipsisIcon, PlusIcon } from 'lucide-react';
 import { staffMiddleware } from '../../server/staff-middleware';
 import { formatDate } from '../../lib/format';
-import { createFileRoute, useRouter } from '@tanstack/react-router';
+import { createFileRoute, useRouter, type SearchSchemaInput } from '@tanstack/react-router';
 import { createServerFn, useServerFn } from '@tanstack/react-start';
 import * as z from 'zod';
 import { validateServerInput } from '../../server/function-boundary';
 import { requireStaffPermission } from '../../server/session';
-import { getRequest } from '@tanstack/react-start/server';
-import { mediaKeysInContent } from '../../server/media';
 import { getSettings } from '../../server/settings';
+import { mediaUrl, type MediaSource } from '../../lib/media-url';
+import { pageWindow } from '../../lib/catalog-page';
+import { AdminPagination } from '../../components/AdminPagination';
 import { useAdminAction, type AdminPayload } from '../../components/AdminNav';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import {
   AdminActionFeedback,
   type AdminActionFeedbackState,
 } from '../../components/AdminActionFeedback';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '../../components/ui/sheet';
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../components/ui/table';
 import { uploadMedia } from '../../lib/upload';
 import {
+  Button,
   btnDestructive,
+  btnPrimary,
   btnSmall,
-  cardCls,
+  hintCls,
   inputCls,
-  pageSub,
-  pageTitle,
+  labelCls,
 } from '../../components/ui';
 
 type MediaRow = {
@@ -32,66 +51,104 @@ type MediaRow = {
   content_type: string;
   alt_text: string;
   created_at: string;
-  used_count: number;
   deletion_pending: number;
   ready: number;
+  public_url: string | null;
+  variants_json: string | null;
 };
+
+const PAGE_SIZE = 25;
+
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, '\\$&');
+}
 
 const getData = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
-  .handler(async () => {
+  .validator(
+    validateServerInput(
+      z.object({
+        q: z.string().max(200).default(''),
+        page: z.number().int().min(1).default(1),
+      })
+    )
+  )
+  .handler(async ({ data }) => {
     const { env } = await import('cloudflare:workers');
+    const q = data.q.trim();
+    const where = q ? `WHERE m.filename LIKE ? ESCAPE '\\'` : '';
+    const binds = q ? [`%${escapeLike(q)}%`] : [];
+    const countRow = await env.DB.prepare(`SELECT COUNT(*) AS n FROM media m ${where}`)
+      .bind(...binds)
+      .first<{ n: number }>();
+    const totalCount = countRow?.n ?? 0;
+    const { page, offset } = pageWindow(totalCount, data.page, PAGE_SIZE);
     const rows = await env.DB.prepare(
-      `SELECT m.id, m.r2_key, m.filename, m.content_type, m.alt_text, m.created_at, m.deletion_pending,m.ready,
-            (SELECT COUNT(*) FROM product_media pm WHERE pm.media_id = m.id)
-            + (SELECT COUNT(*) FROM posts p WHERE p.cover_media_id = m.id) AS used_count
-     FROM media m ORDER BY m.created_at DESC LIMIT 200`
-    ).all<MediaRow>();
-    // Content references (including percent-encoded forms SQL cannot
-    // decode) are counted with the shared extractor, one per content row.
+      `SELECT m.id, m.r2_key, m.filename, m.content_type, m.alt_text, m.created_at, m.deletion_pending, m.ready, m.public_url,
+            (SELECT json_group_array(json_object('width', width, 'url', COALESCE(public_url, '')))
+             FROM (SELECT width, public_url FROM media_variants
+                   WHERE media_id = m.id AND ready = 1 ORDER BY width)) AS variants_json
+     FROM media m ${where} ORDER BY m.created_at DESC LIMIT ? OFFSET ?`
+    )
+      .bind(...binds, PAGE_SIZE, offset)
+      .all<MediaRow>();
+    return { media: rows.results, total: totalCount, page, pageSize: PAGE_SIZE };
+  });
+
+export const getMediaDetail = createServerFn({ method: 'GET' })
+  .middleware([staffMiddleware])
+  .validator(validateServerInput(z.object({ mediaId: z.string().min(1) })))
+  .handler(async ({ data }): Promise<{ usedCount: number } | null> => {
+    const { env } = await import('cloudflare:workers');
+    const row = await env.DB.prepare('SELECT r2_key FROM media WHERE id = ?')
+      .bind(data.mediaId)
+      .first<{ r2_key: string }>();
+    if (!row) return null;
     const settings = await getSettings(env.DB);
-    let requestOrigin = '';
-    try {
-      requestOrigin = new URL(getRequest().url).origin;
-    } catch {
-      requestOrigin = '';
-    }
-    let canonicalOrigin = '';
-    try {
-      canonicalOrigin = new URL(settings.canonicalBaseUrl).origin;
-    } catch {
-      canonicalOrigin = '';
-    }
-    const origins = [
-      ...new Set([canonicalOrigin, requestOrigin, settings.mediaPublicBaseUrl].filter(Boolean)),
-    ];
-    const contentCounts = new Map<string, number>();
-    const addContent = (html: string | null, json?: string | null) => {
-      const keys = new Set([
-        ...mediaKeysInContent(html, origins),
-        ...mediaKeysInContent(json, origins),
-      ]);
-      for (const key of keys) contentCounts.set(key, (contentCounts.get(key) ?? 0) + 1);
+    const structural = await env.DB.prepare(
+      `SELECT (SELECT COUNT(*) FROM product_media WHERE media_id = ?)
+            + (SELECT COUNT(*) FROM posts WHERE cover_media_id = ?) AS n`
+    )
+      .bind(data.mediaId, data.mediaId)
+      .first<{ n: number }>();
+    // Content references are counted with the same substring predicates the
+    // media.delete claim uses. Percent-encoded keys cannot be matched in
+    // SQL; media.delete's full scan stays the final gate.
+    const content = await env.DB.prepare(
+      `WITH keys(k) AS (VALUES (?))
+       SELECT
+         (SELECT COUNT(*) FROM posts
+           WHERE instr(REPLACE(content_html, '\\/', '/'), '/media/' || k) > 0
+              OR instr(REPLACE(COALESCE(content_json, ''), '\\/', '/'), '/media/' || k) > 0)
+         + (SELECT COUNT(*) FROM pages
+           WHERE instr(REPLACE(content_html, '\\/', '/'), '/media/' || k) > 0) AS n
+       FROM keys`
+    )
+      .bind(row.r2_key)
+      .first<{ n: number }>();
+    return {
+      usedCount:
+        (structural?.n ?? 0) +
+        (content?.n ?? 0) +
+        (settings.logoMediaId === data.mediaId ? 1 : 0) +
+        (settings.heroMediaId === data.mediaId ? 1 : 0),
     };
-    const postContents = await env.DB.prepare('SELECT content_html, content_json FROM posts').all<{
-      content_html: string | null;
-      content_json: string | null;
-    }>();
-    for (const row of postContents.results) addContent(row.content_html, row.content_json);
-    const pageContents = await env.DB.prepare('SELECT content_html FROM pages').all<{
-      content_html: string | null;
-    }>();
-    for (const row of pageContents.results) addContent(row.content_html);
-    const media = rows.results.map((row) => ({
-      ...row,
-      used_count: row.used_count + (contentCounts.get(row.r2_key) ?? 0),
-    }));
-    const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM media').first<{ n: number }>();
-    return { media, total: count?.n ?? rows.results.length };
   });
 
 export const Route = createFileRoute('/admin/media')({
-  loader: async () => getData(),
+  staleTime: 30_000,
+  validateSearch: (
+    search: { q?: unknown; edit?: unknown; page?: unknown } & SearchSchemaInput
+  ) => ({
+    q: typeof search.q === 'string' && search.q ? search.q : undefined,
+    edit: typeof search.edit === 'string' && search.edit ? search.edit : undefined,
+    page:
+      typeof search.page === 'number' && Number.isInteger(search.page) && search.page > 0
+        ? search.page
+        : 1,
+  }),
+  loaderDeps: ({ search }) => ({ q: search.q ?? '', page: search.page }),
+  loader: async ({ deps }) => getData({ data: deps }),
   component: AdminMedia,
 });
 
@@ -115,13 +172,175 @@ const publishExistingFn = createServerFn({ method: 'POST' })
     return { ok: true };
   });
 
+function mediaSource(row: MediaRow): MediaSource {
+  let variants: Array<{ width: number; url: string }> | undefined;
+  if (row.variants_json) {
+    try {
+      const parsed = JSON.parse(row.variants_json) as unknown;
+      if (Array.isArray(parsed)) {
+        // Same fill the catalog publisher applies: variants stored without a
+        // public URL are served through the media route at that width.
+        variants = (parsed as Array<{ width: number; url: string }>).map((variant) => ({
+          ...variant,
+          url: variant.url || `/media/${encodeURIComponent(row.r2_key)}?w=${variant.width}`,
+        }));
+      }
+    } catch {
+      variants = undefined;
+    }
+  }
+  return { key: row.r2_key, publicUrl: row.public_url, variants };
+}
+
+function usedLabel(usedCount: number): string {
+  return usedCount > 0
+    ? `Used in ${usedCount} place${usedCount === 1 ? '' : 's'}`
+    : 'Not used anywhere yet';
+}
+
+function MediaSheet({
+  row,
+  usedCount,
+  busy,
+  onClose,
+  onSaveAlt,
+  onDelete,
+}: {
+  row: MediaRow;
+  usedCount: number | null;
+  busy: boolean;
+  onClose: () => void;
+  onSaveAlt: (altText: string) => Promise<boolean>;
+  onDelete: (row: MediaRow) => void;
+}) {
+  const [alt, setAlt] = useState(row.alt_text);
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const dirty = alt !== row.alt_text;
+  const requestClose = () => {
+    if (dirty) {
+      setDiscardOpen(true);
+      return;
+    }
+    onClose();
+  };
+  return (
+    <Sheet
+      open
+      onOpenChange={(next) => {
+        if (!next) requestClose();
+      }}
+    >
+      <SheetContent
+        className="w-full gap-0 overflow-hidden p-0 sm:max-w-2xl"
+        onOpenAutoFocus={(event) => event.preventDefault()}
+      >
+        <SheetHeader className="p-5 pr-14 pb-0 sm:p-6 sm:pr-14 sm:pb-0">
+          <SheetTitle>{row.filename}</SheetTitle>
+          <SheetDescription>
+            {row.content_type} · {formatDate(row.created_at)}
+            {usedCount !== null ? ` · ${usedLabel(usedCount)}` : ''}
+          </SheetDescription>
+        </SheetHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+          {row.deletion_pending ? (
+            <p className="rounded-xl bg-zinc-50 px-4 py-10 text-center text-sm text-zinc-500">
+              Deletion pending. Retry to remove the remaining files.
+            </p>
+          ) : !row.ready ? (
+            <p className="rounded-xl bg-zinc-50 px-4 py-10 text-center text-sm text-zinc-500">
+              Upload incomplete. Remove this record and upload the image again.
+            </p>
+          ) : (
+            <img
+              src={mediaUrl(mediaSource(row), 960)}
+              alt={row.alt_text || row.filename}
+              className="aspect-[4/3] w-full rounded-xl bg-zinc-100 object-cover"
+            />
+          )}
+          <div className="mt-5">
+            <label className={labelCls} htmlFor="media-alt">
+              Alt text
+            </label>
+            <input
+              id="media-alt"
+              className={inputCls}
+              placeholder="Describe this image"
+              value={alt}
+              onChange={(e) => setAlt(e.target.value)}
+            />
+            <p className={hintCls}>
+              What screen readers and search engines read. Write it like a caption for someone who
+              cannot see the image.
+            </p>
+          </div>
+          <div className="mt-6 border-t border-zinc-100 pt-4">
+            <button
+              type="button"
+              className={btnDestructive}
+              disabled={busy || usedCount === null || usedCount > 0}
+              title={
+                usedCount !== null && usedCount > 0
+                  ? 'In use. Remove it from its product or post first'
+                  : 'Delete this image'
+              }
+              onClick={() => onDelete(row)}
+            >
+              {row.deletion_pending ? 'Retry deletion' : 'Delete image'}
+            </button>
+            {usedCount !== null && usedCount > 0 ? (
+              <p className={hintCls}>In use. Remove it from its product or post first.</p>
+            ) : null}
+          </div>
+        </div>
+        {dirty ? (
+          <div className="border-t border-zinc-100 bg-white px-5 py-3.5 sm:px-6">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <button type="button" className={btnSmall} disabled={busy} onClick={onClose}>
+                Discard
+              </button>
+              <button
+                type="button"
+                className={btnPrimary}
+                disabled={busy}
+                onClick={async () => {
+                  if (await onSaveAlt(alt)) onClose();
+                }}
+              >
+                {busy ? 'Saving…' : 'Save changes'}
+              </button>
+            </div>
+          </div>
+        ) : null}
+        <ConfirmDialog
+          request={
+            discardOpen
+              ? {
+                  title: 'Discard unsaved changes?',
+                  body: "Your changes to this image haven't been saved.",
+                  confirmLabel: 'Discard changes',
+                }
+              : null
+          }
+          busy={false}
+          onCancel={() => setDiscardOpen(false)}
+          onConfirm={() => {
+            setDiscardOpen(false);
+            onClose();
+          }}
+        />
+      </SheetContent>
+    </Sheet>
+  );
+}
+
 function AdminMedia() {
   const adminAction = useAdminAction();
   const publishExisting = useServerFn(publishExistingFn);
 
-  const { media, total } = Route.useLoaderData();
+  const { media, total, page, pageSize } = Route.useLoaderData();
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
   const router = useRouter();
-  const [alts, setAlts] = useState<Record<string, string>>({});
   const [feedback, setFeedback] = useState<AdminActionFeedbackState>(null);
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<{
@@ -132,183 +351,359 @@ function AdminMedia() {
   } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [query, setQuery] = useState(search.q ?? '');
+  const [menuFor, setMenuFor] = useState<string | null>(null);
 
-  async function run(action: string, payload: AdminPayload, ok: string) {
+  async function run(action: string, payload: AdminPayload, ok: string): Promise<boolean> {
     setBusy(true);
     const r = await adminAction(action, payload);
     setBusy(false);
     if (r.ok) {
       setFeedback({ kind: 'status', message: ok });
       router.invalidate();
-    } else setFeedback({ kind: 'error', message: r.error ?? 'Failed' });
+      return true;
+    }
+    setFeedback({ kind: 'error', message: r.error ?? 'Failed' });
+    return false;
   }
+
+  const closeSheet = () => {
+    if (search.edit) void navigate({ search: { q: search.q, page: search.page, edit: undefined } });
+  };
+  const editingRow = search.edit ? (media.find((m) => m.id === search.edit) ?? null) : null;
+  const detailFn = useServerFn(getMediaDetail);
+  const [usedCount, setUsedCount] = useState<number | null>(null);
+  const [usedFor, setUsedFor] = useState('');
+  useEffect(() => {
+    if (!editingRow) {
+      setUsedCount(null);
+      setUsedFor('');
+      return;
+    }
+    let cancelled = false;
+    setUsedCount(null);
+    setUsedFor('');
+    detailFn({ data: { mediaId: editingRow.id } })
+      .then((detail) => {
+        if (!cancelled) {
+          setUsedCount(detail?.usedCount ?? null);
+          setUsedFor(editingRow.id);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setUsedCount(null);
+          setUsedFor(editingRow.id);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingRow?.id]);
+
+  const requestDelete = async (row: MediaRow) => {
+    try {
+      const detail = await detailFn({ data: { mediaId: row.id } });
+      if (!detail || detail.usedCount > 0) {
+        setFeedback({
+          kind: 'error',
+          message: `In use. Remove ${row.filename} from its product or post first.`,
+        });
+        return;
+      }
+    } catch {
+      setFeedback({ kind: 'error', message: 'Could not check where this image is used.' });
+      return;
+    }
+    askDelete(row);
+  };
+
+  const askDelete = (row: MediaRow) => {
+    setConfirm({
+      title: `Delete ${row.filename}?`,
+      body: 'This permanently deletes the image file.',
+      confirmLabel: 'Delete image',
+      action: async () => {
+        if (await run('media.delete', { mediaId: row.id }, `${row.filename} deleted.`)) {
+          closeSheet();
+        }
+      },
+    });
+  };
 
   return (
     <main>
-      <button
-        type="button"
-        className={btnSmall}
-        disabled={publishing}
-        onClick={() =>
-          setConfirm({
-            title: 'Publish existing images?',
-            body: 'Existing images will be published to the configured public media storage.',
-            confirmLabel: 'Publish images',
-            action: async () => {
-              setPublishing(true);
-              try {
-                await publishExisting({ data: {} });
-                setFeedback({
-                  kind: 'status',
-                  message:
-                    'Public media publication queued. Use this action again to resume an unfinished run.',
-                });
-              } catch {
-                setFeedback({
-                  kind: 'error',
-                  message:
-                    'Public media publication could not start. Check configuration and retry.',
-                });
-              } finally {
-                setPublishing(false);
-              }
-            },
-          })
-        }
-      >
-        {publishing ? 'Queueing publication…' : 'Publish existing media'}
-      </button>
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className={pageTitle}>Media</h1>
-          <p className={pageSub}>
-            {total} file{total === 1 ? '' : 's'} in your library. Alt text is what screen readers
-            and search engines read — write it like a caption for someone who cannot see the image.
+          <h1 className="text-[28px] leading-tight font-medium tracking-tight text-zinc-950">
+            Media
+          </h1>
+          <p className="mt-1 text-sm text-zinc-500">
+            {total} file{total === 1 ? '' : 's'} in your library.
           </p>
         </div>
-        <label className={`${btnSmall} cursor-pointer`}>
-          {uploading ? 'Uploading…' : 'Upload image'}
-          <input
-            type="file"
-            accept="image/jpeg,image/png,image/webp,image/gif"
-            className="sr-only"
-            aria-label="Upload image"
-            onChange={async (e) => {
-              const file = e.target.files?.[0];
-              e.target.value = '';
-              if (!file) return;
-              setUploading(true);
-              try {
-                await uploadMedia(file);
-                setFeedback({
-                  kind: 'status',
-                  message:
-                    'Image uploaded. Add its alt text below, then attach it from a product or post.',
-                });
-                router.invalidate();
-              } catch (err) {
-                setFeedback({
-                  kind: 'error',
-                  message: err instanceof Error ? err.message : 'Upload failed',
-                });
-              } finally {
-                setUploading(false);
-              }
-            }}
-          />
-        </label>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className={btnSmall}
+            disabled={publishing}
+            onClick={() =>
+              setConfirm({
+                title: 'Publish existing images?',
+                body: 'Existing images will be published to the configured public media storage.',
+                confirmLabel: 'Publish images',
+                action: async () => {
+                  setPublishing(true);
+                  try {
+                    await publishExisting({ data: {} });
+                    setFeedback({
+                      kind: 'status',
+                      message:
+                        'Public media publication queued. Use this action again to resume an unfinished run.',
+                    });
+                  } catch {
+                    setFeedback({
+                      kind: 'error',
+                      message:
+                        'Public media publication could not start. Check configuration and retry.',
+                    });
+                  } finally {
+                    setPublishing(false);
+                  }
+                },
+              })
+            }
+          >
+            {publishing ? 'Queueing publication…' : 'Publish existing media'}
+          </button>
+          <label className={`${btnPrimary} cursor-pointer`}>
+            <PlusIcon className="size-4" />
+            {uploading ? 'Uploading…' : 'Upload image'}
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              className="sr-only"
+              aria-label="Upload image"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (!file) return;
+                setUploading(true);
+                try {
+                  await uploadMedia(file);
+                  setFeedback({
+                    kind: 'status',
+                    message:
+                      'Image uploaded. Open it to add alt text, then attach it from a product or post.',
+                  });
+                  router.invalidate();
+                } catch (err) {
+                  setFeedback({
+                    kind: 'error',
+                    message: err instanceof Error ? err.message : 'Upload failed',
+                  });
+                } finally {
+                  setUploading(false);
+                }
+              }}
+            />
+          </label>
+        </div>
       </div>
       <AdminActionFeedback value={feedback} />
+      <form
+        className="mt-5 flex flex-wrap items-end gap-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void navigate({ search: { q: query.trim() || undefined, page: 1, edit: undefined } });
+        }}
+      >
+        <div className="min-w-48 flex-1">
+          <label className={labelCls} htmlFor="media-q">
+            Find a file
+          </label>
+          <input
+            id="media-q"
+            className={inputCls}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Part of a file name"
+          />
+        </div>
+        <Button type="submit">Search</Button>
+      </form>
 
       {media.length === 0 ? (
-        <p className={`${cardCls} mt-6 p-5 text-sm text-zinc-500`} role="status">
-          No media yet. Upload your first image above, or add one from a product page.
-        </p>
+        <div className="mt-8 rounded-xl bg-zinc-50 px-6 py-14 text-center" role="status">
+          <p className="text-sm text-zinc-500">
+            {search.q
+              ? `No files match "${search.q}".`
+              : 'No media yet. Upload your first image above, or add one from a product page.'}
+          </p>
+        </div>
       ) : (
-        <ul className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {media.map((m) => (
-            <li key={m.id} className={`${cardCls} overflow-hidden`}>
-              {m.deletion_pending ? (
-                <p className="p-5 text-sm text-zinc-500">
-                  Deletion pending. Retry to remove the remaining files.
-                </p>
-              ) : !m.ready ? (
-                <p className="p-5 text-sm text-zinc-500">
-                  Upload incomplete. Remove this record and upload the image again.
-                </p>
-              ) : (
-                <img
-                  src={`/media/${m.r2_key}`}
-                  alt={m.alt_text || m.filename}
-                  className="aspect-[4/3] w-full object-cover"
-                />
-              )}
-              <div className="space-y-3 p-4">
-                <p className="flex items-baseline justify-between gap-2 text-sm">
-                  <span className="min-w-0 truncate font-medium text-zinc-950">{m.filename}</span>
-                </p>
-                <p className="text-[13px] text-zinc-500">
-                  {m.used_count > 0
-                    ? `Used in ${m.used_count} place${m.used_count === 1 ? '' : 's'}`
-                    : 'Not used anywhere yet'}
-                  {' · '}
-                  {formatDate(m.created_at)}
-                </p>
-                <div>
-                  <label className="sr-only" htmlFor={`alt-${m.id}`}>
-                    Alt text for {m.filename}
-                  </label>
-                  <input
-                    id={`alt-${m.id}`}
-                    className={inputCls}
-                    placeholder="Describe this image"
-                    value={alts[m.id] ?? m.alt_text}
-                    onChange={(e) => setAlts({ ...alts, [m.id]: e.target.value })}
-                  />
-                </div>
-                <span className="flex gap-1">
-                  <button
-                    className={btnSmall}
-                    disabled={
-                      busy || !!m.deletion_pending || (alts[m.id] ?? m.alt_text) === m.alt_text
-                    }
-                    onClick={() =>
-                      run(
-                        'media.updateAlt',
-                        { mediaId: m.id, altText: alts[m.id] ?? '' },
-                        `Alt text saved for ${m.filename}.`
-                      )
-                    }
-                  >
-                    Save alt text
-                  </button>
-                  <button
-                    className={btnDestructive}
-                    disabled={busy || m.used_count > 0}
-                    title={
-                      m.used_count > 0
-                        ? 'In use — remove it from its product or post first'
-                        : 'Delete this image'
-                    }
-                    onClick={() =>
-                      setConfirm({
-                        title: `Delete ${m.filename}?`,
-                        body: 'This permanently deletes the image file.',
-                        confirmLabel: 'Delete image',
-                        action: async () => {
-                          await run('media.delete', { mediaId: m.id }, `${m.filename} deleted.`);
-                        },
-                      })
-                    }
-                  >
-                    {m.deletion_pending ? 'Retry deletion' : 'Delete'}
-                  </button>
-                </span>
-              </div>
-            </li>
-          ))}
-        </ul>
+        <div className="mt-6" tabIndex={0} role="region" aria-label="Media">
+          <Table className="min-w-[640px]">
+            <TableCaption className="sr-only">Media</TableCaption>
+            <TableHeader>
+              <TableRow>
+                <TableHead scope="col">File</TableHead>
+                <TableHead scope="col">Type</TableHead>
+                <TableHead scope="col">Uploaded</TableHead>
+                <TableHead scope="col">
+                  <span className="sr-only">Actions</span>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {media.map((m) => (
+                <TableRow
+                  key={m.id}
+                  className="cursor-pointer"
+                  onClick={() =>
+                    void navigate({ search: { q: search.q, page: search.page, edit: m.id } })
+                  }
+                >
+                  <TableCell className="whitespace-normal">
+                    <span className="flex items-center gap-3">
+                      {m.deletion_pending || !m.ready ? (
+                        <span
+                          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-sm font-medium text-zinc-500"
+                          aria-hidden
+                        >
+                          {m.filename.slice(0, 1).toUpperCase()}
+                        </span>
+                      ) : (
+                        <img
+                          src={mediaUrl(mediaSource(m), 320)}
+                          alt=""
+                          loading="lazy"
+                          className="h-10 w-10 shrink-0 rounded-lg object-cover"
+                        />
+                      )}
+                      <span className="min-w-0">
+                        <span className="block font-medium text-zinc-950">{m.filename}</span>
+                        <span className="mt-0.5 block text-[13px] text-zinc-500">
+                          {m.deletion_pending
+                            ? 'Deletion pending'
+                            : !m.ready
+                              ? 'Upload incomplete'
+                              : m.alt_text || 'No alt text'}
+                        </span>
+                      </span>
+                    </span>
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-zinc-500">
+                    {m.content_type}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-zinc-500">
+                    {formatDate(m.created_at)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <span className="relative inline-block text-left">
+                      <button
+                        type="button"
+                        aria-haspopup="menu"
+                        aria-expanded={menuFor === m.id}
+                        aria-label={`Actions for ${m.filename}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setMenuFor(menuFor === m.id ? null : m.id);
+                        }}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-950/5 hover:text-zinc-950"
+                      >
+                        <EllipsisIcon className="size-4" />
+                      </button>
+                      {menuFor === m.id ? (
+                        <span
+                          role="menu"
+                          onClick={(event) => event.stopPropagation()}
+                          className="absolute top-full right-0 z-20 mt-1 block w-44 rounded-xl border border-zinc-200 bg-white p-1 shadow-lg"
+                        >
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setMenuFor(null);
+                              void navigate({
+                                search: { q: search.q, page: search.page, edit: m.id },
+                              });
+                            }}
+                            className="block w-full rounded-lg px-3 py-2 text-left text-[13px] font-medium text-zinc-950 transition-colors hover:bg-zinc-50"
+                          >
+                            Open
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={busy}
+                            title="Delete this image"
+                            onClick={() => {
+                              setMenuFor(null);
+                              void requestDelete(m);
+                            }}
+                            className="block w-full rounded-lg px-3 py-2 text-left text-[13px] font-medium text-red-600 transition-colors hover:bg-red-50 disabled:pointer-events-none disabled:opacity-40"
+                          >
+                            {m.deletion_pending ? 'Retry deletion' : 'Delete'}
+                          </button>
+                        </span>
+                      ) : null}
+                    </span>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       )}
+      <AdminPagination
+        label="Media pagination"
+        page={page}
+        total={total}
+        pageSize={pageSize}
+        onPage={(next) => void navigate({ search: { q: search.q, page: next, edit: undefined } })}
+      />
+      {editingRow ? (
+        <MediaSheet
+          key={editingRow.id}
+          row={editingRow}
+          usedCount={usedFor === editingRow.id ? usedCount : null}
+          busy={busy}
+          onClose={closeSheet}
+          onSaveAlt={async (altText) =>
+            run(
+              'media.updateAlt',
+              { mediaId: editingRow.id, altText },
+              `Alt text saved for ${editingRow.filename}.`
+            )
+          }
+          onDelete={askDelete}
+        />
+      ) : null}
+      {search.edit && !editingRow ? (
+        <Sheet
+          open
+          onOpenChange={(next) => {
+            if (!next) closeSheet();
+          }}
+        >
+          <SheetContent
+            className="w-full gap-0 overflow-hidden p-0 sm:max-w-2xl"
+            onOpenAutoFocus={(event) => event.preventDefault()}
+          >
+            <SheetHeader className="p-5 pr-14 pb-0 sm:p-6 sm:pr-14 sm:pb-0">
+              <SheetTitle>File not found</SheetTitle>
+              <SheetDescription>This file does not exist.</SheetDescription>
+            </SheetHeader>
+            <div className="px-5 py-5 sm:px-6">
+              <Button type="button" onClick={closeSheet}>
+                Back to media
+              </Button>
+            </div>
+          </SheetContent>
+        </Sheet>
+      ) : null}
       <ConfirmDialog
         request={
           confirm

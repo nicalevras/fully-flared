@@ -8,6 +8,7 @@ import { requireStaff, AuthError } from '../../server/session';
 import { getRequest } from '@tanstack/react-start/server';
 import { createServerFn } from '@tanstack/react-start';
 import { getSettings } from '../../server/settings';
+import { resolveMediaSources } from '../../server/media-source';
 import { AdminNav } from '../../components/AdminNav';
 import { RealtimeRefresh } from '../../components/RealtimeRefresh';
 
@@ -15,12 +16,20 @@ const getNavigation = createServerFn({ method: 'GET' }).handler(async () => {
   const { env } = await import('cloudflare:workers');
   try {
     const staff = await requireStaff(env.DB, getRequest());
-    return { staff, storeName: (await getSettings(env.DB)).storeName, redirect: null };
+    const settings = await getSettings(env.DB);
+    const brand = await resolveMediaSources(env.DB, [settings.logoMediaId]);
+    return {
+      staff,
+      storeName: settings.storeName,
+      logo: brand.get(settings.logoMediaId) ?? null,
+      redirect: null,
+    };
   } catch (error) {
     if (error instanceof AuthError)
       return {
         staff: null,
         storeName: '',
+        logo: null,
         redirect:
           error.code === 'TWO_FACTOR_REQUIRED' ? ('/account' as const) : ('/auth/sign-in' as const),
       };
@@ -46,16 +55,16 @@ export const Route = createFileRoute('/admin')({
 });
 
 function AdminLayout() {
-  const { storeName, staff } = Route.useRouteContext();
+  const { storeName, staff, logo } = Route.useRouteContext();
   return (
-    <div className="min-h-screen bg-white sm:pl-[190px] min-[56.25rem]:pl-[222px]">
+    <div className="min-h-screen bg-white sm:pl-[260px]">
       <a
         href="#admin-content"
         className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[60] focus:rounded-md focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:text-zinc-950 focus:shadow"
       >
         Skip to content
       </a>
-      <AdminNav storeName={storeName} role={staff?.role} />
+      <AdminNav storeName={storeName} logo={logo} role={staff?.role} />
       <div
         id="admin-content"
         tabIndex={-1}

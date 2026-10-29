@@ -40,7 +40,7 @@ export function PostNotFound() {
     <Block
       title="Article not found"
       body="This article does not exist or has not been published yet."
-      to="/blog"
+      to="/articles"
       label="All articles"
     />
   );

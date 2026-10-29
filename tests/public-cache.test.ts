@@ -24,8 +24,8 @@ it('classifies only ordinary public HTML GETs for the storefront', () => {
     '/collections/shoes',
     '/collections/shoes?page=2',
     '/pages/about',
-    '/blog',
-    '/blog/hello',
+    '/articles',
+    '/articles/hello',
     '/shop',
     '/shop?page=2',
     '/search?q=tee',
@@ -108,8 +108,8 @@ it('derives cache tags from the route scope', () => {
   expect(cacheTagsForPath('/collections/shoes')).toEqual(['layout', 'listing-shoes']);
   expect(cacheTagsForPath('/collections')).toEqual(['layout', 'listing-@collections']);
   expect(cacheTagsForPath('/pages/about')).toEqual(['layout', 'editorial-about']);
-  expect(cacheTagsForPath('/blog')).toEqual(['layout', 'editorial-index', 'listing-@posts']);
-  expect(cacheTagsForPath('/blog/hello')).toEqual(['layout', 'editorial-hello']);
+  expect(cacheTagsForPath('/articles')).toEqual(['layout', 'editorial-index', 'listing-@posts']);
+  expect(cacheTagsForPath('/articles/hello')).toEqual(['layout', 'editorial-hello']);
 });
 
 it('stores private-free HTML: pages for 60s, not-found pages for 30s', () => {
@@ -172,13 +172,13 @@ it('stores private-free HTML: pages for 60s, not-found pages for 30s', () => {
 it('edge-caches the blog RSS feed like the blog index, purged with it', () => {
   expect(
     publicCacheRequest(
-      new Request('https://shop.test/blog/rss.xml', {
+      new Request('https://shop.test/articles/rss.xml', {
         headers: { accept: 'application/rss+xml, application/xml;q=0.9' },
       })
     )
   ).not.toBeNull();
-  const tags = cacheTagsForPath('/blog/rss.xml');
-  expect(tags).toEqual(cacheTagsForPath('/blog'));
+  const tags = cacheTagsForPath('/articles/rss.xml');
+  expect(tags).toEqual(cacheTagsForPath('/articles'));
   const feed = publicCacheResponse(
     new Response('<rss version="2.0"></rss>', {
       headers: { 'content-type': 'application/rss+xml; charset=utf-8' },

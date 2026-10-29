@@ -78,7 +78,7 @@ describe('product creation draft', () => {
 
 describe('product creation confirmation (FF-01)', () => {
   it('uses the shared ConfirmDialog, never window.confirm', () => {
-    const source = readFileSync('web/src/routes/admin/products/new.tsx', 'utf8');
+    const source = readFileSync('web/src/components/ProductCreateSheet.tsx', 'utf8');
     expect(source).not.toContain('window.confirm');
     expect(source).toContain('ConfirmDialog');
     expect(source).toContain('pendingGroups');

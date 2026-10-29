@@ -68,33 +68,39 @@ export async function exportGuestData(db: D1Database, rawEmail: string) {
   if (!email) return null;
   const preview = await previewGuestData(db, email);
   if (!preview || preview.orderCount === 0) return null;
-  const [orders, items, returns] = await Promise.all([
+  const orders = await db
+    .prepare(
+      `SELECT id, number, status, payment_status AS paymentStatus, currency, subtotal_cents AS subtotalCents, discount_cents AS discountCents, shipping_cents AS shippingCents, tax_cents AS taxCents, total_cents AS totalCents, shipping_name AS shippingName, shipping_address_json AS shippingAddressJson, created_at AS createdAt FROM orders WHERE user_id IS NULL AND lower(customer_email) = ? ORDER BY created_at, id LIMIT 201`
+    )
+    .bind(email)
+    .all<Record<string, unknown> & { id: string }>();
+  const exportedOrders = orders.results.slice(0, 200);
+  const orderIds = JSON.stringify(exportedOrders.map((order) => order.id));
+  const [items, returns] = await Promise.all([
     db
       .prepare(
-        `SELECT id, number, status, payment_status AS paymentStatus, currency, subtotal_cents AS subtotalCents, discount_cents AS discountCents, shipping_cents AS shippingCents, tax_cents AS taxCents, total_cents AS totalCents, shipping_name AS shippingName, shipping_address_json AS shippingAddressJson, created_at AS createdAt FROM orders WHERE user_id IS NULL AND lower(customer_email) = ? ORDER BY created_at, id LIMIT 200`
+        `SELECT oi.order_id AS orderId, oi.sku, oi.title, oi.qty, oi.unit_price_cents AS unitPriceCents FROM order_items oi WHERE oi.order_id IN (SELECT value FROM json_each(?)) ORDER BY oi.rowid LIMIT 1001`
       )
-      .bind(email)
+      .bind(orderIds)
       .all<Record<string, unknown>>(),
     db
       .prepare(
-        `SELECT oi.order_id AS orderId, oi.sku, oi.title, oi.qty, oi.unit_price_cents AS unitPriceCents FROM order_items oi JOIN orders o ON o.id = oi.order_id WHERE o.user_id IS NULL AND lower(o.customer_email) = ? ORDER BY oi.rowid LIMIT 1000`
+        `SELECT r.id, r.order_id AS orderId, r.status, r.reason, r.created_at AS createdAt FROM returns r WHERE r.order_id IN (SELECT value FROM json_each(?)) ORDER BY r.created_at, r.id LIMIT 201`
       )
-      .bind(email)
-      .all<Record<string, unknown>>(),
-    db
-      .prepare(
-        `SELECT r.id, r.order_id AS orderId, r.status, r.reason, r.created_at AS createdAt FROM returns r JOIN orders o ON o.id = r.order_id WHERE o.user_id IS NULL AND lower(o.customer_email) = ? ORDER BY r.created_at, r.id LIMIT 200`
-      )
-      .bind(email)
+      .bind(orderIds)
       .all<Record<string, unknown>>(),
   ]);
   return {
     email,
-    exportedOrders: orders.results.length,
-    truncated: preview.orderCount > orders.results.length,
-    orders: orders.results,
-    items: items.results,
-    returns: returns.results,
+    exportedOrders: exportedOrders.length,
+    truncated:
+      preview.orderCount > exportedOrders.length ||
+      orders.results.length > 200 ||
+      items.results.length > 1000 ||
+      returns.results.length > 200,
+    orders: exportedOrders,
+    items: items.results.slice(0, 1000),
+    returns: returns.results.slice(0, 200),
     retainedTotals: preview.totals,
   };
 }

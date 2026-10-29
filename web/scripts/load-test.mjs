@@ -3,7 +3,7 @@
 const base = process.argv[2] ?? 'http://localhost:8799';
 const total = Number(process.argv[3] ?? 200);
 const concurrency = Number(process.argv[4] ?? 20);
-const paths = ['/', '/products/tracer-tee', '/blog', '/sitemap.xml'];
+const paths = ['/', '/products/tracer-tee', '/articles', '/sitemap.xml'];
 
 const latencies = [];
 let failures = 0;

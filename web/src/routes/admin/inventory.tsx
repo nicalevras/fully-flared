@@ -1,38 +1,59 @@
-import { useState } from 'react';
-import { createFileRoute } from '@tanstack/react-router';
-import { createServerFn } from '@tanstack/react-start';
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../components/ui/table';
+import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router';
+import { createServerFn, useServerFn } from '@tanstack/react-start';
 import * as z from 'zod';
+import { ChevronDownIcon, ChevronRightIcon, EllipsisIcon, MinusIcon, PlusIcon } from 'lucide-react';
 import { staffMiddleware } from '../../server/staff-middleware';
 import { validateServerInput } from '../../server/function-boundary';
 import { useAdminAction } from '../../components/AdminNav';
 import {
-  applyMultiOutcome,
-  parseMultiAdjustments,
-  retryableItems,
-  summarizeMulti,
-  type MultiAdjustmentItem,
-} from '../../lib/inventory-multi';
+  adminInventoryList,
+  inventoryListInputSchema,
+  type InventoryProductGroup,
+  type InventorySkuRow,
+} from '../../server/admin-inventory';
 import {
   AdminActionFeedback,
   type AdminActionFeedbackState,
 } from '../../components/AdminActionFeedback';
+import { AdminPagination } from '../../components/AdminPagination';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { StatusBadge } from '../../components/StatusBadge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
-  btnPrimary,
-  btnSmall,
-  cardCls,
-  hintCls,
-  inputCls,
-  labelCls,
-  pageSub,
-  pageTitle,
-  tableCls,
-  tableWrap,
-} from '../../components/ui';
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
+import { Switch } from '@/components/ui/switch';
 
-const inventoryInput = z.object({
-  q: z.string().max(200).optional().default(''),
-  sku: z.string().max(100).optional().default(''),
-});
+const getList = createServerFn({ method: 'GET' })
+  .middleware([staffMiddleware])
+  .validator(validateServerInput(inventoryListInputSchema))
+  .handler(async ({ data }) => {
+    const { env } = await import('cloudflare:workers');
+    return adminInventoryList(env.DB, data);
+  });
 
 type InventoryDetail = {
   sku: string;
@@ -51,33 +72,14 @@ type InventoryDetail = {
   }>;
 };
 
-type InventoryData = {
-  matches: Array<{ sku: string; variantTitle: string; productTitle: string }>;
-  detail: InventoryDetail | null;
-};
+const skuDetailInput = z.object({ sku: z.string().max(100) });
 
-const getData = createServerFn({ method: 'GET' })
+const getSkuDetail = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
-  .validator(validateServerInput(inventoryInput))
-  .handler(async ({ data }): Promise<InventoryData> => {
+  .validator(validateServerInput(skuDetailInput))
+  .handler(async ({ data }): Promise<InventoryDetail | null> => {
     const { env } = await import('cloudflare:workers');
     const db = env.DB;
-    const q = data.q.trim();
-    const matches = q
-      ? (
-          await db
-            .prepare(
-              `SELECT v.sku, v.title AS variantTitle, p.title AS productTitle
-               FROM variants v JOIN products p ON p.id = v.product_id
-               WHERE v.sku LIKE ? ESCAPE '\\' OR p.title LIKE ? ESCAPE '\\'
-               ORDER BY v.sku LIMIT 20`
-            )
-            .bind(`${q.replace(/[\\%_]/g, '\\$&')}%`, `%${q.replace(/[\\%_]/g, '\\$&')}%`)
-            .all<{ sku: string; variantTitle: string; productTitle: string }>()
-        ).results
-      : [];
-    const sku = data.sku.trim();
-    if (!sku) return { matches, detail: null };
     const head = await db
       .prepare(
         `SELECT v.sku, v.title AS variantTitle, v.product_id AS productId, p.title AS productTitle,
@@ -87,7 +89,7 @@ const getData = createServerFn({ method: 'GET' })
          LEFT JOIN stock s ON s.sku = v.sku
          WHERE v.sku = ?`
       )
-      .bind(sku)
+      .bind(data.sku.trim())
       .first<{
         sku: string;
         variantTitle: string;
@@ -96,468 +98,745 @@ const getData = createServerFn({ method: 'GET' })
         onHand: number;
         reserved: number;
       }>();
-    if (!head) return { matches, detail: null };
+    if (!head) return null;
     const history = await db
       .prepare(
         'SELECT id, delta_on_hand, delta_reserved, reason, created_at FROM stock_ledger WHERE sku = ? ORDER BY created_at DESC, id DESC LIMIT 50'
       )
-      .bind(sku)
+      .bind(head.sku)
       .all<InventoryDetail['history'][number]>();
-    return {
-      matches,
-      detail: {
-        ...head,
-        available: head.onHand - head.reserved,
-        history: history.results,
-      },
-    };
+    return { ...head, available: head.onHand - head.reserved, history: history.results };
   });
 
 export const Route = createFileRoute('/admin/inventory')({
-  validateSearch: (search: { q?: unknown; sku?: unknown }) => ({
+  staleTime: 30_000,
+  validateSearch: (search: { q?: unknown; page?: unknown; low?: unknown; sku?: unknown }) => ({
     q: typeof search.q === 'string' ? search.q : '',
-    sku: typeof search.sku === 'string' ? search.sku : '',
+    page:
+      typeof search.page === 'number' && Number.isInteger(search.page) && search.page > 0
+        ? search.page
+        : 1,
+    low: search.low === true || search.low === 'true',
+    sku: typeof search.sku === 'string' && search.sku ? search.sku : undefined,
   }),
-  loaderDeps: ({ search }) => search,
-  loader: async ({ deps }) => getData({ data: deps }),
+  loaderDeps: ({ search }) => {
+    const { sku: _sku, ...rest } = search;
+    return rest;
+  },
+  loader: async ({ deps }) => getList({ data: deps }),
   component: AdminInventory,
 });
 
+type StagedAdjustment = {
+  total: string;
+  reason: string;
+  note: string;
+  operationId: string;
+  onHand: number;
+};
+
+function StockStepper({
+  sku,
+  value,
+  disabled,
+  onValue,
+}: {
+  sku: string;
+  value: string;
+  disabled: boolean;
+  onValue: (raw: string | null) => void;
+}) {
+  const parsed = Number(value);
+  const total = Number.isInteger(parsed) ? parsed : 0;
+  return (
+    <span className="inline-flex items-center rounded-full border border-zinc-300">
+      <button
+        type="button"
+        aria-label={`Decrease stock for ${sku}`}
+        disabled={disabled || total <= 0}
+        onClick={() => onValue(String(total - 1))}
+        className="flex h-9 w-8 items-center justify-center text-zinc-600 transition-colors hover:text-zinc-950 disabled:opacity-40"
+      >
+        <MinusIcon className="size-4" />
+      </button>
+      <input
+        inputMode="numeric"
+        aria-label={`Stock total for ${sku}`}
+        className="w-12 bg-transparent text-center text-sm font-medium text-zinc-950 outline-none"
+        value={value}
+        onChange={(event) => onValue(event.target.value)}
+        onBlur={(event) => {
+          if (event.target.value.trim() === '') onValue(null);
+        }}
+      />
+      <button
+        type="button"
+        aria-label={`Increase stock for ${sku}`}
+        disabled={disabled}
+        onClick={() => onValue(String(total + 1))}
+        className="flex h-9 w-8 items-center justify-center text-zinc-600 transition-colors hover:text-zinc-950 disabled:opacity-40"
+      >
+        <PlusIcon className="size-4" />
+      </button>
+    </span>
+  );
+}
+
 function AdminInventory() {
   const adminAction = useAdminAction();
-  const { matches, detail } = Route.useLoaderData();
+  const router = useRouter();
+  const { products, total, page, pageSize } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
+  const navigateAll = useNavigate();
   const [query, setQuery] = useState(search.q);
-  const [direction, setDirection] = useState<'increase' | 'decrease'>('increase');
-  const [amount, setAmount] = useState('1');
-  const [reason, setReason] = useState('restock');
-  const [note, setNote] = useState('');
-  const [operationId, setOperationId] = useState(() => crypto.randomUUID());
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [staged, setStaged] = useState<Record<string, StagedAdjustment>>({});
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<AdminActionFeedbackState>(null);
-  const [multiText, setMultiText] = useState('');
-  const [multiReason, setMultiReason] = useState('restock');
-  const [multiItems, setMultiItems] = useState<MultiAdjustmentItem[] | null>(null);
-  const [multiBusy, setMultiBusy] = useState(false);
 
-  async function runMulti(itemsToRun: MultiAdjustmentItem[]) {
-    setMultiBusy(true);
-    let current = multiItems ?? itemsToRun;
-    for (const item of itemsToRun) {
+  useEffect(() => setQuery(search.q), [search.q]);
+  useEffect(() => {
+    if (!menuFor) return;
+    const close = () => setMenuFor(null);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close();
+    };
+    document.addEventListener('click', close);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('click', close);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [menuFor]);
+  useEffect(() => setExpanded({}), [search.q, search.page, search.low]);
+
+  const skuRows = useMemo(() => {
+    const map = new Map<string, InventorySkuRow>();
+    for (const group of products) for (const row of group.skus) map.set(row.sku, row);
+    return map;
+  }, [products]);
+
+  const dirtyEntries = useMemo(
+    () =>
+      Object.entries(staged).filter(([sku, entry]) => {
+        const onHand = skuRows.get(sku)?.onHand ?? entry.onHand;
+        const next = Number(entry.total);
+        return Number.isInteger(next) && next >= 0 && next !== onHand;
+      }),
+    [staged, skuRows]
+  );
+
+  function stageFromSheet(sku: string, entry: StagedAdjustment | null) {
+    setStaged((current) => {
+      const next = { ...current };
+      if (entry === null) delete next[sku];
+      else next[sku] = entry;
+      return next;
+    });
+  }
+
+  async function saveAll() {
+    setBusy(true);
+    const ordered = [...dirtyEntries].sort(([a], [b]) => a.localeCompare(b));
+    const remaining = { ...staged };
+    const failed: string[] = [];
+    let applied = 0;
+    for (const [sku, entry] of ordered) {
+      const onHand = skuRows.get(sku)?.onHand ?? entry.onHand;
+      const delta = Number(entry.total) - onHand;
+      if (delta === 0) {
+        delete remaining[sku];
+        continue;
+      }
       const result = await adminAction('stock.adjust', {
-        sku: item.sku,
-        delta: item.delta,
-        reason: item.reason,
-        note: item.note,
-        operationId: item.operationId,
+        sku,
+        delta,
+        reason: entry.reason,
+        note: entry.note,
+        operationId: entry.operationId,
       });
-      current = applyMultiOutcome(current, item.sku, {
-        ok: result.ok,
-        message: result.ok
-          ? (result.data as { replayed?: boolean } | undefined)?.replayed
-            ? 'Already recorded. Not applied twice.'
-            : 'Recorded'
-          : result.error,
-      });
-      setMultiItems(current);
+      if (result.ok) {
+        applied += 1;
+        delete remaining[sku];
+      } else {
+        failed.push(sku);
+      }
     }
-    setMultiBusy(false);
-    const summary = summarizeMulti(current);
-    if (summary.complete) {
-      setFeedback({ kind: 'status', message: `All ${summary.total} adjustments recorded.` });
-    } else if (summary.partial) {
+    setStaged(remaining);
+    setBusy(false);
+    if (failed.length === 0) {
       setFeedback({
-        kind: 'error',
-        message: `${summary.applied} of ${summary.total} adjustments recorded. Review the failed rows, then retry only those rows.`,
+        kind: 'status',
+        message: applied === 1 ? 'Stock updated for 1 SKU.' : `Stock updated for ${applied} SKUs.`,
       });
     } else {
       setFeedback({
         kind: 'error',
-        message: 'No adjustments were recorded. Review the rows below.',
+        message: `Saved ${applied} of ${ordered.length} adjustments. Still staged: ${failed.join(', ')}.`,
       });
     }
+    if (applied > 0) void router.invalidate();
+  }
+
+  function isExpanded(group: InventoryProductGroup): boolean {
+    return expanded[group.id] ?? false;
   }
 
   return (
     <main>
-      <h1 className={pageTitle}>Inventory</h1>
-      <p className={pageSub}>
-        Look up a SKU, see what is on hand, reserved, and available, and record adjustments that can
-        never be applied twice.
-      </p>
+      <h1 className="text-[28px] leading-tight font-medium tracking-tight text-zinc-950">
+        Inventory
+      </h1>
+      <p className="mt-1 text-sm text-zinc-500">On hand, reserved, and available by product.</p>
       <AdminActionFeedback value={feedback} />
 
       <form
-        className={`${cardCls} mt-5 flex flex-wrap items-end gap-3 p-4`}
+        className="mt-5 flex flex-wrap items-end gap-3"
         onSubmit={(event) => {
           event.preventDefault();
-          void navigate({ search: { q: query.trim(), sku: search.sku } });
+          void navigate({
+            search: { q: query.trim(), page: 1, low: search.low, sku: undefined },
+          });
         }}
       >
         <div className="min-w-48 flex-1">
-          <label className={labelCls} htmlFor="inventory-q">
+          <Label htmlFor="inventory-q" className="mb-1.5">
             Find a SKU or product
-          </label>
-          <input
+          </Label>
+          <Input
             id="inventory-q"
-            className={inputCls}
+            className="rounded-lg"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="SKU starts with, or part of a product title"
           />
         </div>
-        <button type="submit" className={btnPrimary}>
-          Search
-        </button>
+        <Button type="submit">Search</Button>
+        <label className="flex items-center gap-2 pb-2 text-sm text-zinc-700">
+          <Switch
+            checked={search.low}
+            onCheckedChange={(checked) =>
+              void navigate({
+                search: { q: search.q, page: 1, low: checked, sku: undefined },
+              })
+            }
+          />
+          Low stock only
+        </label>
       </form>
 
-      {matches.length > 0 ? (
-        <ul className={`${cardCls} mt-4 divide-y divide-zinc-100`}>
-          {matches.map((match) => (
-            <li key={match.sku}>
-              <button
-                type="button"
-                className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm hover:bg-zinc-50"
-                onClick={() => void navigate({ search: { q: search.q, sku: match.sku } })}
-              >
-                <span className="font-medium text-zinc-950">{match.sku}</span>
-                <span className="text-zinc-500">
-                  {match.productTitle} · {match.variantTitle}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : search.q ? (
-        <p className={`${cardCls} mt-4 p-4 text-sm text-zinc-500`} role="status">
-          No SKUs match that search.
+      {products.length === 0 ? (
+        <p className="mt-5 rounded-2xl bg-zinc-50 p-5 text-sm text-zinc-500" role="status">
+          {search.q || search.low ? 'No products match that search.' : 'No products yet.'}
         </p>
-      ) : null}
-
-      {search.sku && !detail ? (
-        <p className={`${cardCls} mt-4 p-4 text-sm text-zinc-500`} role="status">
-          No stock record for {search.sku}.
-        </p>
-      ) : null}
-
-      <section className={`${cardCls} mt-5 p-5`}>
-        <h2 className="text-sm font-medium text-zinc-950">Adjust several SKUs</h2>
-        <p className="mt-1 text-sm text-zinc-500">
-          One SKU and a signed amount per line, for example TEE-1, 5 or HAT-2, -3. At most 20 SKUs
-          at once. Review the list before anything is recorded.
-        </p>
-        <div className="mt-3 grid gap-3 sm:grid-cols-3">
-          <div className="sm:col-span-2">
-            <label className={labelCls} htmlFor="multi-lines">
-              SKUs and amounts
-            </label>
-            <textarea
-              id="multi-lines"
-              className={inputCls}
-              rows={5}
-              value={multiText}
-              onChange={(event) => {
-                setMultiText(event.target.value);
-                setMultiItems(null);
-              }}
-              placeholder={'TEE-1, 5\nHAT-2, -3'}
-            />
-          </div>
-          <div>
-            <label className={labelCls} htmlFor="multi-reason">
-              Reason for every row
-            </label>
-            <select
-              id="multi-reason"
-              className={inputCls}
-              value={multiReason}
-              onChange={(event) => {
-                setMultiReason(event.target.value);
-                setMultiItems(null);
-              }}
-            >
-              <option value="restock">Restock</option>
-              <option value="correction">Correction</option>
-              <option value="damaged">Damaged</option>
-              <option value="return">Return</option>
-            </select>
-          </div>
-        </div>
-        {!multiItems ? (
-          <button
-            type="button"
-            className={btnPrimary}
-            onClick={() => {
-              const parsed = parseMultiAdjustments(
-                multiText,
-                { reason: multiReason, note: '' },
-                () => crypto.randomUUID()
+      ) : (
+        <div className="mt-5" tabIndex={0} role="region" aria-label="Inventory">
+          <Table className="min-w-[760px]">
+            <TableCaption className="sr-only">Inventory by product</TableCaption>
+            <TableHeader>
+              <TableRow>
+                <TableHead scope="col">Product</TableHead>
+                <TableHead scope="col">On hand</TableHead>
+                <TableHead scope="col">Reserved</TableHead>
+                <TableHead scope="col">Available</TableHead>
+                <TableHead scope="col">
+                  <span className="sr-only">Actions</span>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            {products.map((group) => {
+              const open = isExpanded(group);
+              return (
+                <TableBody key={group.id}>
+                  <TableRow
+                    className="cursor-pointer"
+                    onClick={(event) => {
+                      if ((event.target as HTMLElement).closest('a, button, input')) return;
+                      setExpanded((current) => ({ ...current, [group.id]: !open }));
+                    }}
+                  >
+                    <TableCell className="whitespace-normal">
+                      <span className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          aria-expanded={open}
+                          aria-label={`${open ? 'Collapse' : 'Expand'} ${group.title}`}
+                          onClick={() =>
+                            setExpanded((current) => ({ ...current, [group.id]: !open }))
+                          }
+                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-950/5 hover:text-zinc-950"
+                        >
+                          {open ? (
+                            <ChevronDownIcon className="size-4" />
+                          ) : (
+                            <ChevronRightIcon className="size-4" />
+                          )}
+                        </button>
+                        {group.image_key ? (
+                          <img
+                            src={`/media/${group.image_key}`}
+                            alt=""
+                            className="h-10 w-10 shrink-0 rounded-lg object-cover"
+                          />
+                        ) : (
+                          <span
+                            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-sm font-medium text-zinc-500"
+                            aria-hidden
+                          >
+                            {group.title.slice(0, 1).toUpperCase()}
+                          </span>
+                        )}
+                        <span>
+                          <span className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium text-zinc-950">{group.title}</span>
+                            <StatusBadge value={group.status} />
+                          </span>
+                          <span className="block text-[13px] text-zinc-500">
+                            {group.variantCount} {group.variantCount === 1 ? 'variant' : 'variants'}
+                            {group.lowCount > 0 ? ` · ${group.lowCount} low` : ''}
+                          </span>
+                        </span>
+                      </span>
+                    </TableCell>
+                    <TableCell>{group.onHand}</TableCell>
+                    <TableCell>{group.reserved}</TableCell>
+                    <TableCell>{group.available}</TableCell>
+                    <TableCell />
+                  </TableRow>
+                  {open
+                    ? group.skus.map((row) => (
+                        <TableRow
+                          key={row.sku}
+                          className="cursor-pointer bg-zinc-50/60"
+                          onClick={() => {
+                            void navigate({
+                              search: {
+                                q: search.q,
+                                page: search.page,
+                                low: search.low,
+                                sku: row.sku,
+                              },
+                            });
+                          }}
+                        >
+                          <TableCell className="pl-14 whitespace-normal">
+                            <span className="font-medium text-zinc-950">{row.sku}</span>
+                            <span className="block text-[13px] text-zinc-500">
+                              {row.variantTitle}
+                            </span>
+                            {row.available <= 5 ? (
+                              <span className="mt-1 inline-block rounded-full bg-yellow-50 px-2 py-0.5 text-[11px] font-medium text-yellow-800 ring-1 ring-yellow-600/20 ring-inset">
+                                Low
+                              </span>
+                            ) : null}
+                          </TableCell>
+                          <TableCell>{row.onHand}</TableCell>
+                          <TableCell>{row.reserved}</TableCell>
+                          <TableCell>{row.available}</TableCell>
+                          <TableCell className="text-right">
+                            <span className="relative inline-block text-left">
+                              <button
+                                type="button"
+                                aria-haspopup="menu"
+                                aria-expanded={menuFor === row.sku}
+                                aria-label={`Actions for ${row.sku}`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setMenuFor(menuFor === row.sku ? null : row.sku);
+                                }}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-950/5 hover:text-zinc-950"
+                              >
+                                <EllipsisIcon className="size-4" />
+                              </button>
+                              {menuFor === row.sku ? (
+                                <span
+                                  role="menu"
+                                  onClick={(event) => event.stopPropagation()}
+                                  className="absolute top-full right-0 z-20 mt-1 block w-44 rounded-xl border border-zinc-200 bg-white p-1 shadow-lg"
+                                >
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={() => {
+                                      setMenuFor(null);
+                                      void navigate({
+                                        search: {
+                                          q: search.q,
+                                          page: search.page,
+                                          low: search.low,
+                                          sku: row.sku,
+                                        },
+                                      });
+                                    }}
+                                    className="block w-full rounded-lg px-3 py-2 text-left text-[13px] font-medium text-zinc-950 transition-colors hover:bg-zinc-50"
+                                  >
+                                    Adjust stock
+                                  </button>
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={() => {
+                                      setMenuFor(null);
+                                      void navigateAll({
+                                        to: '/admin/products',
+                                        search: { edit: group.id },
+                                      });
+                                    }}
+                                    className="block w-full rounded-lg px-3 py-2 text-left text-[13px] font-medium text-zinc-950 transition-colors hover:bg-zinc-50"
+                                  >
+                                    Open product
+                                  </button>
+                                </span>
+                              ) : null}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    : null}
+                </TableBody>
               );
-              if (parsed.errors.length > 0) {
-                setFeedback({ kind: 'error', message: parsed.errors.join(' ') });
-                return;
-              }
-              setMultiItems(parsed.items);
-            }}
-          >
-            Review adjustments
-          </button>
-        ) : (
-          <div className="mt-3">
-            <div className={tableWrap} tabIndex={0} role="region" aria-label="Reviewed adjustments">
-              <table className={`${tableCls} min-w-[520px]`}>
-                <thead>
-                  <tr>
-                    <th>SKU</th>
-                    <th>Change</th>
-                    <th>Result</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {multiItems.map((item) => (
-                    <tr key={item.operationId}>
-                      <td>{item.sku}</td>
-                      <td>{item.delta > 0 ? `+${item.delta}` : item.delta}</td>
-                      <td>
-                        {item.status === 'pending'
-                          ? 'Not recorded yet'
-                          : item.status === 'applied'
-                            ? item.message
-                            : `Failed. ${item.message}`}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {summarizeMulti(multiItems).pending > 0 ? (
-                <button
-                  type="button"
-                  className={btnPrimary}
-                  disabled={multiBusy}
-                  onClick={() => void runMulti(retryableItems(multiItems))}
-                >
-                  {multiBusy ? 'Recording...' : 'Record reviewed adjustments'}
-                </button>
-              ) : null}
-              {retryableItems(multiItems).length > 0 && summarizeMulti(multiItems).failed > 0 ? (
-                <button
-                  type="button"
-                  className={btnPrimary}
-                  disabled={multiBusy}
-                  onClick={() => void runMulti(retryableItems(multiItems))}
-                >
-                  Retry failed rows only
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className={btnSmall}
-                disabled={multiBusy}
-                onClick={() => setMultiItems(null)}
-              >
-                Edit list
-              </button>
-            </div>
-            {summarizeMulti(multiItems).partial ? (
-              <p className="mt-2 text-sm text-amber-700" role="status">
-                Partial success. Recorded rows stay recorded. Retrying sends only the failed rows,
-                with their original operation IDs, so nothing is adjusted twice.
-              </p>
-            ) : null}
-          </div>
-        )}
-      </section>
+            })}
+          </Table>
+        </div>
+      )}
 
-      {detail ? (
-        <>
-          <section className={`${cardCls} mt-5 p-5 sm:p-6`}>
-            <h2 className="text-sm font-medium text-zinc-950">
-              {detail.sku} · {detail.productTitle} · {detail.variantTitle}
-            </h2>
-            <dl className="mt-3 grid grid-cols-3 gap-3 text-center">
-              <div className="rounded-xl bg-zinc-50 p-3">
-                <dt className="text-xs text-zinc-500">On hand</dt>
-                <dd className="text-lg font-medium text-zinc-950">{detail.onHand}</dd>
-              </div>
-              <div className="rounded-xl bg-zinc-50 p-3">
-                <dt className="text-xs text-zinc-500">Reserved</dt>
-                <dd className="text-lg font-medium text-zinc-950">{detail.reserved}</dd>
-              </div>
-              <div className="rounded-xl bg-zinc-50 p-3">
-                <dt className="text-xs text-zinc-500">Available</dt>
-                <dd className="text-lg font-medium text-zinc-950">{detail.available}</dd>
-              </div>
-            </dl>
+      {total > 0 ? (
+        <AdminPagination
+          label="Inventory pagination"
+          page={page}
+          total={total}
+          pageSize={pageSize}
+          onPage={(nextPage) =>
+            void navigate({
+              search: { q: search.q, page: nextPage, low: search.low, sku: undefined },
+            })
+          }
+        />
+      ) : null}
 
-            <form
-              className="mt-5 grid gap-3 sm:grid-cols-4"
-              onSubmit={async (event) => {
-                event.preventDefault();
-                const qty = Number(amount);
-                if (!Number.isInteger(qty) || qty <= 0) {
-                  setFeedback({ kind: 'error', message: 'Enter a whole amount above zero.' });
-                  return;
-                }
-                setBusy(true);
-                const result = await adminAction('stock.adjust', {
-                  sku: detail.sku,
-                  delta: direction === 'increase' ? qty : -qty,
-                  reason,
-                  note,
-                  operationId,
-                });
-                setBusy(false);
-                if (result.ok) {
-                  const data = result.data as { replayed?: boolean } | undefined;
-                  setFeedback({
-                    kind: 'status',
-                    message: data?.replayed
-                      ? 'That adjustment was already recorded. Nothing changed twice.'
-                      : 'Stock adjusted and written to the ledger.',
-                  });
-                  setOperationId(crypto.randomUUID());
-                  setAmount('1');
-                  setNote('');
-                  void navigate({ search: { q: search.q, sku: detail.sku }, replace: true });
-                } else {
-                  setFeedback({
-                    kind: 'error',
-                    message:
-                      result.error ??
-                      'Adjustment failed. Retrying with the same details is safe; it will not apply twice.',
-                  });
-                }
-              }}
+      {dirtyEntries.length > 0 ? (
+        <div className="sticky bottom-4 z-10 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-lg">
+          <span className="text-sm text-zinc-500">
+            {dirtyEntries.length} unsaved {dirtyEntries.length === 1 ? 'change' : 'changes'}
+          </span>
+          <span className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => setStaged({})}
             >
-              <div>
-                <label className={labelCls} htmlFor="adj-direction">
-                  Adjustment
-                </label>
-                <select
-                  id="adj-direction"
-                  className={inputCls}
-                  value={direction}
-                  onChange={(event) =>
-                    setDirection(event.target.value === 'decrease' ? 'decrease' : 'increase')
-                  }
-                >
-                  <option value="increase">Increase</option>
-                  <option value="decrease">Decrease</option>
-                </select>
-              </div>
-              <div>
-                <label className={labelCls} htmlFor="adj-amount">
-                  Amount
-                </label>
-                <input
-                  id="adj-amount"
-                  className={inputCls}
-                  inputMode="numeric"
-                  value={amount}
-                  onChange={(event) => setAmount(event.target.value)}
-                />
-              </div>
-              <div>
-                <label className={labelCls} htmlFor="adj-reason">
-                  Reason
-                </label>
-                <select
-                  id="adj-reason"
-                  className={inputCls}
-                  value={reason}
-                  onChange={(event) => setReason(event.target.value)}
-                >
-                  <option value="restock">Restock</option>
-                  <option value="correction">Correction</option>
-                  <option value="damaged">Damaged</option>
-                  <option value="return">Return</option>
-                </select>
-              </div>
-              <div>
-                <label className={labelCls} htmlFor="adj-note">
-                  Note (optional)
-                </label>
-                <input
-                  id="adj-note"
-                  className={inputCls}
-                  value={note}
-                  onChange={(event) => setNote(event.target.value)}
-                />
-              </div>
-              <div className="sm:col-span-4">
-                <button type="submit" className={btnPrimary} disabled={busy}>
-                  {busy ? 'Adjusting...' : 'Record adjustment'}
-                </button>
-                <p className={hintCls}>
-                  Every adjustment is written to the stock ledger. If a submission result is
-                  uncertain, retrying with the same details replays safely instead of adjusting
-                  twice.
-                </p>
-              </div>
-            </form>
-          </section>
+              Discard
+            </Button>
+            <Button type="button" size="sm" disabled={busy} onClick={() => void saveAll()}>
+              {busy ? 'Saving…' : 'Save changes'}
+            </Button>
+          </span>
+        </div>
+      ) : null}
 
-          <section className={`${cardCls} mt-5 overflow-hidden`}>
-            <div className="flex items-center justify-between p-4">
-              <h2 className="text-sm font-medium text-zinc-950">Movement history</h2>
-              <button
-                type="button"
-                className={btnSmall}
-                onClick={() => {
-                  const lines = [
-                    'created_at,delta_on_hand,delta_reserved,reason',
-                    ...detail.history.map(
-                      (row) =>
-                        `${row.created_at},${row.delta_on_hand},${row.delta_reserved},${row.reason}`
-                    ),
-                  ];
-                  const url = URL.createObjectURL(
-                    new Blob([lines.join('\n')], { type: 'text/csv' })
-                  );
-                  const link = document.createElement('a');
-                  link.href = url;
-                  link.download = `inventory-${detail.sku}.csv`;
-                  link.click();
-                  URL.revokeObjectURL(url);
-                }}
-              >
-                Export CSV
-              </button>
-            </div>
-            {detail.history.length === 0 ? (
-              <p className="px-4 pb-4 text-sm text-zinc-500" role="status">
-                No movements recorded for this SKU yet.
-              </p>
-            ) : (
-              <div className={tableWrap} tabIndex={0} role="region" aria-label="Stock movements">
-                <table className={`${tableCls} min-w-[520px]`}>
-                  <thead>
-                    <tr>
-                      <th>When</th>
-                      <th>On hand change</th>
-                      <th>Reserved change</th>
-                      <th>Reason</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {detail.history.map((row) => (
-                      <tr key={row.id}>
-                        <td>{row.created_at}</td>
-                        <td>{row.delta_on_hand}</td>
-                        <td>{row.delta_reserved}</td>
-                        <td>{row.reason}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-        </>
+      {search.sku ? (
+        <SkuSheet
+          key={search.sku}
+          sku={search.sku}
+          staged={staged[search.sku] ?? null}
+          onStage={stageFromSheet}
+          onClose={() =>
+            void navigate({
+              search: { q: search.q, page: search.page, low: search.low, sku: undefined },
+            })
+          }
+        />
       ) : null}
     </main>
+  );
+}
+
+function SkuSheet({
+  sku,
+  staged,
+  onStage,
+  onClose,
+}: {
+  sku: string;
+  staged: StagedAdjustment | null;
+  onStage: (sku: string, entry: StagedAdjustment | null) => void;
+  onClose: () => void;
+}) {
+  const getDetail = useServerFn(getSkuDetail);
+  const [detail, setDetail] = useState<InventoryDetail | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getDetail({ data: { sku } }).then((result) => {
+      if (cancelled) return;
+      setDetail(result);
+      setLoaded(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [getDetail, sku]);
+
+  const requestClose = () => {
+    if (dirty) {
+      setConfirmDiscard(true);
+      return;
+    }
+    onClose();
+  };
+
+  return (
+    <Sheet
+      open
+      onOpenChange={(next) => {
+        if (!next) requestClose();
+      }}
+    >
+      <SheetContent
+        className="w-full gap-0 overflow-hidden p-0 sm:max-w-2xl"
+        onOpenAutoFocus={(event) => event.preventDefault()}
+      >
+        <SheetHeader className="p-5 pr-14 pb-0 sm:p-6 sm:pr-14 sm:pb-0">
+          <SheetTitle>{sku}</SheetTitle>
+          <SheetDescription>
+            {detail ? `${detail.productTitle} · ${detail.variantTitle}` : 'Stock detail'}
+          </SheetDescription>
+        </SheetHeader>
+        {!loaded ? (
+          <p className="px-5 py-5 text-sm text-zinc-500 sm:px-6" role="status">
+            Loading stock…
+          </p>
+        ) : !detail ? (
+          <p className="px-5 py-5 text-sm text-zinc-500 sm:px-6" role="status">
+            No stock record for {sku}.
+          </p>
+        ) : (
+          <SkuSheetForm
+            key={detail.sku}
+            detail={detail}
+            staged={staged}
+            onStage={onStage}
+            onClose={onClose}
+            onDirtyChange={setDirty}
+          />
+        )}
+        <ConfirmDialog
+          request={
+            confirmDiscard
+              ? {
+                  title: 'Discard unsaved changes?',
+                  body: "Your adjustment to this SKU hasn't been staged.",
+                  confirmLabel: 'Discard changes',
+                }
+              : null
+          }
+          busy={false}
+          onCancel={() => setConfirmDiscard(false)}
+          onConfirm={() => {
+            setConfirmDiscard(false);
+            onClose();
+          }}
+        />
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function SkuSheetForm({
+  detail,
+  staged,
+  onStage,
+  onClose,
+  onDirtyChange,
+}: {
+  detail: InventoryDetail;
+  staged: StagedAdjustment | null;
+  onStage: (sku: string, entry: StagedAdjustment | null) => void;
+  onClose: () => void;
+  onDirtyChange: (dirty: boolean) => void;
+}) {
+  const navigate = useNavigate();
+  const [total, setTotal] = useState(staged?.total ?? String(detail.onHand));
+  const [reason, setReason] = useState(staged?.reason ?? 'restock');
+  const [note, setNote] = useState(staged?.note ?? '');
+  const initial = useMemo(
+    () => ({
+      total: staged?.total ?? String(detail.onHand),
+      reason: staged?.reason ?? 'restock',
+      note: staged?.note ?? '',
+    }),
+    [detail.onHand, staged]
+  );
+  const dirty = total !== initial.total || reason !== initial.reason || note !== initial.note;
+
+  useEffect(() => {
+    onDirtyChange(dirty);
+  }, [dirty, onDirtyChange]);
+
+  function stageAndClose() {
+    const parsed = Number(total);
+    if (!Number.isInteger(parsed) || parsed < 0 || parsed === detail.onHand) {
+      onStage(detail.sku, null);
+    } else {
+      onStage(detail.sku, {
+        total,
+        reason,
+        note,
+        operationId: staged?.operationId ?? crypto.randomUUID(),
+        onHand: detail.onHand,
+      });
+    }
+    onDirtyChange(false);
+    onClose();
+  }
+
+  return (
+    <Fragment>
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            void navigate({ to: '/admin/products', search: { edit: detail.productId } })
+          }
+        >
+          Open product
+        </Button>
+
+        <dl className="mt-4 grid grid-cols-3 gap-3 text-center">
+          <div className="rounded-xl bg-zinc-50 p-3">
+            <dt className="text-xs text-zinc-500">On hand</dt>
+            <dd className="text-lg font-medium text-zinc-950">{detail.onHand}</dd>
+          </div>
+          <div className="rounded-xl bg-zinc-50 p-3">
+            <dt className="text-xs text-zinc-500">Reserved</dt>
+            <dd className="text-lg font-medium text-zinc-950">{detail.reserved}</dd>
+          </div>
+          <div className="rounded-xl bg-zinc-50 p-3">
+            <dt className="text-xs text-zinc-500">Available</dt>
+            <dd className="text-lg font-medium text-zinc-950">{detail.available}</dd>
+          </div>
+        </dl>
+
+        <section className="mt-6">
+          <h2 className="text-sm font-medium text-zinc-950">Adjust</h2>
+          <div className="mt-3 flex items-start justify-between gap-4">
+            <span className="text-sm font-medium text-zinc-900">Inventory</span>
+            <StockStepper
+              sku={detail.sku}
+              value={total}
+              disabled={false}
+              onValue={(raw) => setTotal(raw ?? String(detail.onHand))}
+            />
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="sku-reason" className="mb-1.5">
+                Reason
+              </Label>
+              <Select value={reason} onValueChange={setReason}>
+                <SelectTrigger
+                  id="sku-reason"
+                  className="w-full rounded-lg data-[size=default]:h-10"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="restock">Restock</SelectItem>
+                  <SelectItem value="correction">Correction</SelectItem>
+                  <SelectItem value="damaged">Damaged</SelectItem>
+                  <SelectItem value="return">Return</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="sku-note" className="mb-1.5">
+                Note (optional)
+              </Label>
+              <Input
+                id="sku-note"
+                className="rounded-lg"
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+              />
+            </div>
+          </div>
+        </section>
+
+        <section className="mt-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-medium text-zinc-950">Movement history</h2>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const lines = [
+                  'created_at,delta_on_hand,delta_reserved,reason',
+                  ...detail.history.map(
+                    (row) =>
+                      `${row.created_at},${row.delta_on_hand},${row.delta_reserved},${row.reason}`
+                  ),
+                ];
+                const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `inventory-${detail.sku}.csv`;
+                link.click();
+                URL.revokeObjectURL(url);
+              }}
+            >
+              Export CSV
+            </Button>
+          </div>
+          {detail.history.length === 0 ? (
+            <p className="mt-3 text-sm text-zinc-500" role="status">
+              No movements recorded for this SKU yet.
+            </p>
+          ) : (
+            <div className="mt-3" tabIndex={0} role="region" aria-label="Stock movements">
+              <Table className="min-w-[520px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>When</TableHead>
+                    <TableHead>On hand change</TableHead>
+                    <TableHead>Reserved change</TableHead>
+                    <TableHead>Reason</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {detail.history.map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell>{row.created_at}</TableCell>
+                      <TableCell>{row.delta_on_hand}</TableCell>
+                      <TableCell>{row.delta_reserved}</TableCell>
+                      <TableCell>{row.reason}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </section>
+      </div>
+      {dirty ? (
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-zinc-100 bg-white px-5 py-3.5 sm:px-6">
+          <Button type="button" variant="outline" size="sm" onClick={onClose}>
+            Discard
+          </Button>
+          <Button type="button" size="sm" onClick={stageAndClose}>
+            Save changes
+          </Button>
+        </div>
+      ) : null}
+    </Fragment>
   );
 }

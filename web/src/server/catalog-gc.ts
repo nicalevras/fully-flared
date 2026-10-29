@@ -326,7 +326,7 @@ export async function runCatalogGcUnit(
     } else {
       const rows = await db
         .prepare(
-          "SELECT from_path FROM redirects WHERE from_path>? AND (from_path LIKE '/products/%' OR from_path LIKE '/blog/%') ORDER BY from_path LIMIT 100"
+          "SELECT from_path FROM redirects WHERE from_path>? AND (from_path LIKE '/products/%' OR from_path LIKE '/articles/%') ORDER BY from_path LIMIT 100"
         )
         .bind(s.cursor)
         .all<{ from_path: string }>();
@@ -335,7 +335,7 @@ export async function runCatalogGcUnit(
       keys = rows.results.map(({ from_path }) =>
         from_path.startsWith('/products/')
           ? productSlugKey(from_path.slice('/products/'.length))
-          : editorialKey('post', from_path.slice('/blog/'.length))
+          : editorialKey('post', from_path.slice('/articles/'.length))
       );
     }
     if (length < PAGE) {

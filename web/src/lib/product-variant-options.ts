@@ -7,6 +7,7 @@ export type VariantCombination = {
   values: string[];
   sku: string;
   price: string;
+  compareAt: string;
   stock: string;
 };
 
@@ -104,6 +105,7 @@ export function generateVariantCombinations(
       values,
       sku: suffix ? `${base}-${suffix}` : base,
       price: defaults.price,
+      compareAt: '',
       stock: defaults.stock,
     };
   });

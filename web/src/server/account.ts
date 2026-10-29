@@ -6,7 +6,7 @@ export async function claimVerifiedGuestOrders(
 ): Promise<number> {
   if (!user.emailVerified) return 0;
   const result = await db
-    .prepare('UPDATE orders SET user_id = ? WHERE customer_email = ? AND user_id IS NULL')
+    .prepare('UPDATE orders SET user_id = ? WHERE lower(customer_email) = ? AND user_id IS NULL')
     .bind(user.id, user.email.toLowerCase())
     .run();
   return result.meta.changes ?? 0;

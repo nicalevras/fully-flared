@@ -101,6 +101,22 @@ it('searches title terms only and binds cursors to the committed search', async 
   ).toBeUndefined();
 });
 
+it('matches title terms by prefix from three characters', async () => {
+  await product('tee', 'Tracer Tee');
+  await product('other', 'Yellow Coat');
+  expect(
+    (await adminProductDiscovery(db, { q: 'trace', mode: 'title' })).products.map((row) => row.id)
+  ).toEqual(['tee']);
+  expect(
+    (await adminProductDiscovery(db, { q: 'trac tee', mode: 'title' })).products.map(
+      (row) => row.id
+    )
+  ).toEqual(['tee']);
+  // Two characters stay exact-token, and mid-word fragments never match.
+  expect((await adminProductDiscovery(db, { q: 'tr', mode: 'title' })).products).toEqual([]);
+  expect((await adminProductDiscovery(db, { q: 'racer', mode: 'title' })).products).toEqual([]);
+});
+
 it('uses case-sensitive SKU matching and projects only active variant price, stock and ready image', async () => {
   await product('p', 'One');
   await variant('v1', 'p', 'Ab-1', 900);
@@ -119,20 +135,27 @@ it('uses case-sensitive SKU matching and projects only active variant price, sto
   await db
     .prepare("INSERT INTO product_media(product_id,media_id,position) VALUES('p','m2',1)")
     .run();
-  const exact = await adminProductDiscovery(db, { q: 'Ab-1', mode: 'sku-exact' });
+  const exact = await adminProductDiscovery(db, { q: 'Ab-1', mode: 'sku' });
   expect(exact.products[0]).toMatchObject({
     id: 'p',
     price_cents: 400,
     available: 12,
     image_key: 'ready',
   });
-  expect((await adminProductDiscovery(db, { q: 'ab-1', mode: 'sku-exact' })).products).toEqual([]);
+  expect((await adminProductDiscovery(db, { q: 'ab-1', mode: 'sku' })).products).toEqual([]);
   expect(
-    (await adminProductDiscovery(db, { q: 'Ab-', mode: 'sku-prefix' })).products.map(
-      (row) => row.id
-    )
+    (await adminProductDiscovery(db, { q: 'Ab-', mode: 'sku' })).products.map((row) => row.id)
   ).toEqual(['p']);
-  expect((await adminProductDiscovery(db, { q: 'ab-', mode: 'sku-prefix' })).products).toEqual([]);
+  expect((await adminProductDiscovery(db, { q: 'ab-', mode: 'sku' })).products).toEqual([]);
+});
+
+it('finds a full SKU in sku mode and also surfaces prefix siblings', async () => {
+  await product('tee1', 'Tee One');
+  await variant('vt1', 'tee1', 'TEE-1');
+  await product('tee10', 'Tee Ten');
+  await variant('vt10', 'tee10', 'TEE-10');
+  const result = await adminProductDiscovery(db, { q: 'TEE-1', mode: 'sku' });
+  expect(result.products.map((row) => row.id).sort()).toEqual(['tee1', 'tee10']);
 });
 
 it('asks for refinement before deduplication or hydration when one product has too many matching SKUs', async () => {
@@ -142,12 +165,10 @@ it('asks for refinement before deduplication or hydration when one product has t
       "WITH RECURSIVE c(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM c WHERE n<1001) INSERT INTO variants(id,product_id,sku,title,price_cents,created_at) SELECT printf('v%04d',n),'p',printf('BULK-%04d',n),'Bulk',100,'2026' FROM c"
     )
     .run();
-  const result = await adminProductDiscovery(db, { q: 'BULK-', mode: 'sku-prefix' });
+  const result = await adminProductDiscovery(db, { q: 'BULK-', mode: 'sku' });
   expect(result).toEqual({ products: [], nextCursor: null, previousCursor: null, state: 'refine' });
   expect(
-    (await adminProductDiscovery(db, { q: 'BULK-0001', mode: 'sku-exact' })).products.map(
-      (row) => row.id
-    )
+    (await adminProductDiscovery(db, { q: 'BULK-0001', mode: 'sku' })).products.map((row) => row.id)
   ).toEqual(['p']);
 });
 
@@ -271,7 +292,7 @@ it('normalizes malformed search params to a safe empty or default search', () =>
   });
   expect(normalizeProductSearch({ q: 'Hat', mode: 'sku-exact', cursor: 'bad' })).toEqual({
     q: 'Hat',
-    mode: 'sku-exact',
+    mode: 'sku',
     status: 'all',
     sort: 'newest',
     cursor: undefined,

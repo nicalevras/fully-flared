@@ -57,8 +57,9 @@ export const BoxIcon = base(
 );
 export const OrdersIcon = base(
   <>
-    <rect x="5" y="4" width="14" height="17" rx="2" />
-    <path d="M9 4.5V3h6v1.5M9 10h6M9 14h6M9 18h4" />
+    <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+    <rect x="8" y="2" width="8" height="4" rx="1" />
+    <path d="M9 12h6M9 16h4" />
   </>
 );
 export const TagIcon = base(
@@ -86,6 +87,13 @@ export const SettingsIcon = base(
     <path d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3M5.5 5.5l2.1 2.1M16.4 16.4l2.1 2.1M18.5 5.5l-2.1 2.1M7.6 16.4l-2.1 2.1" />
   </>
 );
+export const ImageIcon = base(
+  <>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <circle cx="9" cy="10" r="1.6" />
+    <path d="m5 19 5.5-5.5 3 3L17 13l2 2" />
+  </>
+);
 export const FileIcon = base(
   <>
     <path d="M6 2.5h8L19 7.5v14H6z" />
@@ -98,11 +106,10 @@ export const PenIcon = base(
     <path d="m14.5 6.5 3 3" />
   </>
 );
-export const PercentIcon = base(
+export const LayersIcon = base(
   <>
-    <path d="M19 5L5 19" />
-    <circle cx="7" cy="7" r="2.5" />
-    <circle cx="17" cy="17" r="2.5" />
+    <path d="m12 3 9 5-9 5-9-5 9-5Z" />
+    <path d="m3 13 9 5 9-5" />
   </>
 );
 export const ArrowRightIcon = base(

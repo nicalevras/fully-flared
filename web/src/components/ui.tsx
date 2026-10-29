@@ -14,9 +14,9 @@ export const btnDestructive =
   'inline-flex h-8 items-center justify-center gap-1.5 rounded-full px-3 text-[13px] font-medium text-red-600 transition-colors hover:bg-red-50 disabled:pointer-events-none disabled:opacity-40';
 
 export const inputCls =
-  'h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-base text-zinc-950 placeholder:text-zinc-400 transition-colors hover:border-zinc-400 sm:text-sm';
+  'h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 text-base text-zinc-950 placeholder:text-zinc-400 transition-colors sm:text-sm';
 export const textareaCls =
-  'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-base text-zinc-950 placeholder:text-zinc-400 transition-colors hover:border-zinc-400 sm:text-sm';
+  'w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-base text-zinc-950 placeholder:text-zinc-400 transition-colors sm:text-sm';
 export const labelCls = 'mb-1.5 block text-sm font-medium text-zinc-900';
 export const hintCls = 'mt-1.5 text-[13px] text-zinc-500';
 
@@ -24,10 +24,6 @@ export const cardCls =
   'rounded-xl border border-zinc-200 bg-white shadow-[0_1px_2px_rgb(0_0_0/0.04)]';
 export const pageTitle = 'text-[22px] font-normal tracking-tight text-zinc-950';
 export const pageSub = 'mt-1 text-sm text-zinc-500';
-
-export const tableWrap = 'overflow-x-auto';
-export const tableCls =
-  'w-full border-collapse text-left text-sm [&_th]:border-b [&_th]:border-zinc-200 [&_th]:px-4 [&_th]:py-3 [&_th]:text-xs [&_th]:font-medium [&_th]:text-zinc-500 [&_td]:border-b [&_td]:border-zinc-100 [&_td]:px-4 [&_td]:py-3 [&_td]:align-middle [&_tbody_tr]:transition-colors [&_tbody_tr:hover]:bg-zinc-50';
 
 export function Button(
   props: ButtonHTMLAttributes<HTMLButtonElement> & {

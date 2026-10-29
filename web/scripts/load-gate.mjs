@@ -17,7 +17,7 @@ async function timed(fn) {
 
 // Public reads: search intentionally uses D1.
 {
-  const paths = ['/', '/', '/products/everyday-tote', '/search?q=tote', '/blog'];
+  const paths = ['/', '/', '/products/everyday-tote', '/search?q=tote', '/articles'];
   const concurrency = 25;
   const total = 100;
   const times = [];

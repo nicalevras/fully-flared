@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useStoreCurrency } from '../lib/use-store-currency';
 import { Link, createFileRoute } from '@tanstack/react-router';
 import { formatMoney } from '../lib/format';
+import { mediaUrl } from '../lib/media-url';
 import {
   nextQtyOnIncrement,
   rateCost,
@@ -94,7 +95,15 @@ function CartPage() {
                   className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl bg-zinc-100 text-2xl font-light text-zinc-400 select-none"
                   aria-hidden
                 >
-                  {l.productTitle.slice(0, 1).toUpperCase()}
+                  {l.cover ? (
+                    <img
+                      src={mediaUrl(l.cover, 320)}
+                      alt=""
+                      className="h-full w-full rounded-xl object-cover"
+                    />
+                  ) : (
+                    l.productTitle.slice(0, 1).toUpperCase()
+                  )}
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-3">

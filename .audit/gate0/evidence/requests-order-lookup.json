@@ -1,0 +1,20 @@
+{
+  "scope": "Local Worker root spans during browser task, including related background invalidations. Not HAR, static assets or deployed billing.",
+  "before": {
+    "GET": 146,
+    "POST": 4,
+    "queue": 4
+  },
+  "started": "2026-10-25T15:22:13.145Z",
+  "after": {
+    "GET": 154,
+    "POST": 4,
+    "queue": 4
+  },
+  "finished": "2026-10-25T15:22:25.204Z",
+  "delta": {
+    "GET": 8,
+    "POST": 0,
+    "queue": 0
+  }
+}

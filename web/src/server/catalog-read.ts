@@ -37,6 +37,7 @@ import { parseLimits, publishedLimits } from '../schemas/limits';
 import type { StoreLimits } from '../lib/settings-definitions';
 import { pageWindow } from '../lib/catalog-page';
 import type { PublishedProductCard } from './catalog';
+import type { MediaSource } from '../lib/media-url';
 
 export type CatalogKv = {
   get(key: string, options?: { cacheTtl?: number }): Promise<string | null>;
@@ -365,6 +366,8 @@ export async function readEditorialDocument(
 export type StorefrontLayoutSnapshot = {
   limits: StoreLimits;
   storeName: string;
+  logo: MediaSource | null;
+  hero: MediaSource | null;
   announcementText: string;
   seoTitleTemplate: string;
   canonicalBaseUrl: string;
@@ -404,6 +407,8 @@ export function getStorefrontLayout(
     return {
       limits: parseLimits({}),
       storeName: 'My Store',
+      logo: null,
+      hero: null,
       announcementText: '',
       seoTitleTemplate: '{product} · {store_name}',
       canonicalBaseUrl: '',

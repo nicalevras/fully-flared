@@ -59,7 +59,12 @@ export async function searchCatalog(
   if (!terms.length) return { cards: [], nextCursor: null };
   if (await limited?.()) return { cards: [], nextCursor: null, limited: true };
   // FTS5 MATCH with quoted terms (user input cannot inject operators).
-  const match = terms.map((t) => `"${t.replace(/"/g, '""')}"`).join(' ');
+  const match = terms
+    .map((t) => {
+      const quoted = `"${t.replace(/"/g, '""')}"`;
+      return [...t].length >= 3 ? `${quoted}*` : quoted;
+    })
+    .join(' ');
   const cursor = decodeSearchCursor(cursorRaw);
   // One extra row detects whether another page exists.
   const hits = await db

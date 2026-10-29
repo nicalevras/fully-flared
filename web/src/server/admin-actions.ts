@@ -6,7 +6,7 @@ import { getStripeProvider } from './payments';
 import { getSettings } from './settings';
 import { emailStatement, commitWithEmails, enqueueJob } from './email';
 import { broadcastAdminRealtime } from './realtime';
-import { escapeHtml, plainTextFromHtml, sanitizeHtml } from './sanitize';
+import { escapeHtml, sanitizeHtml } from './sanitize';
 import { adminActionSchema, csvProductRowSchema } from '../schemas/admin';
 import { z } from 'zod';
 import { settingKeySchema, validateSetting } from '../schemas/settings';
@@ -376,8 +376,8 @@ export async function runAdminAction(
         await db.batch([
           db
             .prepare(
-              `INSERT INTO products (id, slug, title, description, status, seo_title, seo_description, tax_code, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+              `INSERT INTO products (id, slug, title, description, status, seo_title, seo_description, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
             )
             .bind(
               productId,
@@ -387,14 +387,13 @@ export async function runAdminAction(
               f.status || 'draft',
               f.seoTitle || null,
               f.seoDescription || null,
-              f.taxCode || null,
               now(),
               now()
             ),
           ...(f.variants ?? []).flatMap((v) => [
             db
               .prepare(
-                `INSERT INTO variants (id, product_id, sku, title, price_cents, continue_selling, weight_grams, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+                `INSERT INTO variants (id, product_id, sku, title, price_cents, compare_at_cents, continue_selling, weight_grams, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
               )
               .bind(
                 id(),
@@ -402,6 +401,7 @@ export async function runAdminAction(
                 v.sku,
                 v.title,
                 v.priceCents,
+                v.compareAtCents ?? null,
                 v.continueSelling ? 1 : 0,
                 v.weightGrams,
                 now()
@@ -990,24 +990,15 @@ export async function runAdminAction(
             conflict: true,
           };
         }
-        let storedDescription = f.description;
-        let storedHtml: string | null | undefined;
-        if (f.descriptionHtml !== undefined) {
-          const clean = sanitizeHtml(f.descriptionHtml);
-          storedHtml = clean.trim() ? clean : null;
-          if (storedHtml) storedDescription = plainTextFromHtml(clean).slice(0, 20_000);
-        }
-        const updateSql = `UPDATE products SET title = ?, slug = ?, description = ?, ${storedHtml !== undefined ? 'description_html = ?, ' : ''}status = ?, seo_title = ?, seo_description = ?, tax_code = ?, updated_at = ?
+        const updateSql = `UPDATE products SET title = ?, slug = ?, description = ?, status = ?, seo_title = ?, seo_description = ?, updated_at = ?
            WHERE id = ?`;
         const updateValues = [
           f.title,
           slug,
-          storedDescription,
-          ...(storedHtml !== undefined ? [storedHtml] : []),
+          f.description,
           f.status || 'draft',
           f.seoTitle || null,
           f.seoDescription || null,
-          f.taxCode || null,
           now(),
           productId,
         ];
@@ -1191,9 +1182,10 @@ export async function runAdminAction(
           .prepare(
             `UPDATE media SET deletion_pending=1 WHERE id=? AND NOT EXISTS(SELECT 1 FROM product_media WHERE media_id=?) AND NOT EXISTS(SELECT 1 FROM posts WHERE cover_media_id=?)
              AND NOT EXISTS(SELECT 1 FROM posts WHERE instr(REPLACE(content_html, '\\/', '/'), '/media/' || ?) > 0 OR instr(REPLACE(COALESCE(content_json, ''), '\\/', '/'), '/media/' || ?) > 0)
-             AND NOT EXISTS(SELECT 1 FROM pages WHERE instr(REPLACE(content_html, '\\/', '/'), '/media/' || ?) > 0)`
+             AND NOT EXISTS(SELECT 1 FROM pages WHERE instr(REPLACE(content_html, '\\/', '/'), '/media/' || ?) > 0)
+             AND NOT EXISTS(SELECT 1 FROM settings WHERE key IN ('logo_media_id','hero_media_id') AND value=?)`
           )
-          .bind(mediaId, mediaId, mediaId, media.r2_key, media.r2_key, media.r2_key)
+          .bind(mediaId, mediaId, mediaId, media.r2_key, media.r2_key, media.r2_key, mediaId)
           .run();
         if (!claim.meta.changes)
           return {
@@ -1733,7 +1725,7 @@ export async function runAdminAction(
                     `INSERT INTO redirects (id, from_path, to_path, created_at) VALUES (?, ?, ?, ?)
              ON CONFLICT(from_path) DO UPDATE SET to_path = excluded.to_path`
                   )
-                  .bind(id(), `/blog/${existing.slug}`, `/blog/${f.slug}`, now()),
+                  .bind(id(), `/articles/${existing.slug}`, `/articles/${f.slug}`, now()),
               ]
             : [];
         // FF-07 and FF-16: one atomic batch. The guard aborts the whole
@@ -1749,6 +1741,7 @@ export async function runAdminAction(
                   .bind(postId, f.expectedUpdatedAt),
               ]
             : [];
+        const savedUpdatedAt = now();
         try {
           await db.batch([
             ...postGuard,
@@ -1779,7 +1772,7 @@ export async function runAdminAction(
                 f.seoTitle || null,
                 f.seoDescription || null,
                 now(),
-                now()
+                savedUpdatedAt
               ),
             ...redirectOps,
             ...tagOps,
@@ -1804,7 +1797,7 @@ export async function runAdminAction(
           if (failure) return failure;
           throw error;
         }
-        return { ok: true, data: { postId } };
+        return { ok: true, data: { postId, updatedAt: savedUpdatedAt } };
       }
       case 'import.productsCsv': {
         const f = parsedAction.data;

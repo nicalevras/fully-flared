@@ -8,6 +8,7 @@ import type { ReviewQuote } from '../../server/authorized-checkout';
 import { createServerFn, useServerFn } from '@tanstack/react-start';
 import * as z from 'zod';
 import { formatMoney } from '../../components/ProductCard';
+import { mediaUrl } from '../../lib/media-url';
 import { ShieldIcon } from '../../components/icons';
 import { TurnstileWidget } from '../../components/TurnstileWidget';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -382,7 +383,15 @@ function CheckoutPage() {
                 className="relative flex h-14 w-12 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-base font-light text-zinc-400 select-none"
                 aria-hidden
               >
-                {title.slice(0, 1).toUpperCase()}
+                {l.cover ? (
+                  <img
+                    src={mediaUrl(l.cover, 320)}
+                    alt=""
+                    className="h-full w-full rounded-lg object-cover"
+                  />
+                ) : (
+                  title.slice(0, 1).toUpperCase()
+                )}
                 <Badge variant="secondary" className="absolute -top-1.5 -right-1.5">
                   {l.qty}
                 </Badge>

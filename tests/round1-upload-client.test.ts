@@ -1,5 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { uploadMedia } from '../web/src/lib/upload';
+import { readFileSync } from 'node:fs';
+import { describe } from 'vitest';
 
 afterEach(() => vi.unstubAllGlobals());
 it.each([
@@ -32,3 +34,19 @@ it.each([
     }
   }
 );
+
+describe('image upload node pairing', () => {
+  it('keeps results paired with their files and retains failures for retry', () => {
+    const node = readFileSync(
+      'web/src/components/tiptap-node/image-upload-node/image-upload-node.tsx',
+      'utf8'
+    );
+    expect(node).toContain('results.map((result, index) => ({ file: files[index]!, ...result }))');
+    expect(node).not.toContain('results.filter((url)');
+    expect(node).not.toContain('files[index]?.name');
+    expect(node).toContain('const hasFailures = successes.length < results.length');
+    expect(node).toContain('if (!hasFailures) chain.deleteRange');
+    expect(node).toContain('onRetry={() => void handleRetry(fileItem)}');
+    expect(node).toContain("fileItem.status === 'error' && onRetry");
+  });
+});

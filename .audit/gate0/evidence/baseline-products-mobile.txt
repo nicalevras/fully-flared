@@ -1,0 +1,174 @@
+- link "Skip to content":
+  - /url: "#admin-content"
+- navigation "Admin":
+  - link "Home":
+    - /url: /admin
+    - text: Home
+  - link "Products":
+    - /url: /admin/products
+    - text: Products
+  - link "Collections":
+    - /url: /admin/collections
+    - text: Collections
+  - link "Discounts":
+    - /url: /admin/discounts
+    - text: Discounts
+  - link "Orders":
+    - /url: /admin/orders
+    - text: Orders
+  - link "Customers":
+    - /url: /admin/customers
+    - text: Customers
+  - link "Shipping":
+    - /url: /admin/shipping
+    - text: Shipping
+  - link "Blog":
+    - /url: /admin/blog
+    - text: Blog
+  - link "Media":
+    - /url: /admin/media
+    - text: Media
+  - link "Pages":
+    - /url: /admin/pages
+    - text: Pages
+  - link "Reports":
+    - /url: /admin/reports
+    - text: Reports
+  - link "Settings":
+    - /url: /admin/settings
+    - text: Settings
+- main:
+  - heading "Products" [level=1]
+  - paragraph: 6 products in your catalog. Click a product to edit it, its variants, stock, and images.
+  - navigation "Products pagination":
+    - button "Previous" [disabled]
+    - generic: Page 1 of 1 · 6 total
+    - button "Next" [disabled]
+  - table "Products":
+    - caption: Products
+    - rowgroup:
+      - row "Product Status Price Inventory Actions":
+        - columnheader "Product"
+        - columnheader "Status"
+        - columnheader "Price"
+        - columnheader "Inventory"
+        - columnheader "Actions"
+    - rowgroup:
+      - row "Tracer Tee /tracer-tee active $29.99 100 in stock Edit Move to draft":
+        - cell "Tracer Tee /tracer-tee":
+          - link "Tracer Tee /tracer-tee":
+            - /url: /admin/products/prod_tracer
+            - generic: T
+            - text: Tracer Tee
+            - generic: /tracer-tee
+        - cell "active":
+          - generic: active
+        - cell "$29.99"
+        - cell "100 in stock"
+        - cell "Edit Move to draft":
+          - link "Edit":
+            - /url: /admin/products/prod_tracer
+          - button "Move to draft"
+      - row "Everyday Tote /everyday-tote active $42.00 40 in stock Edit Move to draft":
+        - cell "Everyday Tote /everyday-tote":
+          - link "Everyday Tote /everyday-tote":
+            - /url: /admin/products/prod_tote
+            - generic: E
+            - text: Everyday Tote
+            - generic: /everyday-tote
+        - cell "active":
+          - generic: active
+        - cell "$42.00"
+        - cell "40 in stock"
+        - cell "Edit Move to draft":
+          - link "Edit":
+            - /url: /admin/products/prod_tote
+          - button "Move to draft"
+      - row "Linen Shirt /linen-shirt active $78.00 12 in stock Edit Move to draft":
+        - cell "Linen Shirt /linen-shirt":
+          - link "Linen Shirt /linen-shirt":
+            - /url: /admin/products/prod_shirt
+            - generic: L
+            - text: Linen Shirt
+            - generic: /linen-shirt
+        - cell "active":
+          - generic: active
+        - cell "$78.00"
+        - cell "12 in stock"
+        - cell "Edit Move to draft":
+          - link "Edit":
+            - /url: /admin/products/prod_shirt
+          - button "Move to draft"
+      - row "Field Notebook /field-notebook active $18.00 200 in stock Edit Move to draft":
+        - cell "Field Notebook /field-notebook":
+          - link "Field Notebook /field-notebook":
+            - /url: /admin/products/prod_notebook
+            - generic: F
+            - text: Field Notebook
+            - generic: /field-notebook
+        - cell "active":
+          - generic: active
+        - cell "$18.00"
+        - cell "200 in stock"
+        - cell "Edit Move to draft":
+          - link "Edit":
+            - /url: /admin/products/prod_notebook
+          - button "Move to draft"
+      - row "Stoneware Mug /stoneware-mug active $24.00 85 in stock Edit Move to draft":
+        - cell "Stoneware Mug /stoneware-mug":
+          - link "Stoneware Mug /stoneware-mug":
+            - /url: /admin/products/prod_mug
+            - generic: S
+            - text: Stoneware Mug
+            - generic: /stoneware-mug
+        - cell "active":
+          - generic: active
+        - cell "$24.00"
+        - cell "85 in stock"
+        - cell "Edit Move to draft":
+          - link "Edit":
+            - /url: /admin/products/prod_mug
+          - button "Move to draft"
+      - row "Desk Lamp /desk-lamp active $96.00 7 in stock Edit Move to draft":
+        - cell "Desk Lamp /desk-lamp":
+          - link "Desk Lamp /desk-lamp":
+            - /url: /admin/products/prod_lamp
+            - generic: D
+            - text: Desk Lamp
+            - generic: /desk-lamp
+        - cell "active":
+          - generic: active
+        - cell "$96.00"
+        - cell "7 in stock"
+        - cell "Edit Move to draft":
+          - link "Edit":
+            - /url: /admin/products/prod_lamp
+          - button "Move to draft"
+  - heading "Add product" [level=2]
+  - generic: Title
+  - textbox "Title":
+    - /placeholder: e.g. Everyday Tote
+  - generic: Slug
+  - textbox "Slug":
+    - /placeholder: everyday-tote
+  - generic: SKU
+  - textbox "SKU":
+    - /placeholder: TOTE-001
+  - generic: Price ($)
+  - textbox "Price ($)": "29.99"
+  - generic: Stock
+  - textbox "Stock": "10"
+  - paragraph: Created as a draft. You will land on the edit page to add a description, images, and variants before publishing.
+  - button "Add product"
+  - heading "Adjust inventory" [level=2]
+  - paragraph: Every adjustment is written to the stock ledger, so counts can always be audited. You can also adjust stock per variant on the product edit page.
+  - generic: SKU
+  - textbox "SKU":
+    - /placeholder: TOTE-001
+  - generic: Change (+/-)
+  - textbox "Change (+/-)": "10"
+  - button "Adjust stock"
+  - heading "Import products" [level=2]
+  - paragraph: "CSV with columns: title, slug, sku, price_cents, stock. Bad rows are reported, good rows still import."
+  - textbox "Products CSV": title,slug,sku,price_cents,stock
+  - button "Import CSV"

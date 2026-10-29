@@ -1,0 +1,75 @@
+- complementary:
+  - generic: ƒƒ FULLY FLARED
+  - text: ◉ Fully Flared Store
+  - generic: ⌄
+  - navigation "Main navigation":
+    - button "⌂ Overview":
+      - generic: ⌂
+      - text: Overview
+    - button "▣ Orders":
+      - generic: ▣
+      - text: Orders
+    - button "◇ Products" [active]:
+      - generic: ◇
+      - text: Products
+    - button "▤ Inventory":
+      - generic: ▤
+      - text: Inventory
+    - button "♧ Customers":
+      - generic: ♧
+      - text: Customers
+    - generic: Store
+    - button "% Discounts":
+      - generic: "%"
+      - text: Discounts
+    - button "▧ Content":
+      - generic: ▧
+      - text: Content
+    - button "↗ Analytics":
+      - generic: ↗
+      - text: Analytics
+    - generic: Manage
+    - button "⚙ Settings":
+      - generic: ⚙
+      - text: Settings
+  - generic: "N"
+  - text: Nic Store owner
+- main:
+  - button "Open navigation": ☰ Menu
+  - text: Gate 0 / Design study
+  - generic: Simulated data · No commerce writes
+  - combobox "Design direction":
+    - option "A · Full workspaces" [selected]
+    - option "B · Contextual panels"
+  - combobox "Draft storage":
+    - option "Memory Save/Publish" [selected]
+    - option "IndexedDB recovery"
+  - combobox "Scenario":
+    - option "Normal state"
+    - option "Loading" [selected]
+    - option "Empty"
+    - option "Permission denied"
+    - option "Success"
+    - option "Error"
+    - option "Uncertain submission"
+    - option "Conflict"
+    - option "Storage unavailable"
+  - text: Your catalog
+  - heading "Products" [level=1]
+  - paragraph: Make something worth finding.
+  - button "+ Add product"
+  - text: Active products
+  - strong: "4"
+  - text: Draft products
+  - strong: "1"
+  - text: Low stock
+  - strong: "1"
+  - group "Product views":
+    - button "All" [pressed]
+    - button "Active"
+    - button "Draft"
+    - button "Out of stock"
+  - searchbox "Search products by title or exact SKU"
+  - generic "Loading records"
+  - paragraph: Direction A · Records open in dedicated workspaces. All data and actions in this study are simulated.
+- status

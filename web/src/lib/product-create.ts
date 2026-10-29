@@ -7,10 +7,10 @@ export type ProductCreateDraft = {
   status: 'draft' | 'active';
   seoTitle: string;
   seoDescription: string;
-  taxCode: string;
   sku: string;
   variantTitle: string;
   price: string;
+  compareAt: string;
   stock: string;
   weightGrams: string;
   continueSelling: boolean;
@@ -26,10 +26,10 @@ export const emptyProductCreateDraft: ProductCreateDraft = {
   status: 'draft',
   seoTitle: '',
   seoDescription: '',
-  taxCode: '',
   sku: '',
   variantTitle: 'Default',
   price: '29.99',
+  compareAt: '',
   stock: '0',
   weightGrams: '',
   continueSelling: false,
@@ -55,7 +55,6 @@ export function validateProductCreateDraft(draft: ProductCreateDraft): ProductCr
   if (draft.seoTitle.length > 300) errors.seoTitle = 'SEO title must be 300 characters or fewer.';
   if (draft.seoDescription.length > 500)
     errors.seoDescription = 'SEO description must be 500 characters or fewer.';
-  if (draft.taxCode.length > 100) errors.taxCode = 'Tax code must be 100 characters or fewer.';
   const sku = draft.sku.trim();
   if (!sku) errors.sku = 'SKU is required.';
   else if (sku.length > 100) errors.sku = 'SKU must be 100 characters or fewer.';
@@ -85,7 +84,6 @@ export function productCreatePayload(draft: ProductCreateDraft) {
     status: draft.status,
     seoTitle: draft.seoTitle,
     seoDescription: draft.seoDescription,
-    taxCode: draft.taxCode,
     variants: [
       {
         sku: draft.sku.trim(),
@@ -93,6 +91,10 @@ export function productCreatePayload(draft: ProductCreateDraft) {
         priceCents: (() => {
           const parsed = parseMoneyCents(draft.price);
           return parsed.ok ? parsed.cents : 0;
+        })(),
+        compareAtCents: (() => {
+          const parsed = parseMoneyCents(draft.compareAt);
+          return draft.compareAt.trim() !== '' && parsed.ok ? parsed.cents : null;
         })(),
         stock: Number(draft.stock),
         weightGrams: draft.weightGrams.trim() === '' ? null : Number(draft.weightGrams),
