@@ -1,19 +1,10 @@
-import { useEffect, useState } from 'react';
-import {
-  Table,
-  TableBody,
-  TableCaption,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../../components/ui/table';
-import { createPortal } from 'react-dom';
+import { useState } from 'react';
 import { staffMiddleware } from '../../server/staff-middleware';
 import { useStoreCurrency } from '../../lib/use-store-currency';
 import { formatDate } from '../../lib/format';
 import { pageWindow } from '../../lib/catalog-page';
-import { AdminPagination } from '../../components/AdminPagination';
+import { AdminRowActions } from '../../components/AdminDataTable';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { createFileRoute, useRouter } from '@tanstack/react-router';
 import * as z from 'zod';
 import { validateServerInput } from '../../server/function-boundary';
@@ -24,11 +15,15 @@ import { StatusBadge } from '../../components/StatusBadge';
 import type { DiscountStatus } from '../../db/schema';
 import { formatMoney } from '../../components/ProductCard';
 import { hintCls, labelCls } from '../../components/ui';
+import type { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table';
+import { DataTable, DataTableSearch } from '../../components/ui/data-table';
+import { ftsPhrase, ftsUsable } from '../../lib/fts-search';
+import type { DataTableFeatures } from '../../components/data-table-features';
+import { isPageSize, pageSizeOptions, pageSizeSchema } from '../../schemas/pagination';
 import {
   AdminActionFeedback,
   type AdminActionFeedbackState,
 } from '../../components/AdminActionFeedback';
-import { SearchIcon } from '../../components/icons';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -45,7 +40,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { EllipsisIcon, PlusIcon, XIcon } from 'lucide-react';
+import { PlusIcon } from 'lucide-react';
 
 type DiscountRow = {
   id: string;
@@ -59,8 +54,6 @@ type DiscountRow = {
   expires_at: string | null;
 };
 
-const PAGE_SIZE = 25;
-
 const getData = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
   .validator(
@@ -68,30 +61,33 @@ const getData = createServerFn({ method: 'GET' })
       z.object({
         q: z.string().max(64).default(''),
         page: z.number().int().min(1).default(1),
+        size: pageSizeSchema,
       })
     )
   )
   .handler(async ({ data }) => {
     const { env } = await import('cloudflare:workers');
     const q = data.q.trim().toUpperCase();
-    const pattern = q ? `${q.replace(/[\\%_]/g, '\\$&')}%` : null;
-    const count = await env.DB.prepare(
-      pattern
-        ? "SELECT COUNT(*) AS n FROM discounts WHERE code LIKE ? ESCAPE '\\'"
-        : 'SELECT COUNT(*) AS n FROM discounts'
-    )
-      .bind(...(pattern ? [pattern] : []))
+    // >= 3 chars: trigram FTS (substring, index-served). Shorter: prefix LIKE.
+    const useFts = q ? ftsUsable(q) : false;
+    const pattern = q && !useFts ? `${q.replace(/[\\%_]/g, '\\$&')}%` : null;
+    const where = useFts
+      ? 'WHERE rowid IN (SELECT rowid FROM discounts_fts WHERE discounts_fts MATCH ?)'
+      : pattern
+        ? "WHERE code LIKE ? ESCAPE '\\'"
+        : '';
+    const searchBind = useFts ? ftsPhrase(q) : pattern;
+    const count = await env.DB.prepare(`SELECT COUNT(*) AS n FROM discounts ${where}`)
+      .bind(...(searchBind ? [searchBind] : []))
       .first<{ n: number }>();
     const total = count?.n ?? 0;
-    const { page, offset } = pageWindow(total, data.page, PAGE_SIZE);
+    const { page, offset } = pageWindow(total, data.page, data.size);
     const rows = await env.DB.prepare(
-      pattern
-        ? "SELECT id, code, type, value, status, usage_count, min_purchase_cents, usage_limit, expires_at FROM discounts WHERE code LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT ? OFFSET ?"
-        : 'SELECT id, code, type, value, status, usage_count, min_purchase_cents, usage_limit, expires_at FROM discounts ORDER BY created_at DESC LIMIT ? OFFSET ?'
+      `SELECT id, code, type, value, status, usage_count, min_purchase_cents, usage_limit, expires_at FROM discounts ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`
     )
-      .bind(...(pattern ? [pattern] : []), PAGE_SIZE, offset)
+      .bind(...(searchBind ? [searchBind] : []), data.size, offset)
       .all<DiscountRow>();
-    return { discounts: rows.results, total, page, pageSize: PAGE_SIZE };
+    return { discounts: rows.results, total, page, pageSize: data.size };
   });
 
 export const Route = createFileRoute('/admin/discounts')({
@@ -102,6 +98,7 @@ export const Route = createFileRoute('/admin/discounts')({
       typeof search.page === 'number' && Number.isInteger(search.page) && search.page >= 1
         ? search.page
         : 1,
+    size: isPageSize(search.size) ? search.size : undefined,
   }),
   loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => getData({ data: deps }),
@@ -119,7 +116,6 @@ function Page() {
   const { discounts, total, page, pageSize } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const [codeQuery, setCodeQuery] = useState(search.q);
   const [editingId, setEditingId] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DiscountRow | null>(null);
@@ -136,25 +132,6 @@ function Page() {
   const [form, setForm] = useState(emptyForm);
   const [feedback, setFeedback] = useState<AdminActionFeedbackState>(null);
   const [busy, setBusy] = useState(false);
-  const [rowMenu, setRowMenu] = useState<{ id: string; top: number; right: number } | null>(null);
-
-  useEffect(() => {
-    if (!rowMenu) return;
-    const close = () => setRowMenu(null);
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') close();
-    };
-    document.addEventListener('click', close);
-    document.addEventListener('keydown', onKey);
-    window.addEventListener('scroll', close, true);
-    window.addEventListener('resize', close);
-    return () => {
-      document.removeEventListener('click', close);
-      document.removeEventListener('keydown', onKey);
-      window.removeEventListener('scroll', close, true);
-      window.removeEventListener('resize', close);
-    };
-  }, [rowMenu]);
 
   async function run(action: string, payload: AdminPayload, ok: string): Promise<boolean> {
     setBusy(true);
@@ -211,6 +188,102 @@ function Page() {
     setEditingId(d.id);
   };
 
+  const discountColumns: ColumnDef<DataTableFeatures, DiscountRow>[] = [
+    {
+      id: 'code',
+      accessorKey: 'code',
+      header: 'Code',
+      cell: ({ row }) => (
+        <span className="font-mono text-[13px] font-medium">{row.original.code}</span>
+      ),
+    },
+    {
+      id: 'discount',
+      accessorFn: (row) => row.value,
+      header: 'Discount',
+      cell: ({ row }) => <span>{describe(row.original, currency)}</span>,
+    },
+    {
+      id: 'conditions',
+      accessorFn: (row) => row.min_purchase_cents,
+      header: 'Conditions',
+      cell: ({ row }) => {
+        const d = row.original;
+        return (
+          <span className="text-zinc-500">
+            {[
+              d.min_purchase_cents > 0
+                ? `Min ${formatMoney(d.min_purchase_cents, currency)}`
+                : null,
+              d.usage_limit != null ? `Limit ${d.usage_limit}` : null,
+              d.expires_at ? `Expires ${formatDate(d.expires_at)}` : null,
+            ]
+              .filter(Boolean)
+              .join(' · ') || 'No conditions'}
+          </span>
+        );
+      },
+    },
+    {
+      id: 'used',
+      accessorKey: 'usage_count',
+      header: 'Used',
+      cell: ({ row }) => <span className="text-zinc-500">{row.original.usage_count}×</span>,
+    },
+    {
+      id: 'status',
+      accessorKey: 'status',
+      header: 'Status',
+      cell: ({ row }) => <StatusBadge value={row.original.status} />,
+    },
+    {
+      id: 'actions',
+      header: () => <span className="sr-only">Actions</span>,
+      enableHiding: false,
+      cell: ({ row }) => {
+        const d = row.original;
+        return (
+          <div className="flex justify-end">
+            <AdminRowActions label={`Actions for ${d.code}`}>
+              <DropdownMenuItem onSelect={() => openEdit(d)}>Edit</DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={busy}
+                onSelect={() =>
+                  void run(
+                    'discount.toggle',
+                    { discountId: d.id, active: d.status !== 'active' },
+                    `${d.code} is now ${d.status !== 'active' ? 'active' : 'inactive'}.`
+                  )
+                }
+              >
+                {d.status === 'active' ? 'Deactivate' : 'Activate'}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={busy}
+                variant="destructive"
+                onSelect={() => setDeleteTarget(d)}
+              >
+                Delete
+              </DropdownMenuItem>
+            </AdminRowActions>
+          </div>
+        );
+      },
+    },
+  ];
+
+  const handlePaginationChange: OnChangeFn<PaginationState> = (updater) => {
+    const current = { pageIndex: page - 1, pageSize };
+    const next = typeof updater === 'function' ? updater(current) : updater;
+    void navigate({
+      search: {
+        q: search.q,
+        page: next.pageIndex + 1,
+        size: isPageSize(next.pageSize) ? next.pageSize : pageSize,
+      },
+    });
+  };
+
   async function submit() {
     const succeeded = await run(
       editingId ? 'discount.update' : 'discount.create',
@@ -224,8 +297,8 @@ function Page() {
     );
     // FF-05: a failed update keeps the merchant in edit mode with
     // their input intact. Only success leaves editing.
+    if (succeeded && editingId) setEditingId('');
     if (succeeded) {
-      setEditingId('');
       setCreateOpen(false);
       setForm(emptyForm);
     }
@@ -247,178 +320,35 @@ function Page() {
       </div>
       <AdminActionFeedback value={feedback} />
 
-      <form
-        className="mt-6 max-w-xl"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void navigate({ search: { q: codeQuery.trim(), page: 1 } });
-        }}
-      >
-        <label className="sr-only" htmlFor="discount-q">
-          Find a code
-        </label>
-        <div className="flex items-center gap-1 rounded-full bg-zinc-50 p-1 transition-shadow focus-within:ring-2 focus-within:ring-zinc-950/70">
-          <SearchIcon className="ml-2 h-[18px] w-[18px] shrink-0 text-zinc-400" />
-          <Input
-            id="discount-q"
-            className="h-9 min-w-0 flex-1 border-0 bg-transparent px-2 shadow-none focus-visible:ring-0"
-            value={codeQuery}
-            onChange={(event) => setCodeQuery(event.target.value)}
-            placeholder="SUMMER"
-          />
-          {codeQuery ? (
-            <button
-              type="button"
-              aria-label="Clear search"
-              onClick={() => {
-                setCodeQuery('');
-                void navigate({ search: { q: '', page: 1 } });
-              }}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-950/5 hover:text-zinc-950"
-            >
-              <XIcon className="size-4" />
-            </button>
-          ) : null}
-        </div>
-      </form>
-
-      {discounts.length === 0 ? (
+      {discounts.length === 0 && !search.q ? (
         <p className="mt-8 rounded-2xl bg-zinc-50 p-5 text-sm text-zinc-500" role="status">
           No discount codes yet. Use New to create your first one.
         </p>
       ) : (
         <div className="mt-8" tabIndex={0} role="region" aria-label="Discount codes">
-          <Table className="min-w-[640px]">
-            <TableCaption className="sr-only">Discount codes</TableCaption>
-            <TableHeader>
-              <TableRow>
-                <TableHead scope="col">Code</TableHead>
-                <TableHead scope="col">Discount</TableHead>
-                <TableHead scope="col">Conditions</TableHead>
-                <TableHead scope="col">Used</TableHead>
-                <TableHead scope="col">Status</TableHead>
-                <TableHead scope="col">
-                  <span className="sr-only">Actions</span>
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {discounts.map((d) => (
-                <TableRow
-                  key={d.id}
-                  className="cursor-pointer"
-                  onClick={(event) => {
-                    if ((event.target as HTMLElement).closest('a, button')) return;
-                    openEdit(d);
-                  }}
-                >
-                  <TableCell className="font-mono text-[13px] font-medium">{d.code}</TableCell>
-                  <TableCell>{describe(d, currency)}</TableCell>
-                  <TableCell className="text-zinc-500">
-                    {[
-                      d.min_purchase_cents > 0
-                        ? `Min ${formatMoney(d.min_purchase_cents, currency)}`
-                        : null,
-                      d.usage_limit != null ? `Limit ${d.usage_limit}` : null,
-                      d.expires_at ? `Expires ${formatDate(d.expires_at)}` : null,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ') || 'No conditions'}
-                  </TableCell>
-                  <TableCell className="text-zinc-500">{d.usage_count}×</TableCell>
-                  <TableCell>
-                    <StatusBadge value={d.status} />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <span className="relative inline-block text-left">
-                      <button
-                        type="button"
-                        aria-haspopup="menu"
-                        aria-expanded={rowMenu?.id === d.id}
-                        aria-label={`Actions for ${d.code}`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          if (rowMenu?.id === d.id) {
-                            setRowMenu(null);
-                          } else {
-                            const rect = event.currentTarget.getBoundingClientRect();
-                            setRowMenu({
-                              id: d.id,
-                              top: rect.bottom + 4,
-                              right: window.innerWidth - rect.right,
-                            });
-                          }
-                        }}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-950/5 hover:text-zinc-950"
-                      >
-                        <EllipsisIcon className="size-4" />
-                      </button>
-                      {rowMenu?.id === d.id
-                        ? createPortal(
-                            <div
-                              role="menu"
-                              onClick={(event) => event.stopPropagation()}
-                              style={{ top: rowMenu.top, right: rowMenu.right }}
-                              className="fixed z-50 w-44 rounded-xl border border-zinc-200 bg-white p-1 shadow-lg"
-                            >
-                              <button
-                                type="button"
-                                role="menuitem"
-                                onClick={() => {
-                                  setRowMenu(null);
-                                  openEdit(d);
-                                }}
-                                className="block w-full rounded-lg px-3 py-2 text-left text-[13px] font-medium text-zinc-950 transition-colors hover:bg-zinc-50"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                role="menuitem"
-                                disabled={busy}
-                                onClick={() => {
-                                  setRowMenu(null);
-                                  void run(
-                                    'discount.toggle',
-                                    { discountId: d.id, active: d.status !== 'active' },
-                                    `${d.code} is now ${d.status !== 'active' ? 'active' : 'inactive'}.`
-                                  );
-                                }}
-                                className="block w-full rounded-lg px-3 py-2 text-left text-[13px] font-medium text-zinc-950 transition-colors hover:bg-zinc-50 disabled:opacity-40"
-                              >
-                                {d.status === 'active' ? 'Deactivate' : 'Activate'}
-                              </button>
-                              <button
-                                type="button"
-                                role="menuitem"
-                                disabled={busy}
-                                onClick={() => {
-                                  setRowMenu(null);
-                                  setDeleteTarget(d);
-                                }}
-                                className="block w-full rounded-lg px-3 py-2 text-left text-[13px] font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-40"
-                              >
-                                Delete
-                              </button>
-                            </div>,
-                            document.body
-                          )
-                        : null}
-                    </span>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <DataTable
+            caption="Discount codes"
+            columns={discountColumns}
+            data={discounts}
+            pageIndex={page - 1}
+            pageSize={pageSize}
+            rowCount={total}
+            pageSizeOptions={pageSizeOptions}
+            onPaginationChange={handlePaginationChange}
+            onRowClick={(row) => openEdit(row)}
+            tableClassName="min-w-[640px]"
+            emptyMessage={search.q ? `No codes match "${search.q}".` : 'No discount codes yet.'}
+            toolbar={
+              <DataTableSearch
+                value={search.q}
+                onSearch={(q) => void navigate({ search: { q, page: 1, size: search.size } })}
+                placeholder="Filter codes…"
+                ariaLabel="Find a code"
+              />
+            }
+          />
         </div>
       )}
-      <AdminPagination
-        label="Discounts pagination"
-        page={page}
-        total={total}
-        pageSize={pageSize}
-        onPage={(next) => void navigate({ search: { q: search.q, page: next } })}
-      />
 
       <Sheet
         open={createOpen || editingId !== ''}

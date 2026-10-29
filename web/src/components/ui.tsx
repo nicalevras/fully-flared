@@ -3,15 +3,15 @@ import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react
 // shadcn-style primitives: plain Tailwind utilities, no custom CSS classes.
 
 export const btnPrimary =
-  'inline-flex h-10 items-center justify-center gap-2 rounded-full bg-zinc-950 px-5 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:pointer-events-none disabled:opacity-40';
+  'inline-flex h-10 items-center justify-center gap-2 rounded-md bg-zinc-950 px-5 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:pointer-events-none disabled:opacity-40';
 export const btnSecondary =
-  'inline-flex h-10 items-center justify-center gap-2 rounded-full border border-zinc-300 bg-white px-5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-50 disabled:pointer-events-none disabled:opacity-40';
+  'inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-50 disabled:pointer-events-none disabled:opacity-40';
 export const btnSmall =
-  'inline-flex h-8 items-center justify-center gap-1.5 rounded-full border border-zinc-300 bg-white px-3 text-[13px] font-medium text-zinc-900 transition-colors hover:bg-zinc-50 disabled:pointer-events-none disabled:opacity-40';
+  'inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 text-[13px] font-medium text-zinc-900 transition-colors hover:bg-zinc-50 disabled:pointer-events-none disabled:opacity-40';
 export const btnGhost =
-  'inline-flex h-8 items-center justify-center gap-1.5 rounded-full px-3 text-[13px] font-medium text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-950 disabled:pointer-events-none disabled:opacity-40';
+  'inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-3 text-[13px] font-medium text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-950 disabled:pointer-events-none disabled:opacity-40';
 export const btnDestructive =
-  'inline-flex h-8 items-center justify-center gap-1.5 rounded-full px-3 text-[13px] font-medium text-red-600 transition-colors hover:bg-red-50 disabled:pointer-events-none disabled:opacity-40';
+  'inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-3 text-[13px] font-medium text-red-600 transition-colors hover:bg-red-50 disabled:pointer-events-none disabled:opacity-40';
 
 export const inputCls =
   'h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 text-base text-zinc-950 placeholder:text-zinc-400 transition-colors sm:text-sm';

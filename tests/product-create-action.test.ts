@@ -37,6 +37,20 @@ function createPayload(skus: string[]) {
 }
 
 describe('product.create action', () => {
+  it('sanitizes an HTML description on create', async () => {
+    const payload = createPayload(['TOTE-RICH']);
+    payload.description = '<p>Soft <em>cotton</em></p><script>alert(1)</script>';
+    const result = await runAdminAction(db, {} as never, owner, 'product.create', payload);
+    expect(result.ok).toBe(true);
+    const row = await db
+      .prepare('SELECT description, description_text FROM products WHERE slug = ?')
+      .bind('everyday-tote')
+      .first<{ description: string; description_text: string }>();
+    expect(row?.description_text).toBe('Soft cotton');
+    expect(row?.description).toContain('<em>cotton</em>');
+    expect(row?.description).not.toContain('<script');
+  });
+
   it('creates the product, variant, stock, ledger and audit rows together', async () => {
     const result = await runAdminAction(
       db,

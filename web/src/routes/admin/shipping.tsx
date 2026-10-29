@@ -31,6 +31,7 @@ import {
   pageSub,
   pageTitle,
 } from '../../components/ui';
+import { AdminDataTableShell } from '../../components/AdminDataTable';
 
 type Zone = {
   id: string;
@@ -192,53 +193,55 @@ function Page() {
                   No rates yet. Checkout cannot sell to this zone until you add one below.
                 </p>
               ) : (
-                <Table>
-                  <TableCaption className="sr-only">Shipping rates for {z.name}</TableCaption>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead scope="col">Rate</TableHead>
-                      <TableHead scope="col">Type</TableHead>
-                      <TableHead scope="col">Price</TableHead>
-                      <TableHead scope="col">Free over</TableHead>
-                      <TableHead scope="col">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {z.rates.map((r) => (
-                      <TableRow key={r.id}>
-                        <TableCell className="font-medium">{r.name}</TableCell>
-                        <TableCell className="text-zinc-500">{rateKindLabel(r.kind)}</TableCell>
-                        <TableCell>
-                          {r.kind === 'weight'
-                            ? `Base + ${formatMoney(r.per_kg_cents ?? 0, currency)}/kg: `
-                            : ''}
-                          {r.rate_cents === 0 ? 'Free' : formatMoney(r.rate_cents, currency)}
-                        </TableCell>
-                        <TableCell className="text-zinc-500">
-                          {r.free_over_cents != null
-                            ? formatMoney(r.free_over_cents, currency)
-                            : '—'}
-                        </TableCell>
-                        <TableCell>
-                          <button
-                            type="button"
-                            className="text-sm text-red-700 underline"
-                            disabled={busy}
-                            onClick={() =>
-                              setPendingDelete({
-                                rateId: r.id,
-                                rateName: r.name,
-                                lastRate: z.rates.length === 1,
-                              })
-                            }
-                          >
-                            Delete
-                          </button>
-                        </TableCell>
+                <AdminDataTableShell>
+                  <Table>
+                    <TableCaption className="sr-only">Shipping rates for {z.name}</TableCaption>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead scope="col">Rate</TableHead>
+                        <TableHead scope="col">Type</TableHead>
+                        <TableHead scope="col">Price</TableHead>
+                        <TableHead scope="col">Free over</TableHead>
+                        <TableHead scope="col">Actions</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {z.rates.map((r) => (
+                        <TableRow key={r.id}>
+                          <TableCell className="font-medium">{r.name}</TableCell>
+                          <TableCell className="text-zinc-500">{rateKindLabel(r.kind)}</TableCell>
+                          <TableCell>
+                            {r.kind === 'weight'
+                              ? `Base + ${formatMoney(r.per_kg_cents ?? 0, currency)}/kg: `
+                              : ''}
+                            {r.rate_cents === 0 ? 'Free' : formatMoney(r.rate_cents, currency)}
+                          </TableCell>
+                          <TableCell className="text-zinc-500">
+                            {r.free_over_cents != null
+                              ? formatMoney(r.free_over_cents, currency)
+                              : '—'}
+                          </TableCell>
+                          <TableCell>
+                            <button
+                              type="button"
+                              className="text-sm text-red-700 underline"
+                              disabled={busy}
+                              onClick={() =>
+                                setPendingDelete({
+                                  rateId: r.id,
+                                  rateName: r.name,
+                                  lastRate: z.rates.length === 1,
+                                })
+                              }
+                            >
+                              Delete
+                            </button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </AdminDataTableShell>
               )}
             </section>
           ))

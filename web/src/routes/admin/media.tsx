@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { EllipsisIcon, PlusIcon } from 'lucide-react';
+import { PlusIcon } from 'lucide-react';
 import { staffMiddleware } from '../../server/staff-middleware';
 import { formatDate } from '../../lib/format';
 import { createFileRoute, useRouter, type SearchSchemaInput } from '@tanstack/react-router';
@@ -10,7 +10,8 @@ import { requireStaffPermission } from '../../server/session';
 import { getSettings } from '../../server/settings';
 import { mediaUrl, type MediaSource } from '../../lib/media-url';
 import { pageWindow } from '../../lib/catalog-page';
-import { AdminPagination } from '../../components/AdminPagination';
+import { AdminRowActions } from '../../components/AdminDataTable';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { useAdminAction, type AdminPayload } from '../../components/AdminNav';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import {
@@ -24,15 +25,11 @@ import {
   SheetHeader,
   SheetTitle,
 } from '../../components/ui/sheet';
-import {
-  Table,
-  TableBody,
-  TableCaption,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../../components/ui/table';
+import type { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table';
+import { DataTable, DataTableSearch } from '../../components/ui/data-table';
+import { ftsPhrase, ftsUsable } from '../../lib/fts-search';
+import type { DataTableFeatures } from '../../components/data-table-features';
+import { isPageSize, pageSizeOptions, pageSizeSchema } from '../../schemas/pagination';
 import { uploadMedia } from '../../lib/upload';
 import {
   Button,
@@ -57,12 +54,6 @@ type MediaRow = {
   variants_json: string | null;
 };
 
-const PAGE_SIZE = 25;
-
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, '\\$&');
-}
-
 const getData = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
   .validator(
@@ -70,19 +61,25 @@ const getData = createServerFn({ method: 'GET' })
       z.object({
         q: z.string().max(200).default(''),
         page: z.number().int().min(1).default(1),
+        size: pageSizeSchema,
       })
     )
   )
   .handler(async ({ data }) => {
     const { env } = await import('cloudflare:workers');
     const q = data.q.trim();
-    const where = q ? `WHERE m.filename LIKE ? ESCAPE '\\'` : '';
-    const binds = q ? [`%${escapeLike(q)}%`] : [];
+    // < 3 chars cannot hit the trigram index; return nothing rather than scan.
+    const where = q
+      ? ftsUsable(q)
+        ? 'WHERE m.rowid IN (SELECT rowid FROM media_fts WHERE media_fts MATCH ?)'
+        : 'WHERE 1=0'
+      : '';
+    const binds = q && ftsUsable(q) ? [ftsPhrase(q)] : [];
     const countRow = await env.DB.prepare(`SELECT COUNT(*) AS n FROM media m ${where}`)
       .bind(...binds)
       .first<{ n: number }>();
     const totalCount = countRow?.n ?? 0;
-    const { page, offset } = pageWindow(totalCount, data.page, PAGE_SIZE);
+    const { page, offset } = pageWindow(totalCount, data.page, data.size);
     const rows = await env.DB.prepare(
       `SELECT m.id, m.r2_key, m.filename, m.content_type, m.alt_text, m.created_at, m.deletion_pending, m.ready, m.public_url,
             (SELECT json_group_array(json_object('width', width, 'url', COALESCE(public_url, '')))
@@ -90,9 +87,9 @@ const getData = createServerFn({ method: 'GET' })
                    WHERE media_id = m.id AND ready = 1 ORDER BY width)) AS variants_json
      FROM media m ${where} ORDER BY m.created_at DESC LIMIT ? OFFSET ?`
     )
-      .bind(...binds, PAGE_SIZE, offset)
+      .bind(...binds, data.size, offset)
       .all<MediaRow>();
-    return { media: rows.results, total: totalCount, page, pageSize: PAGE_SIZE };
+    return { media: rows.results, total: totalCount, page, pageSize: data.size };
   });
 
 export const getMediaDetail = createServerFn({ method: 'GET' })
@@ -121,7 +118,9 @@ export const getMediaDetail = createServerFn({ method: 'GET' })
            WHERE instr(REPLACE(content_html, '\\/', '/'), '/media/' || k) > 0
               OR instr(REPLACE(COALESCE(content_json, ''), '\\/', '/'), '/media/' || k) > 0)
          + (SELECT COUNT(*) FROM pages
-           WHERE instr(REPLACE(content_html, '\\/', '/'), '/media/' || k) > 0) AS n
+           WHERE instr(REPLACE(content_html, '\\/', '/'), '/media/' || k) > 0)
+         + (SELECT COUNT(*) FROM products
+           WHERE instr(REPLACE(COALESCE(description, ''), '\\/', '/'), '/media/' || k) > 0) AS n
        FROM keys`
     )
       .bind(row.r2_key)
@@ -138,7 +137,7 @@ export const getMediaDetail = createServerFn({ method: 'GET' })
 export const Route = createFileRoute('/admin/media')({
   staleTime: 30_000,
   validateSearch: (
-    search: { q?: unknown; edit?: unknown; page?: unknown } & SearchSchemaInput
+    search: { q?: unknown; edit?: unknown; page?: unknown; size?: unknown } & SearchSchemaInput
   ) => ({
     q: typeof search.q === 'string' && search.q ? search.q : undefined,
     edit: typeof search.edit === 'string' && search.edit ? search.edit : undefined,
@@ -146,8 +145,13 @@ export const Route = createFileRoute('/admin/media')({
       typeof search.page === 'number' && Number.isInteger(search.page) && search.page > 0
         ? search.page
         : 1,
+    size: isPageSize(search.size) ? search.size : undefined,
   }),
-  loaderDeps: ({ search }) => ({ q: search.q ?? '', page: search.page }),
+  loaderDeps: ({ search }) => ({
+    q: search.q ?? '',
+    page: search.page,
+    size: search.size ?? 25,
+  }),
   loader: async ({ deps }) => getData({ data: deps }),
   component: AdminMedia,
 });
@@ -351,8 +355,6 @@ function AdminMedia() {
   } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [publishing, setPublishing] = useState(false);
-  const [query, setQuery] = useState(search.q ?? '');
-  const [menuFor, setMenuFor] = useState<string | null>(null);
 
   async function run(action: string, payload: AdminPayload, ok: string): Promise<boolean> {
     setBusy(true);
@@ -368,7 +370,10 @@ function AdminMedia() {
   }
 
   const closeSheet = () => {
-    if (search.edit) void navigate({ search: { q: search.q, page: search.page, edit: undefined } });
+    if (search.edit)
+      void navigate({
+        search: { q: search.q, page: search.page, size: search.size, edit: undefined },
+      });
   };
   const editingRow = search.edit ? (media.find((m) => m.id === search.edit) ?? null) : null;
   const detailFn = useServerFn(getMediaDetail);
@@ -428,6 +433,107 @@ function AdminMedia() {
         if (await run('media.delete', { mediaId: row.id }, `${row.filename} deleted.`)) {
           closeSheet();
         }
+      },
+    });
+  };
+
+  const mediaColumns: ColumnDef<DataTableFeatures, MediaRow>[] = [
+    {
+      id: 'file',
+      accessorKey: 'filename',
+      header: 'File',
+      cell: ({ row }) => {
+        const m = row.original;
+        return (
+          <span className="flex items-center gap-3 whitespace-normal">
+            {m.deletion_pending || !m.ready ? (
+              <span
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-sm font-medium text-zinc-500"
+                aria-hidden
+              >
+                {m.filename.slice(0, 1).toUpperCase()}
+              </span>
+            ) : (
+              <img
+                src={mediaUrl(mediaSource(m), 320)}
+                alt=""
+                loading="lazy"
+                className="h-10 w-10 shrink-0 rounded-lg object-cover"
+              />
+            )}
+            <span className="min-w-0">
+              <span className="block font-medium text-zinc-950">{m.filename}</span>
+              <span className="mt-0.5 block text-[13px] text-zinc-500">
+                {m.deletion_pending
+                  ? 'Deletion pending'
+                  : !m.ready
+                    ? 'Upload incomplete'
+                    : m.alt_text || 'No alt text'}
+              </span>
+            </span>
+          </span>
+        );
+      },
+    },
+    {
+      id: 'type',
+      accessorFn: (row) => row.content_type,
+      header: 'Type',
+      cell: ({ row }) => (
+        <span className="whitespace-nowrap text-zinc-500">{row.original.content_type}</span>
+      ),
+    },
+    {
+      id: 'uploaded',
+      accessorFn: (row) => row.created_at,
+      header: 'Uploaded',
+      cell: ({ row }) => (
+        <span className="whitespace-nowrap text-zinc-500">
+          {formatDate(row.original.created_at)}
+        </span>
+      ),
+    },
+    {
+      id: 'actions',
+      header: () => <span className="sr-only">Actions</span>,
+      enableHiding: false,
+      cell: ({ row }) => {
+        const m = row.original;
+        return (
+          <div className="flex justify-end">
+            <AdminRowActions label={`Actions for ${m.filename}`}>
+              <DropdownMenuItem
+                onSelect={() =>
+                  void navigate({
+                    search: { q: search.q, page: search.page, size: search.size, edit: m.id },
+                  })
+                }
+              >
+                Open
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={busy}
+                variant="destructive"
+                onSelect={() => void requestDelete(m)}
+              >
+                {m.deletion_pending ? 'Retry deletion' : 'Delete'}
+              </DropdownMenuItem>
+            </AdminRowActions>
+          </div>
+        );
+      },
+    },
+  ];
+
+  const handlePaginationChange: OnChangeFn<PaginationState> = (updater) => {
+    const current = { pageIndex: page - 1, pageSize };
+    const next = typeof updater === 'function' ? updater(current) : updater;
+    void navigate({
+      search: {
+        q: search.q,
+        page: next.pageIndex + 1,
+        size: isPageSize(next.pageSize) ? next.pageSize : pageSize,
+        edit: undefined,
       },
     });
   };
@@ -512,29 +618,8 @@ function AdminMedia() {
         </div>
       </div>
       <AdminActionFeedback value={feedback} />
-      <form
-        className="mt-5 flex flex-wrap items-end gap-3"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void navigate({ search: { q: query.trim() || undefined, page: 1, edit: undefined } });
-        }}
-      >
-        <div className="min-w-48 flex-1">
-          <label className={labelCls} htmlFor="media-q">
-            Find a file
-          </label>
-          <input
-            id="media-q"
-            className={inputCls}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Part of a file name"
-          />
-        </div>
-        <Button type="submit">Search</Button>
-      </form>
 
-      {media.length === 0 ? (
+      {media.length === 0 && !search.q ? (
         <div className="mt-8 rounded-xl bg-zinc-50 px-6 py-14 text-center" role="status">
           <p className="text-sm text-zinc-500">
             {search.q
@@ -544,126 +629,38 @@ function AdminMedia() {
         </div>
       ) : (
         <div className="mt-6" tabIndex={0} role="region" aria-label="Media">
-          <Table className="min-w-[640px]">
-            <TableCaption className="sr-only">Media</TableCaption>
-            <TableHeader>
-              <TableRow>
-                <TableHead scope="col">File</TableHead>
-                <TableHead scope="col">Type</TableHead>
-                <TableHead scope="col">Uploaded</TableHead>
-                <TableHead scope="col">
-                  <span className="sr-only">Actions</span>
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {media.map((m) => (
-                <TableRow
-                  key={m.id}
-                  className="cursor-pointer"
-                  onClick={() =>
-                    void navigate({ search: { q: search.q, page: search.page, edit: m.id } })
-                  }
-                >
-                  <TableCell className="whitespace-normal">
-                    <span className="flex items-center gap-3">
-                      {m.deletion_pending || !m.ready ? (
-                        <span
-                          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-sm font-medium text-zinc-500"
-                          aria-hidden
-                        >
-                          {m.filename.slice(0, 1).toUpperCase()}
-                        </span>
-                      ) : (
-                        <img
-                          src={mediaUrl(mediaSource(m), 320)}
-                          alt=""
-                          loading="lazy"
-                          className="h-10 w-10 shrink-0 rounded-lg object-cover"
-                        />
-                      )}
-                      <span className="min-w-0">
-                        <span className="block font-medium text-zinc-950">{m.filename}</span>
-                        <span className="mt-0.5 block text-[13px] text-zinc-500">
-                          {m.deletion_pending
-                            ? 'Deletion pending'
-                            : !m.ready
-                              ? 'Upload incomplete'
-                              : m.alt_text || 'No alt text'}
-                        </span>
-                      </span>
-                    </span>
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-zinc-500">
-                    {m.content_type}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-zinc-500">
-                    {formatDate(m.created_at)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <span className="relative inline-block text-left">
-                      <button
-                        type="button"
-                        aria-haspopup="menu"
-                        aria-expanded={menuFor === m.id}
-                        aria-label={`Actions for ${m.filename}`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setMenuFor(menuFor === m.id ? null : m.id);
-                        }}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-950/5 hover:text-zinc-950"
-                      >
-                        <EllipsisIcon className="size-4" />
-                      </button>
-                      {menuFor === m.id ? (
-                        <span
-                          role="menu"
-                          onClick={(event) => event.stopPropagation()}
-                          className="absolute top-full right-0 z-20 mt-1 block w-44 rounded-xl border border-zinc-200 bg-white p-1 shadow-lg"
-                        >
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={() => {
-                              setMenuFor(null);
-                              void navigate({
-                                search: { q: search.q, page: search.page, edit: m.id },
-                              });
-                            }}
-                            className="block w-full rounded-lg px-3 py-2 text-left text-[13px] font-medium text-zinc-950 transition-colors hover:bg-zinc-50"
-                          >
-                            Open
-                          </button>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            disabled={busy}
-                            title="Delete this image"
-                            onClick={() => {
-                              setMenuFor(null);
-                              void requestDelete(m);
-                            }}
-                            className="block w-full rounded-lg px-3 py-2 text-left text-[13px] font-medium text-red-600 transition-colors hover:bg-red-50 disabled:pointer-events-none disabled:opacity-40"
-                          >
-                            {m.deletion_pending ? 'Retry deletion' : 'Delete'}
-                          </button>
-                        </span>
-                      ) : null}
-                    </span>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <DataTable
+            caption="Media"
+            columns={mediaColumns}
+            data={media}
+            pageIndex={page - 1}
+            pageSize={pageSize}
+            rowCount={total}
+            pageSizeOptions={pageSizeOptions}
+            onPaginationChange={handlePaginationChange}
+            onRowClick={(row) =>
+              void navigate({
+                search: { q: search.q, page: search.page, size: search.size, edit: row.id },
+              })
+            }
+            tableClassName="min-w-[640px]"
+            emptyMessage={search.q ? `No files match "${search.q}".` : 'No media yet.'}
+            toolbar={
+              <DataTableSearch
+                minCharsHint
+                value={search.q ?? ''}
+                onSearch={(q) =>
+                  void navigate({
+                    search: { q: q || undefined, page: 1, size: search.size, edit: undefined },
+                  })
+                }
+                placeholder="Filter by file name…"
+                ariaLabel="Find a file"
+              />
+            }
+          />
         </div>
       )}
-      <AdminPagination
-        label="Media pagination"
-        page={page}
-        total={total}
-        pageSize={pageSize}
-        onPage={(next) => void navigate({ search: { q: search.q, page: next, edit: undefined } })}
-      />
       {editingRow ? (
         <MediaSheet
           key={editingRow.id}

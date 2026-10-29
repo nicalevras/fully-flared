@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import {
   Table,
   TableBody,
@@ -13,6 +13,7 @@ import { staffMiddleware } from '../server/staff-middleware';
 import { uploadMedia } from '../lib/upload';
 import { getRouteApi } from '@tanstack/react-router';
 import { AdminActionFeedback, type AdminActionFeedbackState } from './AdminActionFeedback';
+import { AdminDataTableShell } from './AdminDataTable';
 import { useAdminAction } from './AdminNav';
 import {
   emptyProductCreateDraft,
@@ -42,6 +43,11 @@ import { btnPrimary, btnSmall, hintCls, inputCls, labelCls, textareaCls } from '
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './ui/sheet';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { Sortable, SortableItem } from './ui/sortable';
+import { plainTextToRichHtml, richHtmlToPlainText } from '../lib/rich-text';
+
+const ExpandableEditor = lazy(async () => ({
+  default: (await import('./ExpandableEditor')).ExpandableEditor,
+}));
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Checkbox } from './ui/checkbox';
 import { ChevronDownIcon, MinusIcon, PlusIcon, XIcon } from 'lucide-react';
@@ -108,6 +114,7 @@ export function ProductCreateSheet({
   const [errors, setErrors] = useState<ProductCreateErrors>({});
   const [feedback, setFeedback] = useState<AdminActionFeedbackState>(null);
   const [busy, setBusy] = useState(false);
+  const [uploadPending, setUploadPending] = useState(false);
   const [openSections, setOpenSections] = useState<string[]>(['product-details']);
   useEffect(() => {
     if (open) setOpenSections(['product-details']);
@@ -331,6 +338,128 @@ export function ProductCreateSheet({
                   <AccordionTrigger>Details</AccordionTrigger>
                   <AccordionContent className="space-y-4">
                     <div>
+                      <p className={labelCls}>Images</p>
+                      <Sortable
+                        items={stagedImages.map((m) => m.key)}
+                        onReorder={(keys) =>
+                          setStagedImages(
+                            keys
+                              .map((k) => stagedImages.find((e) => e.key === k))
+                              .filter((e): e is StagedImage => e !== undefined)
+                          )
+                        }
+                        className="grid grid-cols-2 gap-5 sm:grid-cols-3 sm:gap-6"
+                      >
+                        {stagedImages.map((m, i) => {
+                          const isSelected = selectedImageKey === m.key;
+                          return (
+                            <SortableItem key={m.key} id={m.key} className="group w-full">
+                              <div className="relative">
+                                <button
+                                  type="button"
+                                  aria-label={`Select image ${i + 1}`}
+                                  aria-pressed={isSelected}
+                                  onClick={() => setSelectedImageKey(isSelected ? null : m.key)}
+                                  className={`block aspect-[4/5] w-full cursor-grab overflow-hidden rounded-xl bg-zinc-50 active:cursor-grabbing ${
+                                    isSelected ? 'ring-2 ring-zinc-950' : ''
+                                  }`}
+                                >
+                                  <img
+                                    src={m.src}
+                                    alt={m.alt || `${draft.title || 'Product'} image ${i + 1}`}
+                                    className="h-full w-full object-cover"
+                                  />
+                                </button>
+                                {i === 0 ? (
+                                  <span className="pointer-events-none absolute top-2 left-2 rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-950 shadow-sm">
+                                    Cover
+                                  </span>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  aria-label={`Remove image ${i + 1}`}
+                                  onPointerDown={(e) => e.stopPropagation()}
+                                  onClick={() => {
+                                    URL.revokeObjectURL(m.src);
+                                    if (isSelected) setSelectedImageKey(null);
+                                    setStagedImages(stagedImages.filter((e) => e.key !== m.key));
+                                  }}
+                                  className="absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-500 transition-colors hover:text-zinc-950"
+                                >
+                                  <XIcon className="size-3.5" />
+                                </button>
+                              </div>
+                              <p className="mt-1.5 truncate text-xs text-zinc-600">
+                                {m.alt || `Image ${i + 1}`}
+                              </p>
+                            </SortableItem>
+                          );
+                        })}
+                        <label className="group/add w-full cursor-pointer text-left">
+                          <span className="flex aspect-[4/5] flex-col items-center justify-center gap-1.5 rounded-xl bg-zinc-50 text-zinc-500 transition-colors group-hover/add:bg-zinc-100 group-hover/add:text-zinc-950">
+                            <PlusIcon className="size-5" />
+                            <span className="text-xs font-medium">Add</span>
+                          </span>
+                          <span
+                            aria-hidden="true"
+                            className="mt-1.5 block truncate text-xs text-zinc-600"
+                          >
+                            &nbsp;
+                          </span>
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp,image/gif"
+                            className="sr-only"
+                            aria-label="Add product image"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              e.target.value = '';
+                              if (!file) return;
+                              const entry: StagedImage = {
+                                key: `staged-${Date.now()}`,
+                                file,
+                                src: URL.createObjectURL(file),
+                                alt: '',
+                              };
+                              setStagedImages([...stagedImages, entry]);
+                              setSelectedImageKey(entry.key);
+                            }}
+                          />
+                        </label>
+                      </Sortable>
+                      {(() => {
+                        if (!selectedImageKey) return null;
+                        const idx = stagedImages.findIndex((row) => row.key === selectedImageKey);
+                        const m = stagedImages[idx];
+                        if (!m) return null;
+                        return (
+                          <div className="mt-4 rounded-xl bg-zinc-50 p-3.5">
+                            <p className="text-[13px] font-medium text-zinc-950">
+                              Image {idx + 1} of {stagedImages.length}
+                              {idx === 0 ? ' \u00b7 Cover' : ''}
+                            </p>
+                            <div className="mt-3">
+                              <label className={labelCls} htmlFor={`new-alt-${m.key}`}>
+                                Alt text
+                              </label>
+                              <input
+                                id={`new-alt-${m.key}`}
+                                className={inputCls}
+                                value={m.alt}
+                                onChange={(e) =>
+                                  setStagedImages(
+                                    stagedImages.map((e2) =>
+                                      e2.key === m.key ? { ...e2, alt: e.target.value } : e2
+                                    )
+                                  )
+                                }
+                              />
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                    <div>
                       <label className={labelCls} htmlFor="new-title">
                         Title
                       </label>
@@ -345,21 +474,6 @@ export function ProductCreateSheet({
                       />
                       <FieldError id="new-title-error" message={errors.title} />
                     </div>
-                    <div>
-                      <label className={labelCls} htmlFor="new-description">
-                        Description
-                      </label>
-                      <textarea
-                        id="new-description"
-                        className={textareaCls}
-                        rows={5}
-                        value={draft.description}
-                        aria-invalid={Boolean(errors.description)}
-                        aria-describedby={errors.description ? 'new-description-error' : undefined}
-                        onChange={(event) => set('description', event.target.value)}
-                      />
-                      <FieldError id="new-description-error" message={errors.description} />
-                    </div>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div>
                         <label className={labelCls} htmlFor="new-slug">
@@ -370,15 +484,12 @@ export function ProductCreateSheet({
                           className={inputCls}
                           value={draft.slug}
                           aria-invalid={Boolean(errors.slug)}
-                          aria-describedby={errors.slug ? 'new-slug-error' : 'new-slug-hint'}
+                          aria-describedby={errors.slug ? 'new-slug-error' : undefined}
                           onChange={(event) => {
                             setSlugTouched(true);
                             set('slug', event.target.value);
                           }}
                         />
-                        <p id="new-slug-hint" className={hintCls}>
-                          Suggested from the title until you edit it.
-                        </p>
                         <FieldError id="new-slug-error" message={errors.slug} />
                       </div>
                       <div>
@@ -396,137 +507,29 @@ export function ProductCreateSheet({
                           <option value="draft">Draft</option>
                           <option value="active">Active</option>
                         </select>
-                        <p className={hintCls}>
-                          Draft stays off the storefront. Active becomes eligible for the storefront
-                          as soon as creation completes. Publication may take a moment.
-                        </p>
                       </div>
                     </div>
-                  </AccordionContent>
-                </AccordionItem>
-
-                <AccordionItem value="images">
-                  <AccordionTrigger>Images</AccordionTrigger>
-                  <AccordionContent>
-                    <Sortable
-                      items={stagedImages.map((m) => m.key)}
-                      onReorder={(keys) =>
-                        setStagedImages(
-                          keys
-                            .map((k) => stagedImages.find((e) => e.key === k))
-                            .filter((e): e is StagedImage => e !== undefined)
-                        )
-                      }
-                      className="grid grid-cols-2 gap-5 sm:grid-cols-3 sm:gap-6"
-                    >
-                      {stagedImages.map((m, i) => {
-                        const isSelected = selectedImageKey === m.key;
-                        return (
-                          <SortableItem key={m.key} id={m.key} className="group w-full">
-                            <div className="relative">
-                              <button
-                                type="button"
-                                aria-label={`Select image ${i + 1}`}
-                                aria-pressed={isSelected}
-                                onClick={() => setSelectedImageKey(isSelected ? null : m.key)}
-                                className={`block aspect-[4/5] w-full cursor-grab overflow-hidden rounded-xl bg-zinc-50 active:cursor-grabbing ${
-                                  isSelected ? 'ring-2 ring-zinc-950' : ''
-                                }`}
-                              >
-                                <img
-                                  src={m.src}
-                                  alt={m.alt || `${draft.title || 'Product'} image ${i + 1}`}
-                                  className="h-full w-full object-cover"
-                                />
-                              </button>
-                              {i === 0 ? (
-                                <span className="pointer-events-none absolute top-2 left-2 rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-950 shadow-sm">
-                                  Cover
-                                </span>
-                              ) : null}
-                              <button
-                                type="button"
-                                aria-label={`Remove image ${i + 1}`}
-                                onPointerDown={(e) => e.stopPropagation()}
-                                onClick={() => {
-                                  URL.revokeObjectURL(m.src);
-                                  if (isSelected) setSelectedImageKey(null);
-                                  setStagedImages(stagedImages.filter((e) => e.key !== m.key));
-                                }}
-                                className="absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-500 transition-colors hover:text-zinc-950"
-                              >
-                                <XIcon className="size-3.5" />
-                              </button>
-                            </div>
-                            <p className="mt-1.5 truncate text-xs text-zinc-600">
-                              {m.alt || `Image ${i + 1}`}
-                            </p>
-                          </SortableItem>
-                        );
-                      })}
-                      <label className="group/add w-full cursor-pointer text-left">
-                        <span className="flex aspect-[4/5] flex-col items-center justify-center gap-1.5 rounded-xl bg-zinc-50 text-zinc-500 transition-colors group-hover/add:bg-zinc-100 group-hover/add:text-zinc-950">
-                          <PlusIcon className="size-5" />
-                          <span className="text-xs font-medium">Add</span>
-                        </span>
-                        <span
-                          aria-hidden="true"
-                          className="mt-1.5 block truncate text-xs text-zinc-600"
-                        >
-                          &nbsp;
-                        </span>
-                        <input
-                          type="file"
-                          accept="image/jpeg,image/png,image/webp,image/gif"
-                          className="sr-only"
-                          aria-label="Add product image"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            e.target.value = '';
-                            if (!file) return;
-                            const entry: StagedImage = {
-                              key: `staged-${Date.now()}`,
-                              file,
-                              src: URL.createObjectURL(file),
-                              alt: '',
-                            };
-                            setStagedImages([...stagedImages, entry]);
-                            setSelectedImageKey(entry.key);
-                          }}
-                        />
-                      </label>
-                    </Sortable>
-                    {(() => {
-                      if (!selectedImageKey) return null;
-                      const idx = stagedImages.findIndex((row) => row.key === selectedImageKey);
-                      const m = stagedImages[idx];
-                      if (!m) return null;
-                      return (
-                        <div className="mt-4 rounded-xl bg-zinc-50 p-3.5">
-                          <p className="text-[13px] font-medium text-zinc-950">
-                            Image {idx + 1} of {stagedImages.length}
-                            {idx === 0 ? ' \u00b7 Cover' : ''}
-                          </p>
-                          <div className="mt-3">
-                            <label className={labelCls} htmlFor={`new-alt-${m.key}`}>
-                              Alt text
-                            </label>
-                            <input
-                              id={`new-alt-${m.key}`}
-                              className={inputCls}
-                              value={m.alt}
-                              onChange={(e) =>
-                                setStagedImages(
-                                  stagedImages.map((e2) =>
-                                    e2.key === m.key ? { ...e2, alt: e.target.value } : e2
-                                  )
-                                )
-                              }
-                            />
+                    <div>
+                      <Suspense
+                        fallback={
+                          <div
+                            className="min-h-56 rounded-xl border border-zinc-200 bg-white px-5 py-4 text-sm text-zinc-500"
+                            role="status"
+                          >
+                            Loading editor…
                           </div>
-                        </div>
-                      );
-                    })()}
+                        }
+                      >
+                        <ExpandableEditor
+                          label="Description"
+                          editorKey="new"
+                          initialHtml={plainTextToRichHtml(draft.description)}
+                          onChange={(html) => set('description', html)}
+                          onUploadPendingChange={setUploadPending}
+                        />
+                      </Suspense>
+                      <FieldError id="new-description-error" message={errors.description} />
+                    </div>
                   </AccordionContent>
                 </AccordionItem>
 
@@ -830,111 +833,113 @@ export function ProductCreateSheet({
                         ) : null}
                         {combinations.length > 0 ? (
                           <div>
-                            <Table className="min-w-[640px]">
-                              <TableCaption className="sr-only">
-                                Variant combinations to create
-                              </TableCaption>
-                              <TableHeader>
-                                <TableRow>
-                                  <TableHead>Variant</TableHead>
-                                  <TableHead>SKU</TableHead>
-                                  <TableHead>Price</TableHead>
-                                  <TableHead>Original Price</TableHead>
-                                  <TableHead>Stock</TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                {combinations.map((combo, index) => (
-                                  <TableRow key={combo.key}>
-                                    <TableCell>{combo.title}</TableCell>
-                                    <TableCell>
-                                      <input
-                                        aria-label={`SKU for ${combo.title}`}
-                                        className={inputCls}
-                                        value={combo.sku}
-                                        onChange={(event) => {
-                                          setResetArmed(false);
-                                          setEditedKeys((current) =>
-                                            new Set(current).add(combo.key)
-                                          );
-                                          setCombinations((current) =>
-                                            current.map((item, itemIndex) =>
-                                              itemIndex === index
-                                                ? { ...item, sku: event.target.value }
-                                                : item
-                                            )
-                                          );
-                                        }}
-                                      />
-                                    </TableCell>
-                                    <TableCell>
-                                      <input
-                                        aria-label={`Price for ${combo.title}`}
-                                        className={inputCls}
-                                        inputMode="decimal"
-                                        value={combo.price}
-                                        onChange={(event) => {
-                                          setResetArmed(false);
-                                          setEditedKeys((current) =>
-                                            new Set(current).add(combo.key)
-                                          );
-                                          setCombinations((current) =>
-                                            current.map((item, itemIndex) =>
-                                              itemIndex === index
-                                                ? { ...item, price: event.target.value }
-                                                : item
-                                            )
-                                          );
-                                        }}
-                                      />
-                                    </TableCell>
-                                    <TableCell>
-                                      <input
-                                        aria-label={`Original price for ${combo.title}`}
-                                        className={inputCls}
-                                        inputMode="decimal"
-                                        value={combo.compareAt}
-                                        placeholder="Optional"
-                                        onChange={(event) => {
-                                          setResetArmed(false);
-                                          setEditedKeys((current) =>
-                                            new Set(current).add(combo.key)
-                                          );
-                                          setCombinations((current) =>
-                                            current.map((item, itemIndex) =>
-                                              itemIndex === index
-                                                ? { ...item, compareAt: event.target.value }
-                                                : item
-                                            )
-                                          );
-                                        }}
-                                      />
-                                    </TableCell>
-                                    <TableCell>
-                                      <input
-                                        aria-label={`Stock for ${combo.title}`}
-                                        className={inputCls}
-                                        inputMode="numeric"
-                                        value={combo.stock}
-                                        onChange={(event) => {
-                                          setResetArmed(false);
-                                          setEditedKeys((current) =>
-                                            new Set(current).add(combo.key)
-                                          );
-                                          setCombinations((current) =>
-                                            current.map((item, itemIndex) =>
-                                              itemIndex === index
-                                                ? { ...item, stock: event.target.value }
-                                                : item
-                                            )
-                                          );
-                                        }}
-                                      />
-                                    </TableCell>
+                            <AdminDataTableShell>
+                              <Table className="min-w-[640px]">
+                                <TableCaption className="sr-only">
+                                  Variant combinations to create
+                                </TableCaption>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>Variant</TableHead>
+                                    <TableHead>SKU</TableHead>
+                                    <TableHead>Price</TableHead>
+                                    <TableHead>Original Price</TableHead>
+                                    <TableHead>Stock</TableHead>
                                   </TableRow>
-                                ))}
-                              </TableBody>
-                            </Table>
+                                </TableHeader>
+                                <TableBody>
+                                  {combinations.map((combo, index) => (
+                                    <TableRow key={combo.key}>
+                                      <TableCell>{combo.title}</TableCell>
+                                      <TableCell>
+                                        <input
+                                          aria-label={`SKU for ${combo.title}`}
+                                          className={inputCls}
+                                          value={combo.sku}
+                                          onChange={(event) => {
+                                            setResetArmed(false);
+                                            setEditedKeys((current) =>
+                                              new Set(current).add(combo.key)
+                                            );
+                                            setCombinations((current) =>
+                                              current.map((item, itemIndex) =>
+                                                itemIndex === index
+                                                  ? { ...item, sku: event.target.value }
+                                                  : item
+                                              )
+                                            );
+                                          }}
+                                        />
+                                      </TableCell>
+                                      <TableCell>
+                                        <input
+                                          aria-label={`Price for ${combo.title}`}
+                                          className={inputCls}
+                                          inputMode="decimal"
+                                          value={combo.price}
+                                          onChange={(event) => {
+                                            setResetArmed(false);
+                                            setEditedKeys((current) =>
+                                              new Set(current).add(combo.key)
+                                            );
+                                            setCombinations((current) =>
+                                              current.map((item, itemIndex) =>
+                                                itemIndex === index
+                                                  ? { ...item, price: event.target.value }
+                                                  : item
+                                              )
+                                            );
+                                          }}
+                                        />
+                                      </TableCell>
+                                      <TableCell>
+                                        <input
+                                          aria-label={`Original price for ${combo.title}`}
+                                          className={inputCls}
+                                          inputMode="decimal"
+                                          value={combo.compareAt}
+                                          placeholder="Optional"
+                                          onChange={(event) => {
+                                            setResetArmed(false);
+                                            setEditedKeys((current) =>
+                                              new Set(current).add(combo.key)
+                                            );
+                                            setCombinations((current) =>
+                                              current.map((item, itemIndex) =>
+                                                itemIndex === index
+                                                  ? { ...item, compareAt: event.target.value }
+                                                  : item
+                                              )
+                                            );
+                                          }}
+                                        />
+                                      </TableCell>
+                                      <TableCell>
+                                        <input
+                                          aria-label={`Stock for ${combo.title}`}
+                                          className={inputCls}
+                                          inputMode="numeric"
+                                          value={combo.stock}
+                                          onChange={(event) => {
+                                            setResetArmed(false);
+                                            setEditedKeys((current) =>
+                                              new Set(current).add(combo.key)
+                                            );
+                                            setCombinations((current) =>
+                                              current.map((item, itemIndex) =>
+                                                itemIndex === index
+                                                  ? { ...item, stock: event.target.value }
+                                                  : item
+                                              )
+                                            );
+                                          }}
+                                        />
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </AdminDataTableShell>
                           </div>
                         ) : (
                           <p className={hintCls}>Add option values to preview the combinations.</p>
@@ -1054,7 +1059,7 @@ export function ProductCreateSheet({
                       seoTitle={draft.seoTitle}
                       seoDescription={draft.seoDescription}
                       titleFallback={draft.title || 'Product title'}
-                      descriptionFallback={draft.description}
+                      descriptionFallback={richHtmlToPlainText(draft.description)}
                       emptyDescription="No description yet. Search engines will use the product page content."
                     />
                   </AccordionContent>
@@ -1062,18 +1067,13 @@ export function ProductCreateSheet({
               </Accordion>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-3 border-t border-zinc-100 bg-white px-5 py-3.5 sm:px-6">
-              <button type="submit" disabled={busy} className={btnPrimary}>
+              <button type="submit" disabled={busy || uploadPending} className={btnPrimary}>
                 {busy
                   ? 'Creating...'
                   : useOptions
                     ? `Create product with ${combinationCount} variants`
                     : 'Create product'}
               </button>
-              <p className={hintCls}>
-                {useOptions
-                  ? `One submission creates the product and ${combinationCount} variants together. If it fails, your entries stay on this page.`
-                  : 'One submission creates the product and first variant together. If it fails, your entries stay on this page.'}
-              </p>
             </div>
           </form>
         </SheetContent>

@@ -37,6 +37,7 @@ import { formatMoney } from '../../components/ProductCard';
 import { StatusBadge } from '../../components/StatusBadge';
 import type { OrderStatus, PaymentStatus } from '../../db/schema';
 import { btnPrimary } from '../../components/ui';
+import { AdminDataTableShell } from '../../components/AdminDataTable';
 import { roleCan, roles, type StaffRole } from '../../lib/permissions';
 
 type Stats = {
@@ -249,7 +250,7 @@ function AdminHome() {
               </div>
               <Link
                 to="/admin/inventory"
-                search={{ q: '', page: 1, low: false, sku: undefined }}
+                search={{ q: '', page: 1, low: false, sku: undefined, size: undefined }}
                 className={pillWhite}
               >
                 Review inventory
@@ -508,53 +509,55 @@ function AdminHome() {
           </p>
         ) : (
           <div className="mt-2">
-            <Table>
-              <TableCaption className="sr-only">Recent orders</TableCaption>
-              <TableHeader>
-                <TableRow>
-                  <TableHead scope="col">Order</TableHead>
-                  <TableHead scope="col">Customer</TableHead>
-                  <TableHead scope="col">Status</TableHead>
-                  <TableHead scope="col">Payment</TableHead>
-                  <TableHead scope="col" className="text-right">
-                    Total
-                  </TableHead>
-                  <TableHead scope="col">
-                    <span className="sr-only">Open order</span>
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {s.recent.map((o) => (
-                  <TableRow key={o.id} className="group">
-                    <TableCell className="font-medium">
-                      <Link
-                        to="/admin/orders/$id"
-                        params={{ id: o.id }}
-                        className="hover:underline"
-                      >
-                        {o.number}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="whitespace-normal text-zinc-500">
-                      {o.customer_email}
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge value={o.status} />
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge value={o.payment_status} />
-                    </TableCell>
-                    <TableCell className="text-right font-medium">
-                      {formatMoney(o.total_cents, o.currency)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <ArrowRightIcon className="ml-auto h-4 w-4 text-zinc-300 transition-all group-hover:translate-x-0.5 group-hover:text-zinc-950" />
-                    </TableCell>
+            <AdminDataTableShell>
+              <Table>
+                <TableCaption className="sr-only">Recent orders</TableCaption>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead scope="col">Order</TableHead>
+                    <TableHead scope="col">Customer</TableHead>
+                    <TableHead scope="col">Status</TableHead>
+                    <TableHead scope="col">Payment</TableHead>
+                    <TableHead scope="col" className="text-right">
+                      Total
+                    </TableHead>
+                    <TableHead scope="col">
+                      <span className="sr-only">Open order</span>
+                    </TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {s.recent.map((o) => (
+                    <TableRow key={o.id} className="group">
+                      <TableCell className="font-medium">
+                        <Link
+                          to="/admin/orders/$id"
+                          params={{ id: o.id }}
+                          className="hover:underline"
+                        >
+                          {o.number}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="whitespace-normal text-zinc-500">
+                        {o.customer_email}
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge value={o.status} />
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge value={o.payment_status} />
+                      </TableCell>
+                      <TableCell className="text-right font-medium">
+                        {formatMoney(o.total_cents, o.currency)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <ArrowRightIcon className="ml-auto h-4 w-4 text-zinc-300 transition-all group-hover:translate-x-0.5 group-hover:text-zinc-950" />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </AdminDataTableShell>
           </div>
         )}
       </section>
@@ -608,7 +611,7 @@ function AdminHome() {
           </Link>
           <Link
             to="/admin/inventory"
-            search={{ q: '', page: 1, low: false, sku: undefined }}
+            search={{ q: '', page: 1, low: false, sku: undefined, size: undefined }}
             className={tileCls}
           >
             <span className="flex items-start justify-between">

@@ -1,13 +1,4 @@
 import { useEffect, useState } from 'react';
-import {
-  Table,
-  TableBody,
-  TableCaption,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../../../components/ui/table';
 import { staffMiddleware } from '../../../server/staff-middleware';
 import { useStoreCurrency } from '../../../lib/use-store-currency';
 import {
@@ -34,13 +25,13 @@ import {
 import {
   adminProductDiscovery,
   productDiscoveryInputSchema,
+  type AdminProductRow,
 } from '../../../server/admin-product-discovery';
 import {
   isProductMode,
   isProductSort,
   isProductStatusFilter,
   normalizeProductSearch,
-  type ProductMode,
 } from '../../../lib/product-search';
 import {
   AdminActionFeedback,
@@ -51,10 +42,8 @@ import { useAdminAction } from '../../../components/AdminNav';
 import { formatMoney } from '../../../lib/format';
 import { roleCan } from '../../../lib/permissions';
 import { StatusBadge } from '../../../components/StatusBadge';
-import { SearchIcon } from '../../../components/icons';
 import { btnSmall } from '../../../components/ui';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -62,7 +51,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { AdminRowActions } from '../../../components/AdminDataTable';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import type { ColumnDef } from '@tanstack/react-table';
+import { DataTable, DataTableSearch } from '../../../components/ui/data-table';
+import type { DataTableFeatures } from '../../../components/data-table-features';
 
 const getData = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
@@ -122,9 +115,6 @@ function AdminProducts() {
   const navigate = Route.useNavigate();
   const router = useRouter();
   const [msg, setMsg] = useState<AdminActionFeedbackState>(null);
-  const [query, setQuery] = useState(search.q);
-  const [mode, setMode] = useState<ProductMode>(search.mode ?? 'title');
-  const [menuFor, setMenuFor] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const detailFn = useServerFn(getProductDetail);
   const [detail, setDetail] = useState<ProductDetail | null>(null);
@@ -165,32 +155,152 @@ function AdminProducts() {
     }
     router.invalidate();
   };
-  useEffect(() => {
-    setQuery(search.q);
-    setMode(search.mode ?? 'title');
-  }, [search.q, search.mode]);
-  useEffect(() => {
-    if (!menuFor) return;
-    const close = () => setMenuFor(null);
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') close();
-    };
-    document.addEventListener('click', close);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('click', close);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [menuFor]);
-
   const pillWhite =
-    'inline-flex h-9 items-center justify-center gap-1.5 rounded-full border border-zinc-300 bg-white px-4 text-[13px] font-medium text-zinc-950 transition-colors hover:border-zinc-950 disabled:pointer-events-none disabled:opacity-40';
+    'inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 text-[13px] font-medium text-zinc-950 transition-colors hover:border-zinc-950 disabled:pointer-events-none disabled:opacity-40';
   const statuses = [
     ['all', 'All'],
     ['active', 'Active'],
     ['draft', 'Draft'],
     ['archived', 'Archived'],
   ] as const;
+
+  const productColumns: ColumnDef<DataTableFeatures, AdminProductRow>[] = [
+    {
+      id: 'product',
+      header: 'Product',
+      enableHiding: false,
+      cell: ({ row }) => {
+        const p = row.original;
+        return (
+          <Link
+            to="/admin/products"
+            search={{ ...search, edit: p.id }}
+            className="flex items-center gap-3 whitespace-normal"
+          >
+            {p.image_key ? (
+              <img
+                src={`/media/${p.image_key}`}
+                alt=""
+                className="h-10 w-10 shrink-0 rounded-lg object-cover"
+              />
+            ) : (
+              <span
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-sm font-medium text-zinc-500"
+                aria-hidden
+              >
+                {p.title.slice(0, 1).toUpperCase()}
+              </span>
+            )}
+            <span>
+              <span className="font-medium text-zinc-950 hover:underline">{p.title}</span>
+              <span className="block text-[13px] text-zinc-500">/{p.slug}</span>
+              {p.matched_skus.map((match) => (
+                <span key={match.sku} className="block text-[13px] text-zinc-500">
+                  {match.sku} · {match.title}
+                </span>
+              ))}
+              {p.matched_sku_count > 3 ? (
+                <span className="block text-[13px] text-zinc-500">
+                  +{p.matched_sku_count - 3} more matching SKUs
+                </span>
+              ) : null}
+            </span>
+          </Link>
+        );
+      },
+    },
+    {
+      id: 'status',
+      accessorKey: 'status',
+      header: 'Status',
+      cell: ({ row }) => <StatusBadge value={row.original.status} />,
+    },
+    {
+      id: 'price',
+      accessorFn: (row) => row.price_cents,
+      header: 'Price',
+      cell: ({ row }) => {
+        const p = row.original;
+        return (
+          <span>
+            {p.price_cents != null
+              ? p.max_price_cents != null && p.max_price_cents !== p.price_cents
+                ? `${formatMoney(p.price_cents, currency)} – ${formatMoney(p.max_price_cents, currency)}`
+                : formatMoney(p.price_cents, currency)
+              : '-'}
+          </span>
+        );
+      },
+    },
+    {
+      id: 'inventory',
+      accessorFn: (row) => row.available,
+      header: 'Inventory',
+      cell: ({ row }) => {
+        const p = row.original;
+        return (
+          <>
+            <span className="inline-flex items-center gap-2">
+              <span
+                aria-hidden="true"
+                className={`h-2 w-2 shrink-0 rounded-full ${
+                  p.available <= 0
+                    ? 'bg-red-500'
+                    : p.available <= 5
+                      ? 'bg-amber-500'
+                      : 'bg-zinc-300'
+                }`}
+              />
+              {p.available <= 0 ? (
+                <span className="font-medium text-red-600">Out of stock</span>
+              ) : p.available <= 5 ? (
+                <span className="font-medium text-yellow-800">{p.available} left</span>
+              ) : (
+                `${p.available} in stock`
+              )}
+            </span>
+            <span className="block text-[13px] text-zinc-500">
+              {p.variant_count} {p.variant_count === 1 ? 'variant' : 'variants'}
+            </span>
+          </>
+        );
+      },
+    },
+    {
+      id: 'actions',
+      header: () => <span className="sr-only">Actions</span>,
+      enableHiding: false,
+      cell: ({ row }) => {
+        const p = row.original;
+        return (
+          <div className="flex justify-end">
+            <AdminRowActions label={`Actions for ${p.title}`}>
+              <DropdownMenuItem asChild>
+                <Link to="/admin/products" search={{ ...search, edit: p.id }}>
+                  Edit
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={async () => {
+                  const next = p.status === 'active' ? 'draft' : 'active';
+                  const r = await adminAction('product.updateStatus', {
+                    productId: p.id,
+                    status: next,
+                  });
+                  if (r.ok) {
+                    setMsg({ kind: 'status', message: `${p.title} is now ${next}.` });
+                    router.invalidate();
+                  } else setMsg({ kind: 'error', message: r.error ?? 'Failed' });
+                }}
+              >
+                {p.status === 'active' ? 'Move to draft' : 'Publish'}
+              </DropdownMenuItem>
+            </AdminRowActions>
+          </div>
+        );
+      },
+    },
+  ];
 
   return (
     <main>
@@ -215,120 +325,6 @@ function AdminProducts() {
         </span>
       </div>
       <AdminActionFeedback value={msg} />
-
-      <form
-        className="mt-8"
-        onSubmit={(event) => {
-          event.preventDefault();
-          const q = query.trim();
-          void navigate({
-            search: {
-              q,
-              mode: q ? mode : null,
-              status: search.status,
-              sort: search.sort,
-              cursor: undefined,
-            },
-          });
-        }}
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex min-w-56 flex-1 items-center gap-1 rounded-full bg-zinc-50 p-1 transition-shadow focus-within:ring-2 focus-within:ring-zinc-950/70">
-            <Select
-              value={mode}
-              onValueChange={(value) => {
-                if (isProductMode(value)) setMode(value);
-              }}
-            >
-              <SelectTrigger
-                size="sm"
-                aria-label="Search by"
-                className="shrink-0 border-0 bg-transparent shadow-none focus-visible:ring-0"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="title">Title</SelectItem>
-                <SelectItem value="sku">SKU</SelectItem>
-              </SelectContent>
-            </Select>
-            <span aria-hidden="true" className="h-5 w-px shrink-0 bg-zinc-950/10" />
-            <SearchIcon className="ml-2 h-[18px] w-[18px] shrink-0 text-zinc-400" />
-            <Input
-              id="product-query"
-              aria-label="Find products"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search products"
-              maxLength={200}
-              className="h-9 min-w-0 flex-1 border-0 bg-transparent px-2 shadow-none focus-visible:ring-0"
-            />
-            {query ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Clear search"
-                onClick={() => {
-                  setQuery('');
-                  void navigate({
-                    search: {
-                      q: '',
-                      mode: null,
-                      status: search.status,
-                      sort: search.sort,
-                      cursor: undefined,
-                    },
-                  });
-                }}
-              >
-                <span aria-hidden="true">✕</span>
-              </Button>
-            ) : null}
-          </div>
-          <ToggleGroup
-            type="single"
-            spacing={0}
-            value={search.status}
-            onValueChange={(value) => {
-              if (isProductStatusFilter(value))
-                void navigate({ search: { ...search, status: value, cursor: undefined } });
-            }}
-            aria-label="Filter by status"
-            className="rounded-full bg-zinc-50 p-1"
-          >
-            {statuses.map(([value, label]) => (
-              <ToggleGroupItem
-                key={value}
-                value={value}
-                className="rounded-full px-3.5 text-[13px] text-zinc-500 data-[state=on]:bg-zinc-950 data-[state=on]:text-white"
-              >
-                {label}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-          <Select
-            value={search.sort}
-            onValueChange={(value) => {
-              if (isProductSort(value))
-                void navigate({ search: { ...search, sort: value, cursor: undefined } });
-            }}
-          >
-            <SelectTrigger aria-label="Sort products" className="bg-white">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="newest">Newest</SelectItem>
-              <SelectItem value="oldest">Oldest</SelectItem>
-              <SelectItem value="title">Title A–Z</SelectItem>
-              <SelectItem value="updated">Recently updated</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        {mode !== 'title' ? (
-          <p className="mt-2 text-xs text-zinc-500">SKU search is case-sensitive.</p>
-        ) : null}
-      </form>
 
       <section className="mt-6" aria-label="Product results">
         {state === 'refine' ? (
@@ -356,7 +352,6 @@ function AdminProducts() {
               <button
                 className={`${pillWhite} mt-3 ml-2`}
                 onClick={() => {
-                  setQuery('');
                   void navigate({
                     search: { q: '', mode: null, status: 'all', sort: 'newest', cursor: undefined },
                   });
@@ -368,188 +363,142 @@ function AdminProducts() {
           </div>
         ) : (
           <div tabIndex={0} role="region" aria-label="Product results">
-            <Table className="min-w-[680px]">
-              <TableCaption className="sr-only">Products</TableCaption>
-              <TableHeader>
-                <TableRow>
-                  <TableHead scope="col">Product</TableHead>
-                  <TableHead scope="col">Status</TableHead>
-                  <TableHead scope="col">Price</TableHead>
-                  <TableHead scope="col">Inventory</TableHead>
-                  <TableHead scope="col">
-                    <span className="sr-only">Actions</span>
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {products.map((p, index) => (
-                  <TableRow
-                    key={p.id}
-                    className="cursor-pointer"
-                    onClick={(event) => {
-                      if ((event.target as HTMLElement).closest('a, button, select, input')) return;
-                      openEditor(p.id);
-                    }}
-                  >
-                    <TableCell className="whitespace-normal">
-                      <Link
-                        to="/admin/products"
-                        search={{ ...search, edit: p.id }}
-                        className="flex items-center gap-3"
+            {/* Cursor pages only: the Worker hands back next/previous cursors,
+                not a total. The footer override owns navigation. */}
+            <DataTable
+              caption="Products"
+              columns={productColumns}
+              data={products}
+              pageIndex={0}
+              pageSize={50}
+              rowCount={0}
+              onPaginationChange={() => undefined}
+              onRowClick={(row) => openEditor(row.id)}
+              paginationFooter={
+                previousCursor || nextCursor ? (
+                  <div className="flex justify-between gap-3 px-2 py-4">
+                    {previousCursor ? (
+                      <button
+                        type="button"
+                        className={pillWhite}
+                        onClick={() =>
+                          void navigate({ search: { ...search, cursor: previousCursor } })
+                        }
                       >
-                        {p.image_key ? (
-                          <img
-                            src={`/media/${p.image_key}`}
-                            alt=""
-                            className="h-10 w-10 shrink-0 rounded-lg object-cover"
-                          />
-                        ) : (
-                          <span
-                            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-sm font-medium text-zinc-500"
-                            aria-hidden
-                          >
-                            {p.title.slice(0, 1).toUpperCase()}
-                          </span>
-                        )}
-                        <span>
-                          <span className="font-medium text-zinc-950 hover:underline">
-                            {p.title}
-                          </span>
-                          <span className="block text-[13px] text-zinc-500">/{p.slug}</span>
-                          {p.matched_skus.map((match) => (
-                            <span key={match.sku} className="block text-[13px] text-zinc-500">
-                              {match.sku} · {match.title}
-                            </span>
-                          ))}
-                          {p.matched_sku_count > 3 ? (
-                            <span className="block text-[13px] text-zinc-500">
-                              +{p.matched_sku_count - 3} more matching SKUs
-                            </span>
-                          ) : null}
-                        </span>
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge value={p.status} />
-                    </TableCell>
-                    <TableCell>
-                      {p.price_cents != null
-                        ? p.max_price_cents != null && p.max_price_cents !== p.price_cents
-                          ? `${formatMoney(p.price_cents, currency)} – ${formatMoney(p.max_price_cents, currency)}`
-                          : formatMoney(p.price_cents, currency)
-                        : '-'}
-                    </TableCell>
-                    <TableCell>
-                      <span className="inline-flex items-center gap-2">
-                        <span
-                          aria-hidden="true"
-                          className={`h-2 w-2 shrink-0 rounded-full ${
-                            p.available <= 0
-                              ? 'bg-red-500'
-                              : p.available <= 5
-                                ? 'bg-amber-500'
-                                : 'bg-zinc-300'
-                          }`}
-                        />
-                        {p.available <= 0 ? (
-                          <span className="font-medium text-red-600">Out of stock</span>
-                        ) : p.available <= 5 ? (
-                          <span className="font-medium text-yellow-800">{p.available} left</span>
-                        ) : (
-                          `${p.available} in stock`
-                        )}
-                      </span>
-                      <span className="block text-[13px] text-zinc-500">
-                        {p.variant_count} {p.variant_count === 1 ? 'variant' : 'variants'}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <span className="relative inline-block text-left">
-                        <button
-                          type="button"
-                          aria-haspopup="menu"
-                          aria-expanded={menuFor === p.id}
-                          aria-label={`Actions for ${p.title}`}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setMenuFor(menuFor === p.id ? null : p.id);
-                          }}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-full text-lg leading-none font-medium text-zinc-500 transition-colors hover:bg-zinc-950/5 hover:text-zinc-950"
-                        >
-                          …
-                        </button>
-                        {menuFor === p.id ? (
-                          <span
-                            role="menu"
-                            onClick={(event) => event.stopPropagation()}
-                            className={`absolute right-0 z-20 block w-44 rounded-xl border border-zinc-200 bg-white p-1 shadow-lg ${
-                              index >= products.length - 2 ? 'bottom-full mb-1' : 'top-full mt-1'
-                            }`}
-                          >
-                            <Link
-                              role="menuitem"
-                              to="/admin/products"
-                              search={{ ...search, edit: p.id }}
-                              onClick={() => setMenuFor(null)}
-                              className="block rounded-lg px-3 py-2 text-[13px] font-medium text-zinc-950 transition-colors hover:bg-zinc-50"
-                            >
-                              Edit
-                            </Link>
-                            <button
-                              type="button"
-                              role="menuitem"
-                              onClick={async () => {
-                                setMenuFor(null);
-                                const next = p.status === 'active' ? 'draft' : 'active';
-                                const r = await adminAction('product.updateStatus', {
-                                  productId: p.id,
-                                  status: next,
-                                });
-                                if (r.ok) {
-                                  setMsg({
-                                    kind: 'status',
-                                    message: `${p.title} is now ${next}.`,
-                                  });
-                                  router.invalidate();
-                                } else setMsg({ kind: 'error', message: r.error ?? 'Failed' });
-                              }}
-                              className="block w-full rounded-lg px-3 py-2 text-left text-[13px] font-medium text-zinc-950 transition-colors hover:bg-zinc-50"
-                            >
-                              {p.status === 'active' ? 'Move to draft' : 'Publish'}
-                            </button>
-                          </span>
-                        ) : null}
-                      </span>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                        Previous 50 products
+                      </button>
+                    ) : (
+                      <span />
+                    )}
+                    {nextCursor ? (
+                      <button
+                        type="button"
+                        className={pillWhite}
+                        onClick={() => void navigate({ search: { ...search, cursor: nextCursor } })}
+                      >
+                        Next 50 products
+                      </button>
+                    ) : null}
+                  </div>
+                ) : (
+                  <></>
+                )
+              }
+              toolbar={
+                <div>
+                  <DataTableSearch
+                    value={search.q}
+                    onSearch={(q) =>
+                      void navigate({
+                        search: {
+                          q,
+                          mode: q ? (search.mode ?? 'title') : null,
+                          status: search.status,
+                          sort: search.sort,
+                          cursor: undefined,
+                        },
+                      })
+                    }
+                    placeholder="Search products"
+                    ariaLabel="Find products"
+                  >
+                    <Select
+                      value={search.mode ?? 'title'}
+                      onValueChange={(value) => {
+                        if (isProductMode(value))
+                          void navigate({
+                            search: { ...search, mode: value, cursor: undefined },
+                          });
+                      }}
+                    >
+                      <SelectTrigger
+                        size="sm"
+                        aria-label="Search by"
+                        className="rounded-md bg-white"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="title">Title</SelectItem>
+                        <SelectItem value="sku">SKU</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={search.status}
+                      onValueChange={(value) => {
+                        if (isProductStatusFilter(value))
+                          void navigate({
+                            search: { ...search, status: value, cursor: undefined },
+                          });
+                      }}
+                    >
+                      <SelectTrigger
+                        size="sm"
+                        aria-label="Filter by status"
+                        className="rounded-md bg-white"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {statuses.map(([value, label]) => (
+                          <SelectItem key={value} value={value}>
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={search.sort}
+                      onValueChange={(value) => {
+                        if (isProductSort(value))
+                          void navigate({ search: { ...search, sort: value, cursor: undefined } });
+                      }}
+                    >
+                      <SelectTrigger
+                        size="sm"
+                        aria-label="Sort products"
+                        className="rounded-md bg-white"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="newest">Newest</SelectItem>
+                        <SelectItem value="oldest">Oldest</SelectItem>
+                        <SelectItem value="title">Title A–Z</SelectItem>
+                        <SelectItem value="updated">Recently updated</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </DataTableSearch>
+                  {(search.mode ?? 'title') !== 'title' ? (
+                    <p className="mt-2 text-xs text-zinc-500">SKU search is case-sensitive.</p>
+                  ) : null}
+                </div>
+              }
+              tableClassName="min-w-[680px]"
+            />
           </div>
         )}
       </section>
-      {previousCursor || nextCursor ? (
-        <div className="mt-4 flex justify-between gap-3">
-          {previousCursor ? (
-            <button
-              className={pillWhite}
-              onClick={() => void navigate({ search: { ...search, cursor: previousCursor } })}
-            >
-              Previous 50 products
-            </button>
-          ) : (
-            <span />
-          )}
-          {nextCursor ? (
-            <button
-              className={pillWhite}
-              onClick={() => void navigate({ search: { ...search, cursor: nextCursor } })}
-            >
-              Next 50 products
-            </button>
-          ) : null}
-        </div>
-      ) : null}
       {canCreate ? (
         <ProductCreateSheet
           open={createOpen}

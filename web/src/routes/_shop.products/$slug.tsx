@@ -21,6 +21,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { addToCart, openCart } from '../../lib/cart';
 import type { StoreLimits } from '../../lib/settings-definitions';
 import { mediaUrl, mediaSrcSet, type MediaSource } from '../../lib/media-url';
+import { isRichTextHtml, richHtmlToPlainText, richTextCls } from '../../lib/rich-text';
 
 type Variant = {
   id: string;
@@ -85,7 +86,7 @@ export const Route = createFileRoute('/_shop/products/$slug')({
             .replaceAll('{product}', loaderData.title)
             .replaceAll('{title}', loaderData.title)
             .replaceAll('{store_name}', loaderData.storeName),
-        description: loaderData.seoDescription ?? loaderData.description,
+        description: loaderData.seoDescription ?? richHtmlToPlainText(loaderData.description),
         url,
         type: 'product',
         image: firstImage
@@ -97,7 +98,7 @@ export const Route = createFileRoute('/_shop/products/$slug')({
         '@context': 'https://schema.org',
         '@type': 'Product',
         name: loaderData.title,
-        description: loaderData.seoDescription ?? loaderData.description,
+        description: loaderData.seoDescription ?? richHtmlToPlainText(loaderData.description),
         url,
         ...(firstImage
           ? { image: absoluteUrl(loaderData.canonicalBaseUrl, mediaUrl(firstImage)) }
@@ -217,9 +218,16 @@ function ProductPage() {
             </p>
           ) : null}
           {product.description ? (
-            <p className="mt-4 leading-7 whitespace-pre-wrap text-zinc-600">
-              {product.description}
-            </p>
+            isRichTextHtml(product.description) ? (
+              <div
+                className={`${richTextCls} mt-4`}
+                dangerouslySetInnerHTML={{ __html: product.description }}
+              />
+            ) : (
+              <p className="mt-4 leading-7 whitespace-pre-wrap text-zinc-600">
+                {product.description}
+              </p>
+            )
           ) : null}
 
           {activeVariants.length > 1 ? (

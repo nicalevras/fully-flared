@@ -83,4 +83,25 @@ describe('product creation confirmation (FF-01)', () => {
     expect(source).toContain('ConfirmDialog');
     expect(source).toContain('pendingGroups');
   });
+
+  it('uses the shared expandable rich editor with no description textarea or mode switcher', () => {
+    const source = readFileSync('web/src/components/ProductCreateSheet.tsx', 'utf8');
+    expect(source).toContain('ExpandableEditor');
+    expect(source).toContain("await import('./ExpandableEditor')");
+    expect(source).toContain('<Suspense');
+    expect(source).not.toContain('id="new-description"');
+    expect(source.toLowerCase()).not.toContain('rich text mode');
+    expect(source.toLowerCase()).not.toContain('plain text mode');
+  });
+
+  it('places images first inside Details with no standalone Images section', () => {
+    const source = readFileSync('web/src/components/ProductCreateSheet.tsx', 'utf8');
+    expect(source).not.toContain('value="images"');
+    const details = source.indexOf('value="product-details"');
+    const images = source.indexOf('>Images</p>');
+    const title = source.indexOf('id="new-title"');
+    expect(details).toBeGreaterThan(-1);
+    expect(images).toBeGreaterThan(details);
+    expect(title).toBeGreaterThan(images);
+  });
 });

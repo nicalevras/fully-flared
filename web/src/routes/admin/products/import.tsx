@@ -24,6 +24,7 @@ import {
   pageTitle,
   textareaCls,
 } from '../../../components/ui';
+import { AdminDataTableShell } from '../../../components/AdminDataTable';
 
 export const Route = createFileRoute('/admin/products/import')({
   component: AdminProductsImport,
@@ -116,24 +117,26 @@ function AdminProductsImport() {
               </div>
             ) : (
               <div className="mt-2">
-                <Table className="min-w-[560px]">
-                  <TableHeader>
-                    <TableRow>
-                      {preview.headers.map((header) => (
-                        <TableHead key={header}>{header}</TableHead>
-                      ))}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {preview.previewRows.map((row, index) => (
-                      <TableRow key={index}>
-                        {row.map((cell, cellIndex) => (
-                          <TableCell key={cellIndex}>{cell}</TableCell>
+                <AdminDataTableShell>
+                  <Table className="min-w-[560px]">
+                    <TableHeader>
+                      <TableRow>
+                        {preview.headers.map((header) => (
+                          <TableHead key={header}>{header}</TableHead>
                         ))}
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {preview.previewRows.map((row, index) => (
+                        <TableRow key={index}>
+                          {row.map((cell, cellIndex) => (
+                            <TableCell key={cellIndex}>{cell}</TableCell>
+                          ))}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </AdminDataTableShell>
               </div>
             )}
           </div>

@@ -15,54 +15,91 @@ import {
   SheetHeader,
   SheetTitle,
 } from '../../components/ui/sheet';
-import {
-  Table,
-  TableBody,
-  TableCaption,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../../components/ui/table';
+import type { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table';
+import { DataTable, DataTableSearch } from '../../components/ui/data-table';
+import { ftsPhrase, ftsUsable } from '../../lib/fts-search';
+import type { DataTableFeatures } from '../../components/data-table-features';
 import { formatDate } from '../../lib/format';
 import { pageWindow } from '../../lib/catalog-page';
-import { AdminPagination } from '../../components/AdminPagination';
+import { isPageSize, pageSizeOptions, pageSizeSchema } from '../../schemas/pagination';
 import * as z from 'zod';
 import { validateServerInput } from '../../server/function-boundary';
 import { Button } from '../../components/ui';
 
 type PageRow = { id: string; slug: string; title: string; updated_at: string };
 
-const PAGE_SIZE = 25;
+const pagesColumns: ColumnDef<DataTableFeatures, PageRow>[] = [
+  {
+    id: 'title',
+    accessorKey: 'title',
+    header: 'Title',
+    cell: ({ row }) => (
+      <span className="block whitespace-normal">
+        <span className="block font-medium text-zinc-950">{row.original.title}</span>
+        <span className="mt-0.5 block text-[13px] text-zinc-500">/pages/{row.original.slug}</span>
+      </span>
+    ),
+  },
+  {
+    id: 'updated',
+    accessorFn: (row) => row.updated_at,
+    header: 'Updated',
+    cell: ({ row }) => (
+      <span className="whitespace-nowrap text-zinc-500">{formatDate(row.original.updated_at)}</span>
+    ),
+  },
+];
 
 const getData = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
-  .validator(validateServerInput(z.object({ page: z.number().int().min(1).default(1) })))
+  .validator(
+    validateServerInput(
+      z.object({
+        q: z.string().max(200).default(''),
+        page: z.number().int().min(1).default(1),
+        size: pageSizeSchema,
+      })
+    )
+  )
   .handler(async ({ data }) => {
     const { env } = await import('cloudflare:workers');
-    const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM pages').first<{ n: number }>();
+    const q = data.q.trim();
+    // < 3 chars cannot hit the trigram index; return nothing rather than scan.
+    const where = q
+      ? ftsUsable(q)
+        ? 'WHERE rowid IN (SELECT rowid FROM pages_fts WHERE pages_fts MATCH ?)'
+        : 'WHERE 1=0'
+      : '';
+    const binds = q && ftsUsable(q) ? [ftsPhrase(q)] : [];
+    const count = await env.DB.prepare(`SELECT COUNT(*) AS n FROM pages ${where}`)
+      .bind(...binds)
+      .first<{ n: number }>();
     const total = count?.n ?? 0;
-    const { page, offset } = pageWindow(total, data.page, PAGE_SIZE);
+    const { page, offset } = pageWindow(total, data.page, data.size);
     const rows = await env.DB.prepare(
-      'SELECT id, slug, title, updated_at FROM pages ORDER BY slug LIMIT ? OFFSET ?'
+      `SELECT id, slug, title, updated_at FROM pages ${where} ORDER BY slug LIMIT ? OFFSET ?`
     )
-      .bind(PAGE_SIZE, offset)
+      .bind(...binds, data.size, offset)
       .all<PageRow>();
-    return { pages: rows.results, total, page, pageSize: PAGE_SIZE };
+    return { pages: rows.results, total, page, pageSize: data.size };
   });
 
 export const Route = createFileRoute('/admin/pages')({
   staleTime: 30_000,
   // The Tiptap editor renders in the browser only; the loader still runs on the server.
   ssr: 'data-only',
-  validateSearch: (search: { edit?: unknown; page?: unknown } & SearchSchemaInput) => ({
+  validateSearch: (
+    search: { edit?: unknown; q?: unknown; page?: unknown; size?: unknown } & SearchSchemaInput
+  ) => ({
     edit: typeof search.edit === 'string' && search.edit ? search.edit : undefined,
+    q: typeof search.q === 'string' && search.q ? search.q.slice(0, 200) : undefined,
     page:
       typeof search.page === 'number' && Number.isInteger(search.page) && search.page > 0
         ? search.page
         : 1,
+    size: isPageSize(search.size) ? search.size : undefined,
   }),
-  loaderDeps: ({ search }) => ({ page: search.page }),
+  loaderDeps: ({ search }) => ({ q: search.q ?? '', page: search.page, size: search.size ?? 25 }),
   loader: async ({ deps }) => getData({ data: deps }),
   component: AdminPages,
 });
@@ -105,14 +142,30 @@ function AdminPages() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingId]);
-  const openEditor = (id: string) => void navigate({ search: { page: search.page, edit: id } });
+  const openEditor = (id: string) =>
+    void navigate({ search: { q: search.q, page: search.page, size: search.size, edit: id } });
   const closeSheet = () => {
     setCreateOpen(false);
-    if (search.edit) void navigate({ search: { page: search.page, edit: undefined } });
+    if (search.edit)
+      void navigate({
+        search: { q: search.q, page: search.page, size: search.size, edit: undefined },
+      });
   };
   const handleSaved = () => {
     closeSheet();
     router.invalidate();
+  };
+  const handlePaginationChange: OnChangeFn<PaginationState> = (updater) => {
+    const current = { pageIndex: page - 1, pageSize };
+    const next = typeof updater === 'function' ? updater(current) : updater;
+    void navigate({
+      search: {
+        q: search.q,
+        page: next.pageIndex + 1,
+        size: isPageSize(next.pageSize) ? next.pageSize : pageSize,
+        edit: undefined,
+      },
+    });
   };
 
   return (
@@ -132,9 +185,11 @@ function AdminPages() {
         </Button>
       </div>
       <AdminActionFeedback value={feedback} />
-      {pages.length === 0 ? (
+      {pages.length === 0 && !search.q ? (
         <div className="mt-8 rounded-xl bg-zinc-50 px-6 py-14 text-center" role="status">
-          <p className="text-sm text-zinc-500">No pages yet. Write your first one.</p>
+          <p className="text-sm text-zinc-500">
+            {search.q ? `No pages match "${search.q}".` : 'No pages yet. Write your first one.'}
+          </p>
           <Button type="button" className="mt-4" onClick={() => setCreateOpen(true)}>
             <PlusIcon className="size-4" />
             New
@@ -142,37 +197,33 @@ function AdminPages() {
         </div>
       ) : (
         <div className="mt-8" tabIndex={0} role="region" aria-label="Pages">
-          <Table className="min-w-[560px]">
-            <TableCaption className="sr-only">Pages</TableCaption>
-            <TableHeader>
-              <TableRow>
-                <TableHead scope="col">Title</TableHead>
-                <TableHead scope="col">Updated</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {pages.map((p) => (
-                <TableRow key={p.id} className="cursor-pointer" onClick={() => openEditor(p.id)}>
-                  <TableCell className="whitespace-normal">
-                    <span className="block font-medium text-zinc-950">{p.title}</span>
-                    <span className="mt-0.5 block text-[13px] text-zinc-500">/pages/{p.slug}</span>
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-zinc-500">
-                    {formatDate(p.updated_at)}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <DataTable
+            caption="Pages"
+            columns={pagesColumns}
+            data={pages}
+            pageIndex={page - 1}
+            pageSize={pageSize}
+            rowCount={total}
+            pageSizeOptions={pageSizeOptions}
+            onPaginationChange={handlePaginationChange}
+            onRowClick={(row) => openEditor(row.id)}
+            emptyMessage={search.q ? `No pages match "${search.q}".` : 'No pages yet.'}
+            toolbar={
+              <DataTableSearch
+                minCharsHint
+                value={search.q ?? ''}
+                onSearch={(q) =>
+                  void navigate({
+                    search: { q: q || undefined, page: 1, size: search.size, edit: undefined },
+                  })
+                }
+                placeholder="Filter by title…"
+                ariaLabel="Find a page"
+              />
+            }
+          />
         </div>
       )}
-      <AdminPagination
-        label="Pages pagination"
-        page={page}
-        total={total}
-        pageSize={pageSize}
-        onPage={(next) => void navigate({ search: { page: next, edit: undefined } })}
-      />
       {createOpen || search.edit === 'new' ? (
         <PageEditor
           key="new"

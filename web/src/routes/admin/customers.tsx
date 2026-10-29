@@ -1,23 +1,16 @@
 import { useState } from 'react';
-import {
-  Table,
-  TableBody,
-  TableCaption,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../../components/ui/table';
 import { staffMiddleware } from '../../server/staff-middleware';
 import { requireStaffPermission } from '../../server/session';
 import { adminCustomers } from '../../server/admin-lists';
 import { pageInputSchema } from '../../schemas/pagination';
 import * as z from 'zod';
 import { contactHistory, lookupContact } from '../../server/admin-contacts';
-import { btnPrimary, labelCls } from '../../components/ui';
+import { btnPrimary } from '../../components/ui';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { validateServerInput } from '../../server/function-boundary';
-import { AdminPagination } from '../../components/AdminPagination';
+import type { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table';
+import { DataTable, DataTableSearch } from '../../components/ui/data-table';
+import type { DataTableFeatures } from '../../components/data-table-features';
 import { formatDate } from '../../lib/format';
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
@@ -70,7 +63,6 @@ function AdminCustomers() {
 
   const { customers, total, myRole, page, lookup, history } = Route.useLoaderData();
   const search = Route.useSearch();
-  const [emailQuery, setEmailQuery] = useState(search.q);
   const [deleteTarget, setDeleteTarget] = useState<(typeof customers)[number] | null>(null);
   const [guestBusy, setGuestBusy] = useState(false);
   const navigate = Route.useNavigate();
@@ -78,6 +70,171 @@ function AdminCustomers() {
   const [msg, setMsg] = useState('');
   const [busyId, setBusyId] = useState('');
   const canManageRoles = myRole === 'owner' || myRole === 'admin';
+
+  const customerColumns: ColumnDef<DataTableFeatures, (typeof customers)[number]>[] = [
+    {
+      id: 'customer',
+      header: 'Customer',
+      enableHiding: false,
+      cell: ({ row }) => {
+        const c = row.original;
+        return (
+          <span className="flex items-center gap-3 whitespace-normal">
+            <span
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-[13px] font-medium text-zinc-600"
+              aria-hidden
+            >
+              {(c.name || c.email).slice(0, 1).toUpperCase()}
+            </span>
+            <span>
+              <span className="block font-medium text-zinc-950">
+                <Link to="/admin/customers/$id" params={{ id: c.id }} className="hover:underline">
+                  {c.name || '—'}
+                </Link>
+              </span>
+              <span className="block text-[13px] text-zinc-500">{c.email}</span>
+            </span>
+          </span>
+        );
+      },
+    },
+    {
+      id: 'role',
+      accessorKey: 'role',
+      header: 'Role',
+      cell: ({ row }) => {
+        const c = row.original;
+        return canManageRoles ? (
+          <span className="flex items-center gap-2">
+            <label className="sr-only" htmlFor={`role-${c.id}`}>
+              Role for {c.email}
+            </label>
+            <select
+              id={`role-${c.id}`}
+              className={`${inputCls} h-9 w-36`}
+              defaultValue={c.role}
+              disabled={busyId === c.id}
+              onChange={async (e) => {
+                const role = e.target.value;
+                setBusyId(c.id);
+                const r = await adminAction('user.setRole', { userId: c.id, role });
+                setBusyId('');
+                if (r.ok) {
+                  setMsg(`${c.email} is now ${role}.`);
+                  router.invalidate();
+                } else {
+                  setMsg(r.error ?? 'Failed');
+                  e.target.value = c.role;
+                }
+              }}
+            >
+              {ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </span>
+        ) : (
+          <Badge tone={c.role === 'customer' ? 'gray' : 'green'}>{c.role}</Badge>
+        );
+      },
+    },
+    {
+      id: 'orders',
+      accessorKey: 'orders',
+      header: 'Orders',
+      cell: ({ row }) => <span>{row.original.orders}</span>,
+    },
+    {
+      id: 'data',
+      accessorFn: (row) => row.email,
+      header: 'Data',
+      cell: ({ row }) => {
+        const c = row.original;
+        return (
+          <span className="flex items-center gap-2">
+            <button
+              type="button"
+              className="text-[13px] font-medium text-zinc-950 underline-offset-2 hover:underline"
+              disabled={busyId === c.id}
+              onClick={async () => {
+                setBusyId(c.id);
+                const r = await adminAction('customer.export', { userId: c.id });
+                setBusyId('');
+                if (r.ok) {
+                  const blob = new Blob([JSON.stringify(r.data, null, 2)], {
+                    type: 'application/json',
+                  });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `customer-${c.id}.json`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                  setMsg(`Exported ${c.email}.`);
+                } else setMsg(r.error ?? 'Export failed');
+              }}
+            >
+              Export
+            </button>
+            <button
+              type="button"
+              className="text-[13px] font-medium text-red-600 underline-offset-2 hover:underline"
+              disabled={busyId === c.id}
+              onClick={() => setDeleteTarget(c)}
+            >
+              Delete
+            </button>
+          </span>
+        );
+      },
+    },
+    {
+      id: 'spending',
+      accessorFn: (row) => row.spending,
+      header: 'Gross spending (includes refunds)',
+      cell: ({ row }) => {
+        const c = row.original;
+        return (
+          <span className="font-medium">
+            {c.spending.length
+              ? c.spending.map((amount) => (
+                  <span key={amount.currency} className="block">
+                    {amount.currency} {formatMoney(amount.spent_cents, amount.currency)}
+                  </span>
+                ))
+              : '—'}
+          </span>
+        );
+      },
+    },
+    {
+      id: 'last',
+      accessorFn: (row) => row.last_order_at,
+      header: 'Last order',
+      cell: ({ row }) => (
+        <span className="text-zinc-500">
+          {row.original.last_order_at ? formatDate(row.original.last_order_at) : 'Never'}
+        </span>
+      ),
+    },
+    {
+      id: 'joined',
+      accessorFn: (row) => row.created_at,
+      header: 'Joined',
+      cell: ({ row }) => (
+        <span className="text-zinc-500">{formatDate(row.original.created_at)}</span>
+      ),
+    },
+  ];
+
+  // Customers page at a fixed 200 rows from the loader; no page-size option.
+  const handlePaginationChange: OnChangeFn<PaginationState> = (updater) => {
+    const next =
+      typeof updater === 'function' ? updater({ pageIndex: page - 1, pageSize: 200 }) : updater;
+    void navigate({ search: (prev) => ({ ...prev, page: next.pageIndex + 1 }) });
+  };
 
   return (
     <main>
@@ -106,32 +263,10 @@ function AdminCustomers() {
         )}
       </section>
 
-      <form
-        className={`${cardCls} mt-5 flex flex-wrap items-end gap-3 p-4`}
-        onSubmit={(event) => {
-          event.preventDefault();
-          void navigate({ search: { page: 1, q: emailQuery.trim(), email: '' } });
-        }}
-      >
-        <div className="min-w-56 flex-1">
-          <label className={labelCls} htmlFor="customer-email">
-            Find a contact by email
-          </label>
-          <input
-            id="customer-email"
-            className={inputCls}
-            value={emailQuery}
-            onChange={(event) => setEmailQuery(event.target.value)}
-            placeholder="ada@example.com"
-          />
-        </div>
-        <button type="submit" className={btnPrimary}>
-          Look up
-        </button>
-      </form>
       <p className="mt-2 text-[13px] text-zinc-500">
-        Guest purchases and account orders are separate records, even when the email matches. A
-        lookup shows counts first. History loads only when you open the contact.
+        Guest purchases and account orders are separate records, even when the email matches. Type
+        an email above and the lookup runs as you type, showing counts first. History loads only
+        when you open the contact.
       </p>
 
       {search.q && lookup ? (
@@ -252,149 +387,29 @@ function AdminCustomers() {
         </section>
       ) : null}
 
-      <AdminPagination
-        label="Customers pagination"
-        page={page}
-        total={total}
-        pageSize={200}
-        onPage={(page) => {
-          void navigate({ search: (prev) => ({ ...prev, page }) });
-        }}
-      />
-      <section className={`${cardCls} mt-6 overflow-hidden`}>
-        {customers.length === 0 ? (
+      <section className="mt-6">
+        {customers.length === 0 && !search.q ? (
           <p className="p-5 text-sm text-zinc-500" role="status">
             No accounts yet.
           </p>
         ) : (
-          <div>
-            <Table>
-              <TableCaption className="sr-only">Customers and staff</TableCaption>
-              <TableHeader>
-                <TableRow>
-                  <TableHead scope="col">Customer</TableHead>
-                  <TableHead scope="col">Role</TableHead>
-                  <TableHead scope="col">Orders</TableHead>
-                  <TableHead scope="col">Data</TableHead>
-                  <TableHead scope="col">Gross spending (includes refunds)</TableHead>
-                  <TableHead scope="col">Last order</TableHead>
-                  <TableHead scope="col">Joined</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {customers.map((c) => (
-                  <TableRow key={c.id}>
-                    <TableCell className="whitespace-normal">
-                      <span className="flex items-center gap-3">
-                        <span
-                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-[13px] font-medium text-zinc-600"
-                          aria-hidden
-                        >
-                          {(c.name || c.email).slice(0, 1).toUpperCase()}
-                        </span>
-                        <span>
-                          <span className="block font-medium text-zinc-950">
-                            <Link
-                              to="/admin/customers/$id"
-                              params={{ id: c.id }}
-                              className="hover:underline"
-                            >
-                              {c.name || '—'}
-                            </Link>
-                          </span>
-                          <span className="block text-[13px] text-zinc-500">{c.email}</span>
-                        </span>
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      {canManageRoles ? (
-                        <span className="flex items-center gap-2">
-                          <label className="sr-only" htmlFor={`role-${c.id}`}>
-                            Role for {c.email}
-                          </label>
-                          <select
-                            id={`role-${c.id}`}
-                            className={`${inputCls} h-9 w-36`}
-                            defaultValue={c.role}
-                            disabled={busyId === c.id}
-                            onChange={async (e) => {
-                              const role = e.target.value;
-                              setBusyId(c.id);
-                              const r = await adminAction('user.setRole', { userId: c.id, role });
-                              setBusyId('');
-                              if (r.ok) {
-                                setMsg(`${c.email} is now ${role}.`);
-                                router.invalidate();
-                              } else {
-                                setMsg(r.error ?? 'Failed');
-                                e.target.value = c.role;
-                              }
-                            }}
-                          >
-                            {ROLES.map((r) => (
-                              <option key={r} value={r}>
-                                {r}
-                              </option>
-                            ))}
-                          </select>
-                        </span>
-                      ) : (
-                        <Badge tone={c.role === 'customer' ? 'gray' : 'green'}>{c.role}</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>{c.orders}</TableCell>
-                    <TableCell>
-                      <span className="flex items-center gap-2">
-                        <button
-                          className="text-[13px] font-medium text-zinc-950 underline-offset-2 hover:underline"
-                          disabled={busyId === c.id}
-                          onClick={async () => {
-                            setBusyId(c.id);
-                            const r = await adminAction('customer.export', { userId: c.id });
-                            setBusyId('');
-                            if (r.ok) {
-                              const blob = new Blob([JSON.stringify(r.data, null, 2)], {
-                                type: 'application/json',
-                              });
-                              const url = URL.createObjectURL(blob);
-                              const a = document.createElement('a');
-                              a.href = url;
-                              a.download = `customer-${c.id}.json`;
-                              a.click();
-                              URL.revokeObjectURL(url);
-                              setMsg(`Exported ${c.email}.`);
-                            } else setMsg(r.error ?? 'Export failed');
-                          }}
-                        >
-                          Export
-                        </button>
-                        <button
-                          className="text-[13px] font-medium text-red-600 underline-offset-2 hover:underline"
-                          disabled={busyId === c.id}
-                          onClick={() => setDeleteTarget(c)}
-                        >
-                          Delete
-                        </button>
-                      </span>
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      {c.spending.length
-                        ? c.spending.map((amount) => (
-                            <span key={amount.currency} className="block">
-                              {amount.currency} {formatMoney(amount.spent_cents, amount.currency)}
-                            </span>
-                          ))
-                        : '—'}
-                    </TableCell>
-                    <TableCell className="text-zinc-500">
-                      {c.last_order_at ? formatDate(c.last_order_at) : 'Never'}
-                    </TableCell>
-                    <TableCell className="text-zinc-500">{formatDate(c.created_at)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <DataTable
+            caption="Customers and staff"
+            columns={customerColumns}
+            data={customers}
+            pageIndex={page - 1}
+            pageSize={200}
+            rowCount={total}
+            onPaginationChange={handlePaginationChange}
+            toolbar={
+              <DataTableSearch
+                value={search.q}
+                onSearch={(q) => void navigate({ search: { page: 1, q, email: '' } })}
+                placeholder="ada@example.com"
+                ariaLabel="Find a contact by email"
+              />
+            }
+          />
         )}
       </section>
       {!canManageRoles ? (

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { createServerFn } from '@tanstack/react-start';
 import { Link, useBlocker } from '@tanstack/react-router';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -26,6 +26,11 @@ import {
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './ui/sheet';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { Sortable, SortableItem } from './ui/sortable';
+import { plainTextToRichHtml, richHtmlToPlainText } from '../lib/rich-text';
+
+const ExpandableEditor = lazy(async () => ({
+  default: (await import('./ExpandableEditor')).ExpandableEditor,
+}));
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Checkbox } from './ui/checkbox';
 import { ChevronDownIcon, EllipsisIcon, MinusIcon, PlusIcon, XIcon } from 'lucide-react';
@@ -120,6 +125,7 @@ export function ProductEditor({
 }) {
   const [feedback, setFeedback] = useState<AdminActionFeedbackState>(null);
   const [busy, setBusy] = useState(false);
+  const [uploadPending, setUploadPending] = useState(false);
   const [sheetMenuOpen, setSheetMenuOpen] = useState(false);
   const [closeDiscard, setCloseDiscard] = useState(false);
 
@@ -576,6 +582,132 @@ export function ProductEditor({
                     }}
                   >
                     <div>
+                      <p className={labelCls}>Images</p>
+                      <Sortable
+                        items={displayMedia.map((m) => m.key)}
+                        onReorder={(keys) =>
+                          setMediaDraft(
+                            keys
+                              .map((k) => displayMedia.find((e) => e.key === k))
+                              .filter((e): e is MediaDraftEntry => e !== undefined)
+                          )
+                        }
+                        className="grid grid-cols-2 gap-5 sm:grid-cols-3 sm:gap-6"
+                      >
+                        {displayMedia.map((m, i) => {
+                          const isSelected = selectedMediaKey === m.key;
+                          return (
+                            <SortableItem key={m.key} id={m.key} className="group w-full">
+                              <div className="relative">
+                                <button
+                                  type="button"
+                                  aria-label={`Select image ${i + 1}`}
+                                  aria-pressed={isSelected}
+                                  onClick={() => setSelectedMediaKey(isSelected ? null : m.key)}
+                                  className={`block aspect-[4/5] w-full cursor-grab overflow-hidden rounded-xl bg-zinc-50 active:cursor-grabbing ${
+                                    isSelected ? 'ring-2 ring-zinc-950' : ''
+                                  }`}
+                                >
+                                  <img
+                                    src={m.src}
+                                    alt={m.alt_text || `${product.title} image ${i + 1}`}
+                                    className="h-full w-full object-cover"
+                                  />
+                                </button>
+                                {i === 0 ? (
+                                  <span className="pointer-events-none absolute top-2 left-2 rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-950 shadow-sm">
+                                    Cover
+                                  </span>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  aria-label={`Remove image ${i + 1}`}
+                                  onPointerDown={(e) => e.stopPropagation()}
+                                  onClick={() => {
+                                    if (m.file) URL.revokeObjectURL(m.src);
+                                    if (isSelected) setSelectedMediaKey(null);
+                                    setMediaDraft(displayMedia.filter((e) => e.key !== m.key));
+                                  }}
+                                  className="absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-500 transition-colors hover:text-zinc-950"
+                                >
+                                  <XIcon className="size-3.5" />
+                                </button>
+                              </div>
+                              <p className="mt-1.5 truncate text-xs text-zinc-600">
+                                {m.alt_text || `Image ${i + 1}`}
+                              </p>
+                            </SortableItem>
+                          );
+                        })}
+                        <label className="group/add w-full cursor-pointer text-left">
+                          <span className="flex aspect-[4/5] flex-col items-center justify-center gap-1.5 rounded-xl bg-zinc-50 text-zinc-500 transition-colors group-hover/add:bg-zinc-100 group-hover/add:text-zinc-950">
+                            <PlusIcon className="size-5" />
+                            <span className="text-xs font-medium">Add</span>
+                          </span>
+                          <span
+                            aria-hidden="true"
+                            className="mt-1.5 block truncate text-xs text-zinc-600"
+                          >
+                            &nbsp;
+                          </span>
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp,image/gif"
+                            className="sr-only"
+                            aria-label="Add product image"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              e.target.value = '';
+                              if (!file) return;
+                              const entry: MediaDraftEntry = {
+                                key: `staged-${Date.now()}`,
+                                media_id: null,
+                                r2_key: '',
+                                src: URL.createObjectURL(file),
+                                alt_text: '',
+                                file,
+                              };
+                              setMediaDraft([...displayMedia, entry]);
+                              setSelectedMediaKey(entry.key);
+                            }}
+                          />
+                        </label>
+                      </Sortable>
+                      {(() => {
+                        if (!selectedMediaKey) return null;
+                        const idx = displayMedia.findIndex((row) => row.key === selectedMediaKey);
+                        const m = displayMedia[idx];
+                        if (!m) return null;
+                        return (
+                          <div className="mt-4 rounded-xl bg-zinc-50 p-3.5">
+                            <p className="text-[13px] font-medium text-zinc-950">
+                              Image {idx + 1} of {displayMedia.length}
+                              {idx === 0 ? ' \u00b7 Cover' : ''}
+                            </p>
+                            <div className="mt-3 flex flex-wrap items-end gap-2">
+                              <span className="min-w-48 flex-1">
+                                <label className={labelCls} htmlFor={`alt-${m.key}`}>
+                                  Alt text
+                                </label>
+                                <input
+                                  id={`alt-${m.key}`}
+                                  className={inputCls}
+                                  value={m.alt_text}
+                                  onChange={(e) =>
+                                    setMediaDraft(
+                                      displayMedia.map((e2) =>
+                                        e2.key === m.key ? { ...e2, alt_text: e.target.value } : e2
+                                      )
+                                    )
+                                  }
+                                />
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                    <div>
                       <label className={labelCls} htmlFor="e-title">
                         Title
                       </label>
@@ -586,177 +718,56 @@ export function ProductEditor({
                         onChange={(e) => setForm({ ...form, title: e.target.value })}
                       />
                     </div>
-                    <div>
-                      <label className={labelCls} htmlFor="e-slug">
-                        Slug
-                      </label>
-                      <input
-                        id="e-slug"
-                        className={inputCls}
-                        value={form.slug}
-                        onChange={(e) => setForm({ ...form, slug: e.target.value })}
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <label className={labelCls} htmlFor="e-slug">
+                          Slug
+                        </label>
+                        <input
+                          id="e-slug"
+                          className={inputCls}
+                          value={form.slug}
+                          onChange={(e) => setForm({ ...form, slug: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <label className={labelCls} htmlFor="e-status">
+                          Status
+                        </label>
+                        <select
+                          id="e-status"
+                          className={inputCls}
+                          value={form.status}
+                          onChange={(e) => setForm({ ...form, status: e.target.value })}
+                        >
+                          <option value="draft">Draft</option>
+                          <option value="active">Active</option>
+                        </select>
+                      </div>
+                    </div>
+                    <Suspense
+                      fallback={
+                        <div
+                          className="min-h-56 rounded-xl border border-zinc-200 bg-white px-5 py-4 text-sm text-zinc-500"
+                          role="status"
+                        >
+                          Loading editor…
+                        </div>
+                      }
+                    >
+                      <ExpandableEditor
+                        label="Description"
+                        editorKey={product.id}
+                        initialHtml={plainTextToRichHtml(product.description)}
+                        onChange={(html) => setForm({ ...form, description: html })}
+                        onUploadPendingChange={setUploadPending}
                       />
-                    </div>
-                    <div>
-                      <label className={labelCls} htmlFor="e-status">
-                        Status
-                      </label>
-                      <select
-                        id="e-status"
-                        className={inputCls}
-                        value={form.status}
-                        onChange={(e) => setForm({ ...form, status: e.target.value })}
-                      >
-                        <option value="draft">Draft</option>
-                        <option value="active">Active</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className={labelCls} htmlFor="e-desc">
-                        Description
-                      </label>
-                      <textarea
-                        id="e-desc"
-                        className={textareaCls}
-                        rows={5}
-                        value={form.description}
-                        onChange={(e) => setForm({ ...form, description: e.target.value })}
-                      />
-                    </div>
+                    </Suspense>
                     {product.revision !== null &&
                     (product.processed_revision ?? 0) < product.revision ? (
                       <p className={hintCls}>Publication pending for the latest saved revision.</p>
                     ) : null}
                   </form>
-                </AccordionContent>
-              </AccordionItem>
-
-              <AccordionItem value="images">
-                <AccordionTrigger>Images</AccordionTrigger>
-                <AccordionContent>
-                  <Sortable
-                    items={displayMedia.map((m) => m.key)}
-                    onReorder={(keys) =>
-                      setMediaDraft(
-                        keys
-                          .map((k) => displayMedia.find((e) => e.key === k))
-                          .filter((e): e is MediaDraftEntry => e !== undefined)
-                      )
-                    }
-                    className="grid grid-cols-2 gap-5 sm:grid-cols-3 sm:gap-6"
-                  >
-                    {displayMedia.map((m, i) => {
-                      const isSelected = selectedMediaKey === m.key;
-                      return (
-                        <SortableItem key={m.key} id={m.key} className="group w-full">
-                          <div className="relative">
-                            <button
-                              type="button"
-                              aria-label={`Select image ${i + 1}`}
-                              aria-pressed={isSelected}
-                              onClick={() => setSelectedMediaKey(isSelected ? null : m.key)}
-                              className={`block aspect-[4/5] w-full cursor-grab overflow-hidden rounded-xl bg-zinc-50 active:cursor-grabbing ${
-                                isSelected ? 'ring-2 ring-zinc-950' : ''
-                              }`}
-                            >
-                              <img
-                                src={m.src}
-                                alt={m.alt_text || `${product.title} image ${i + 1}`}
-                                className="h-full w-full object-cover"
-                              />
-                            </button>
-                            {i === 0 ? (
-                              <span className="pointer-events-none absolute top-2 left-2 rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-950 shadow-sm">
-                                Cover
-                              </span>
-                            ) : null}
-                            <button
-                              type="button"
-                              aria-label={`Remove image ${i + 1}`}
-                              onPointerDown={(e) => e.stopPropagation()}
-                              onClick={() => {
-                                if (m.file) URL.revokeObjectURL(m.src);
-                                if (isSelected) setSelectedMediaKey(null);
-                                setMediaDraft(displayMedia.filter((e) => e.key !== m.key));
-                              }}
-                              className="absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-500 transition-colors hover:text-zinc-950"
-                            >
-                              <XIcon className="size-3.5" />
-                            </button>
-                          </div>
-                          <p className="mt-1.5 truncate text-xs text-zinc-600">
-                            {m.alt_text || `Image ${i + 1}`}
-                          </p>
-                        </SortableItem>
-                      );
-                    })}
-                    <label className="group/add w-full cursor-pointer text-left">
-                      <span className="flex aspect-[4/5] flex-col items-center justify-center gap-1.5 rounded-xl bg-zinc-50 text-zinc-500 transition-colors group-hover/add:bg-zinc-100 group-hover/add:text-zinc-950">
-                        <PlusIcon className="size-5" />
-                        <span className="text-xs font-medium">Add</span>
-                      </span>
-                      <span
-                        aria-hidden="true"
-                        className="mt-1.5 block truncate text-xs text-zinc-600"
-                      >
-                        &nbsp;
-                      </span>
-                      <input
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp,image/gif"
-                        className="sr-only"
-                        aria-label="Add product image"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          e.target.value = '';
-                          if (!file) return;
-                          const entry: MediaDraftEntry = {
-                            key: `staged-${Date.now()}`,
-                            media_id: null,
-                            r2_key: '',
-                            src: URL.createObjectURL(file),
-                            alt_text: '',
-                            file,
-                          };
-                          setMediaDraft([...displayMedia, entry]);
-                          setSelectedMediaKey(entry.key);
-                        }}
-                      />
-                    </label>
-                  </Sortable>
-                  {(() => {
-                    if (!selectedMediaKey) return null;
-                    const idx = displayMedia.findIndex((row) => row.key === selectedMediaKey);
-                    const m = displayMedia[idx];
-                    if (!m) return null;
-                    return (
-                      <div className="mt-4 rounded-xl bg-zinc-50 p-3.5">
-                        <p className="text-[13px] font-medium text-zinc-950">
-                          Image {idx + 1} of {displayMedia.length}
-                          {idx === 0 ? ' \u00b7 Cover' : ''}
-                        </p>
-                        <div className="mt-3 flex flex-wrap items-end gap-2">
-                          <span className="min-w-48 flex-1">
-                            <label className={labelCls} htmlFor={`alt-${m.key}`}>
-                              Alt text
-                            </label>
-                            <input
-                              id={`alt-${m.key}`}
-                              className={inputCls}
-                              value={m.alt_text}
-                              onChange={(e) =>
-                                setMediaDraft(
-                                  displayMedia.map((e2) =>
-                                    e2.key === m.key ? { ...e2, alt_text: e.target.value } : e2
-                                  )
-                                )
-                              }
-                            />
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })()}
                 </AccordionContent>
               </AccordionItem>
 
@@ -1284,7 +1295,7 @@ export function ProductEditor({
                       seoTitle={form.seoTitle}
                       seoDescription={form.seoDescription}
                       titleFallback={form.title || 'Product title'}
-                      descriptionFallback={form.description}
+                      descriptionFallback={richHtmlToPlainText(form.description)}
                       emptyDescription="No description yet. Search engines will use the product page content."
                     />
                   </div>
@@ -1319,7 +1330,7 @@ export function ProductEditor({
                 </button>
                 <button
                   type="button"
-                  disabled={busy}
+                  disabled={busy || uploadPending}
                   className={btnPrimary}
                   onClick={() => void saveAll()}
                 >

@@ -42,10 +42,14 @@ import {
   btnSmall,
   cardCls,
   inputCls,
-  labelCls,
   pageSub,
   pageTitle,
 } from '../../../components/ui';
+import { AdminDataTableShell } from '../../../components/AdminDataTable';
+import { Checkbox } from '../../../components/ui/checkbox';
+import type { ColumnDef, OnChangeFn, RowSelectionState } from '@tanstack/react-table';
+import { DataTable, DataTableSearch } from '../../../components/ui/data-table';
+import type { DataTableFeatures } from '../../../components/data-table-features';
 
 const getData = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
@@ -86,10 +90,6 @@ function AdminOrders() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
-  const [query, setQuery] = useState(search.q);
-  const [payment, setPayment] = useState(search.payment);
-  const [from, setFrom] = useState(search.from);
-  const [to, setTo] = useState(search.to);
   const requested = returns;
   const [busyId, setBusyId] = useState('');
   const [msg, setMsg] = useState<AdminActionFeedbackState>(null);
@@ -133,6 +133,145 @@ function AdminOrders() {
     router.invalidate();
   }
 
+  type OrderRow = (typeof orders)[number];
+
+  const rowSelection: RowSelectionState = Object.fromEntries(
+    selected.map((id) => [id, true] as const)
+  );
+  const handleRowSelectionChange: OnChangeFn<RowSelectionState> = (updater) => {
+    const next = typeof updater === 'function' ? updater(rowSelection) : updater;
+    setBulkItems(null);
+    setSelected(Object.keys(next).filter((id) => next[id]));
+  };
+
+  const orderColumns: ColumnDef<DataTableFeatures, OrderRow>[] = [
+    ...(search.view === 'queue'
+      ? [
+          {
+            id: 'select',
+            header: () => <span className="sr-only">Select for bulk shipping</span>,
+            enableHiding: false,
+            cell: ({
+              row,
+            }: {
+              row: {
+                original: OrderRow;
+                getIsSelected: () => boolean;
+                toggleSelected: (value?: boolean) => void;
+              };
+            }) => {
+              const o = row.original;
+              return (
+                <Checkbox
+                  checked={row.getIsSelected()}
+                  onCheckedChange={(value) => row.toggleSelected(!!value)}
+                  disabled={
+                    !canShipOrder(o) ||
+                    (!selected.includes(o.id) && selected.length >= MAX_BULK_FULFILLMENT)
+                  }
+                  aria-label={`Select ${o.number} for bulk shipping`}
+                />
+              );
+            },
+          } as ColumnDef<DataTableFeatures, OrderRow>,
+        ]
+      : []),
+    {
+      id: 'order',
+      accessorKey: 'number',
+      header: 'Order',
+      enableHiding: false,
+      cell: ({ row }) => (
+        <Link
+          to="/admin/orders/$id"
+          params={{ id: row.original.id }}
+          className="font-medium text-zinc-950 hover:underline"
+        >
+          {row.original.number}
+        </Link>
+      ),
+    },
+    {
+      id: 'customer',
+      accessorKey: 'customer_email',
+      header: 'Customer',
+      cell: ({ row }) => <span className="text-zinc-500">{row.original.customer_email}</span>,
+    },
+    {
+      id: 'fulfillment',
+      accessorKey: 'status',
+      header: 'Fulfillment',
+      cell: ({ row }) => <StatusBadge value={row.original.status} />,
+    },
+    {
+      id: 'payment',
+      accessorKey: 'payment_status',
+      header: 'Payment',
+      cell: ({ row }) => <StatusBadge value={row.original.payment_status} />,
+    },
+    {
+      id: 'date',
+      accessorKey: 'created_at',
+      header: 'Date',
+      cell: ({ row }) => (
+        <span className="text-zinc-500">
+          <LocalDate value={row.original.created_at} />
+        </span>
+      ),
+    },
+    {
+      id: 'total',
+      accessorKey: 'total_cents',
+      header: () => <div className="text-right">Total</div>,
+      cell: ({ row }) => (
+        <div className="text-right font-medium">
+          {formatMoney(row.original.total_cents, row.original.currency)}
+        </div>
+      ),
+    },
+    {
+      id: 'actions',
+      header: () => <div className="text-right">Actions</div>,
+      enableHiding: false,
+      cell: ({ row }) => {
+        const o = row.original;
+        return (
+          <div className="text-right">
+            <span className="inline-flex gap-1">
+              <Link to="/admin/orders/$id" params={{ id: o.id }} className={btnSmall}>
+                View
+              </Link>
+              <button
+                type="button"
+                className={btnSmall}
+                title={
+                  o.has_open_return
+                    ? 'This order has an open return. Refund it from the return.'
+                    : undefined
+                }
+                disabled={
+                  !!busyId ||
+                  !canRefund ||
+                  !!o.has_open_return ||
+                  !['paid', 'partially_refunded'].includes(o.payment_status) ||
+                  o.refundable_cents <= 0
+                }
+                onClick={() => setRefundTarget(o)}
+              >
+                {busyId === o.id ? 'Refunding…' : 'Refund'}
+              </button>
+            </span>
+            {o.has_open_return ? (
+              <span className="block text-[12px] text-zinc-400">
+                Open return — refund from the return
+              </span>
+            ) : null}
+          </div>
+        );
+      },
+    },
+  ];
+
   return (
     <main>
       <h1 className={pageTitle}>Orders</h1>
@@ -143,123 +282,7 @@ function AdminOrders() {
       </p>
       <AdminActionFeedback value={msg} />
 
-      <form
-        className={`${cardCls} mt-5 flex flex-wrap items-end gap-3 p-4`}
-        onSubmit={(event) => {
-          event.preventDefault();
-          void navigate({
-            search: { q: query.trim(), view: search.view, payment, from, to },
-          });
-        }}
-      >
-        <div className="min-w-48 flex-1">
-          <label className={labelCls} htmlFor="order-q">
-            Order number or customer email
-          </label>
-          <input
-            id="order-q"
-            className={inputCls}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="FF-1001 or ada@example.com"
-          />
-        </div>
-        <div>
-          <label className={labelCls} htmlFor="order-view">
-            View
-          </label>
-          <select
-            id="order-view"
-            className={inputCls}
-            value={search.view}
-            onChange={(event) =>
-              void navigate({
-                search: {
-                  q: query.trim(),
-                  view: event.target.value as OrderView,
-                  payment,
-                  from,
-                  to,
-                },
-              })
-            }
-          >
-            <option value="queue">Paid and unfulfilled</option>
-            <option value="all">All orders</option>
-            <option value="payment-issues">Payment issues</option>
-            <option value="returns">Return requests</option>
-          </select>
-        </div>
-        <div>
-          <label className={labelCls} htmlFor="order-payment">
-            Payment
-          </label>
-          <select
-            id="order-payment"
-            className={inputCls}
-            value={payment}
-            onChange={(event) => setPayment(event.target.value as typeof payment)}
-          >
-            <option value="all">Any payment state</option>
-            <option value="unpaid">Unpaid</option>
-            <option value="paid">Paid</option>
-            <option value="failed">Failed</option>
-            <option value="refunded">Refunded</option>
-            <option value="partially_refunded">Partially refunded</option>
-            <option value="disputed">Disputed</option>
-          </select>
-        </div>
-        <div>
-          <label className={labelCls} htmlFor="order-from">
-            From
-          </label>
-          <input
-            id="order-from"
-            type="date"
-            className={inputCls}
-            value={from}
-            onChange={(event) => setFrom(event.target.value)}
-          />
-        </div>
-        <div>
-          <label className={labelCls} htmlFor="order-to">
-            To
-          </label>
-          <input
-            id="order-to"
-            type="date"
-            className={inputCls}
-            value={to}
-            onChange={(event) => setTo(event.target.value)}
-          />
-        </div>
-        <button type="submit" className={btnPrimary}>
-          Search
-        </button>
-        <nav className="flex gap-2" aria-label="Orders pagination">
-          <button
-            type="button"
-            className={btnSmall}
-            disabled={!previousCursor}
-            onClick={() =>
-              previousCursor && void navigate({ search: { ...search, cursor: previousCursor } })
-            }
-          >
-            Previous
-          </button>
-          <button
-            type="button"
-            className={btnSmall}
-            disabled={!nextCursor}
-            onClick={() =>
-              nextCursor && void navigate({ search: { ...search, cursor: nextCursor } })
-            }
-          >
-            Next
-          </button>
-        </nav>
-      </form>
-      <section className={`${cardCls} mt-6 overflow-hidden`}>
+      <section className="mt-6">
         {orders.length === 0 ? (
           <p className="p-5 text-sm text-zinc-500" role="status">
             {search.view === 'queue'
@@ -268,122 +291,130 @@ function AdminOrders() {
             <button
               type="button"
               className="underline"
-              onClick={() => {
-                setQuery('');
-                setPayment('all');
-                setFrom('');
-                setTo('');
-                void navigate({ search: { q: '', view: 'all', payment: 'all', from: '', to: '' } });
-              }}
+              onClick={() =>
+                void navigate({ search: { q: '', view: 'all', payment: 'all', from: '', to: '' } })
+              }
             >
               Clear the search and filters
             </button>
           </p>
         ) : (
-          <div>
-            <Table>
-              <TableCaption className="sr-only">Orders</TableCaption>
-              <TableHeader>
-                <TableRow>
-                  {search.view === 'queue' ? (
-                    <TableHead scope="col">
-                      <span className="sr-only">Select for bulk shipping</span>
-                    </TableHead>
-                  ) : null}
-                  <TableHead scope="col">Order</TableHead>
-                  <TableHead scope="col">Customer</TableHead>
-                  <TableHead scope="col">Fulfillment</TableHead>
-                  <TableHead scope="col">Payment</TableHead>
-                  <TableHead scope="col">Date</TableHead>
-                  <TableHead scope="col" className="text-right">
-                    Total
-                  </TableHead>
-                  <TableHead scope="col" className="text-right">
-                    Actions
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {orders.map((o) => (
-                  <TableRow key={o.id}>
-                    {search.view === 'queue' ? (
-                      <TableCell>
-                        <input
-                          type="checkbox"
-                          aria-label={`Select ${o.number} for bulk shipping`}
-                          checked={selected.includes(o.id)}
-                          disabled={
-                            !canShipOrder(o) ||
-                            (!selected.includes(o.id) && selected.length >= MAX_BULK_FULFILLMENT)
-                          }
-                          onChange={(event) => {
-                            setBulkItems(null);
-                            setSelected((prev) =>
-                              event.target.checked
-                                ? [...prev, o.id]
-                                : prev.filter((id) => id !== o.id)
-                            );
-                          }}
-                        />
-                      </TableCell>
-                    ) : null}
-                    <TableCell className="font-medium">
-                      <Link
-                        to="/admin/orders/$id"
-                        params={{ id: o.id }}
-                        className="text-zinc-950 hover:underline"
-                      >
-                        {o.number}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="text-zinc-500">{o.customer_email}</TableCell>
-                    <TableCell>
-                      <StatusBadge value={o.status} />
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge value={o.payment_status} />
-                    </TableCell>
-                    <TableCell className="text-zinc-500">
-                      <LocalDate value={o.created_at} />
-                    </TableCell>
-                    <TableCell className="text-right font-medium">
-                      {formatMoney(o.total_cents, o.currency)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <span className="inline-flex gap-1">
-                        <Link to="/admin/orders/$id" params={{ id: o.id }} className={btnSmall}>
-                          View
-                        </Link>
-                        <button
-                          className={btnSmall}
-                          title={
-                            o.has_open_return
-                              ? 'This order has an open return. Refund it from the return.'
-                              : undefined
-                          }
-                          disabled={
-                            !!busyId ||
-                            !canRefund ||
-                            !!o.has_open_return ||
-                            !['paid', 'partially_refunded'].includes(o.payment_status) ||
-                            o.refundable_cents <= 0
-                          }
-                          onClick={() => setRefundTarget(o)}
-                        >
-                          {busyId === o.id ? 'Refunding…' : 'Refund'}
-                        </button>
-                      </span>
-                      {o.has_open_return ? (
-                        <span className="block text-[12px] text-zinc-400">
-                          Open return — refund from the return
-                        </span>
-                      ) : null}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <DataTable
+            caption="Orders"
+            columns={orderColumns}
+            data={orders}
+            pageIndex={0}
+            pageSize={50}
+            rowCount={0}
+            onPaginationChange={() => undefined}
+            getRowId={(o) => o.id}
+            rowSelection={rowSelection}
+            onRowSelectionChange={handleRowSelectionChange}
+            toolbar={
+              <DataTableSearch
+                value={search.q}
+                onSearch={(q) => void navigate({ search: { ...search, q, cursor: undefined } })}
+                placeholder="FF-1001 or ada@example.com"
+                ariaLabel="Order number or customer email"
+              >
+                <select
+                  aria-label="View"
+                  className="h-9 rounded-md border border-zinc-300 bg-white px-2 text-sm text-zinc-950"
+                  value={search.view}
+                  onChange={(event) =>
+                    void navigate({
+                      search: {
+                        ...search,
+                        view: event.target.value as OrderView,
+                        cursor: undefined,
+                      },
+                    })
+                  }
+                >
+                  <option value="queue">Paid and unfulfilled</option>
+                  <option value="all">All orders</option>
+                  <option value="payment-issues">Payment issues</option>
+                  <option value="returns">Return requests</option>
+                </select>
+                <select
+                  aria-label="Payment"
+                  className="h-9 rounded-md border border-zinc-300 bg-white px-2 text-sm text-zinc-950"
+                  value={search.payment}
+                  onChange={(event) =>
+                    void navigate({
+                      search: {
+                        ...search,
+                        payment: event.target.value as typeof search.payment,
+                        cursor: undefined,
+                      },
+                    })
+                  }
+                >
+                  <option value="all">Any payment state</option>
+                  <option value="unpaid">Unpaid</option>
+                  <option value="paid">Paid</option>
+                  <option value="failed">Failed</option>
+                  <option value="refunded">Refunded</option>
+                  <option value="partially_refunded">Partially refunded</option>
+                  <option value="disputed">Disputed</option>
+                </select>
+                <input
+                  type="date"
+                  aria-label="From"
+                  className="h-9 rounded-md border border-zinc-300 bg-white px-2 text-sm text-zinc-950"
+                  value={search.from}
+                  onChange={(event) =>
+                    void navigate({
+                      search: { ...search, from: event.target.value, cursor: undefined },
+                    })
+                  }
+                />
+                <input
+                  type="date"
+                  aria-label="To"
+                  className="h-9 rounded-md border border-zinc-300 bg-white px-2 text-sm text-zinc-950"
+                  value={search.to}
+                  onChange={(event) =>
+                    void navigate({
+                      search: { ...search, to: event.target.value, cursor: undefined },
+                    })
+                  }
+                />
+              </DataTableSearch>
+            }
+            paginationFooter={
+              <div className="flex flex-wrap items-center gap-2 px-2 py-4">
+                <p className="flex-1 text-sm text-muted-foreground" role="status">
+                  {search.view === 'queue'
+                    ? `${selected.length} of ${orders.length} row(s) selected`
+                    : ''}
+                </p>
+                <nav className="flex gap-2" aria-label="Orders pagination">
+                  <button
+                    type="button"
+                    className="h-8 rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950 disabled:opacity-50"
+                    disabled={!previousCursor}
+                    onClick={() =>
+                      previousCursor &&
+                      void navigate({ search: { ...search, cursor: previousCursor } })
+                    }
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    className="h-8 rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950 disabled:opacity-50"
+                    disabled={!nextCursor}
+                    onClick={() =>
+                      nextCursor && void navigate({ search: { ...search, cursor: nextCursor } })
+                    }
+                  >
+                    Next
+                  </button>
+                </nav>
+              </div>
+            }
+          />
         )}
       </section>
 
@@ -428,44 +459,46 @@ function AdminOrders() {
             {bulkItems ? (
               <div className="mt-3">
                 <div tabIndex={0} role="region" aria-label="Bulk shipments">
-                  <Table className="min-w-[560px]">
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead scope="col">Order</TableHead>
-                        <TableHead scope="col">Tracking number</TableHead>
-                        <TableHead scope="col">Result</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {bulkItems.map((item) => (
-                        <TableRow key={item.orderId}>
-                          <TableCell className="font-medium">{item.number}</TableCell>
-                          <TableCell>
-                            <input
-                              className={inputCls}
-                              aria-label={`Tracking number for ${item.number}`}
-                              value={item.tracking}
-                              disabled={item.status === 'applied' || bulkBusy}
-                              onChange={(event) =>
-                                setBulkItems((prev) =>
-                                  prev
-                                    ? setBulkTracking(prev, item.orderId, event.target.value)
-                                    : prev
-                                )
-                              }
-                            />
-                          </TableCell>
-                          <TableCell>
-                            {item.status === 'pending'
-                              ? 'Not shipped yet'
-                              : item.status === 'applied'
-                                ? item.message
-                                : `Failed. ${item.message}`}
-                          </TableCell>
+                  <AdminDataTableShell>
+                    <Table className="min-w-[560px]">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead scope="col">Order</TableHead>
+                          <TableHead scope="col">Tracking number</TableHead>
+                          <TableHead scope="col">Result</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      </TableHeader>
+                      <TableBody>
+                        {bulkItems.map((item) => (
+                          <TableRow key={item.orderId}>
+                            <TableCell className="font-medium">{item.number}</TableCell>
+                            <TableCell>
+                              <input
+                                className={inputCls}
+                                aria-label={`Tracking number for ${item.number}`}
+                                value={item.tracking}
+                                disabled={item.status === 'applied' || bulkBusy}
+                                onChange={(event) =>
+                                  setBulkItems((prev) =>
+                                    prev
+                                      ? setBulkTracking(prev, item.orderId, event.target.value)
+                                      : prev
+                                  )
+                                }
+                              />
+                            </TableCell>
+                            <TableCell>
+                              {item.status === 'pending'
+                                ? 'Not shipped yet'
+                                : item.status === 'applied'
+                                  ? item.message
+                                  : `Failed. ${item.message}`}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </AdminDataTableShell>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {summarizeBulk(bulkItems).pending > 0 ? (
@@ -534,7 +567,7 @@ function AdminOrders() {
       {search.view === 'returns' && requested.length > 0 ? (
         <section className={`${cardCls} mt-5 overflow-hidden`}>
           <h2 className="px-5 pt-4 pb-3 text-sm font-medium text-zinc-950">Return requests</h2>
-          <div>
+          <AdminDataTableShell>
             <Table>
               <TableCaption className="sr-only">Return requests</TableCaption>
               <TableHeader>
@@ -636,7 +669,7 @@ function AdminOrders() {
                 ))}
               </TableBody>
             </Table>
-          </div>
+          </AdminDataTableShell>
           <nav className="flex gap-2 px-5 py-3" aria-label="Returns pagination">
             <button
               type="button"

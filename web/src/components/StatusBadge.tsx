@@ -2,7 +2,7 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import type { AnyStatus } from '../db/schema';
 
-type Tone = 'green' | 'yellow' | 'red' | 'gray';
+type Tone = 'green' | 'yellow' | 'red' | 'gray' | 'black' | 'zinc';
 
 // Exhaustive over every status union in the schema: adding a status to a
 // column without a tone here is a compile error, and spellings that are not
@@ -19,8 +19,8 @@ const TONES: Record<AnyStatus, Tone> = {
   unpaid: 'yellow',
   failed: 'red',
   disputed: 'red',
-  active: 'green',
-  draft: 'yellow',
+  active: 'black',
+  draft: 'zinc',
   archived: 'gray',
   scheduled: 'yellow',
   published: 'green',
@@ -43,12 +43,15 @@ const TONE_CLASSES: Record<Tone, string> = {
   gray: 'bg-zinc-100 text-zinc-600 ring-1 ring-zinc-500/20 ring-inset',
   yellow: 'bg-yellow-50 text-yellow-800 ring-1 ring-yellow-600/20 ring-inset',
   red: 'bg-red-50 text-red-700 ring-1 ring-red-600/20 ring-inset',
+  black: 'bg-zinc-950 text-white ring-1 ring-zinc-950/20 ring-inset',
+  zinc: 'bg-zinc-50 text-zinc-900 ring-1 ring-zinc-500/20 ring-inset',
 };
 
 export function StatusBadge({ value }: { value: AnyStatus }) {
+  const label = value.replace(/_/g, ' ');
   return (
     <Badge variant="outline" className={cn('border-transparent', TONE_CLASSES[TONES[value]])}>
-      {value.replace(/_/g, ' ')}
+      {label.charAt(0).toUpperCase() + label.slice(1)}
     </Badge>
   );
 }

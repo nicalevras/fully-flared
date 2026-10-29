@@ -158,6 +158,17 @@ describe('inline media references', () => {
     expect((await runAdminAction(db, env, owner, 'media.delete', { mediaId: 'm' })).ok).toBe(false);
   });
 
+  it('product description reference blocks deletion', async () => {
+    await media('m', 'desc.jpg');
+    await db
+      .prepare(
+        "INSERT INTO products(id,slug,title,description,status,created_at,updated_at) VALUES('pr','pr','Pr','<p><img src=\"/media/desc.jpg\"></p>','draft','2026','2026')"
+      )
+      .run();
+    expect((await runAdminAction(db, env, owner, 'media.delete', { mediaId: 'm' })).ok).toBe(false);
+    expect(await db.prepare("SELECT id FROM media WHERE id='m'").first()).not.toBeNull();
+  });
+
   it('a settings logo reference blocks deletion', async () => {
     await media('m', 'brand-logo.jpg');
     await db

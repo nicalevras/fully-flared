@@ -59,9 +59,10 @@ describe('Phase 4A reviewed product save', () => {
     });
     expect(result.ok).toBe(true);
     const row = await db
-      .prepare("SELECT description FROM products WHERE id = 'p1'")
-      .first<{ description: string }>();
+      .prepare("SELECT description, description_text FROM products WHERE id = 'p1'")
+      .first<{ description: string; description_text: string }>();
     expect(row?.description).toBe(description);
+    expect(row?.description_text).toBe(description);
     expect(productDocumentSchema.shape).not.toHaveProperty('descriptionHtml');
   });
 
@@ -126,5 +127,97 @@ describe('product editor presentation remediation (FF-12, FF-15)', () => {
     expect(source).not.toContain('({currency})');
     expect(source).toContain('useBlocker');
     expect(source).toContain("blocker.status === 'blocked'");
+  });
+
+  it('places images first inside Details with no standalone Images section', async () => {
+    const { readFileSync } = await import('node:fs');
+    const source = readFileSync('web/src/components/ProductEditor.tsx', 'utf8');
+    expect(source).not.toContain('value="images"');
+    const details = source.indexOf('value="details"');
+    const images = source.indexOf('>Images</p>');
+    const title = source.indexOf('id="e-title"');
+    expect(details).toBeGreaterThan(-1);
+    expect(images).toBeGreaterThan(details);
+    expect(title).toBeGreaterThan(images);
+  });
+});
+
+describe('product description rich text', () => {
+  it('uses the shared expandable rich editor with no description textarea or mode switcher', async () => {
+    const { readFileSync } = await import('node:fs');
+    const source = readFileSync('web/src/components/ProductEditor.tsx', 'utf8');
+    expect(source).toContain('ExpandableEditor');
+    expect(source).toContain("await import('./ExpandableEditor')");
+    expect(source).toContain('<Suspense');
+    expect(source).not.toContain('id="e-desc"');
+    expect(source.toLowerCase()).not.toContain('rich text mode');
+    expect(source.toLowerCase()).not.toContain('plain text mode');
+  });
+
+  it('sanitizes HTML descriptions on save and keeps allowed formatting and images', async () => {
+    const result = await runAdminAction(db, env, owner, 'product.update', {
+      productId: 'p1',
+      title: 'Tee',
+      slug: 'tee',
+      description:
+        '<p>Hello <strong>world</strong></p><script>alert(1)</script><p><img src="/media/tee.jpg" alt="Tee"></p>',
+      status: 'active',
+    });
+    expect(result.ok).toBe(true);
+    const row = await db
+      .prepare("SELECT description, description_text FROM products WHERE id = 'p1'")
+      .first<{ description: string; description_text: string }>();
+    expect(row?.description_text).toBe('Hello world');
+    expect(row?.description).toContain('<strong>world</strong>');
+    expect(row?.description).toContain('/media/tee.jpg');
+    expect(row?.description).not.toContain('<script');
+    expect(row?.description).not.toContain('alert(1)');
+  });
+
+  it('saves an image-only description as rich text, not literal tag text', async () => {
+    const result = await runAdminAction(db, env, owner, 'product.update', {
+      productId: 'p1',
+      title: 'Tee',
+      slug: 'tee',
+      description: '<img src="/media/tee.jpg" alt="Tee">',
+      status: 'active',
+    });
+    expect(result.ok).toBe(true);
+    const row = await db
+      .prepare("SELECT description, description_text FROM products WHERE id = 'p1'")
+      .first<{ description: string; description_text: string }>();
+    expect(row?.description).toContain('<img');
+    expect(row?.description).toContain('/media/tee.jpg');
+    expect(row?.description_text).toBe('');
+  });
+
+  it('converts plain text to editor HTML and strips HTML back to plain text', async () => {
+    const { plainTextToRichHtml, richHtmlToPlainText, isRichTextHtml } =
+      await import('../web/src/lib/rich-text');
+    expect(plainTextToRichHtml('One\n\nTwo\nlines')).toBe('<p>One</p><p>Two<br>lines</p>');
+    expect(plainTextToRichHtml('<p>Already</p>')).toBe('<p>Already</p>');
+    expect(richHtmlToPlainText('<p>Hello <strong>world</strong></p><p>Again</p>')).toBe(
+      'Hello world Again'
+    );
+    expect(richHtmlToPlainText('Plain & simple')).toBe('Plain & simple');
+    expect(isRichTextHtml('<p>x</p>')).toBe(true);
+    expect(isRichTextHtml('a < b')).toBe(false);
+    expect(isRichTextHtml('Use <b>tags</b> and <i>this</i>')).toBe(false);
+    expect(isRichTextHtml('<strong>hi</strong>')).toBe(false);
+    expect(isRichTextHtml('  <h2>Hi</h2>')).toBe(true);
+    expect(isRichTextHtml('<ul><li>x</li></ul>')).toBe(true);
+    expect(plainTextToRichHtml('Use <b> tags')).toBe('<p>Use &lt;b&gt; tags</p>');
+    expect(plainTextToRichHtml('See <a href="https://example.com">this</a> now')).toBe(
+      '<p>See &lt;a href=&quot;https://example.com&quot;&gt;this&lt;/a&gt; now</p>'
+    );
+    expect(richHtmlToPlainText('Use <b>literal</b> text')).toBe('Use <b>literal</b> text');
+    // An image is a block node in the editor, so an image-first
+    // description is rich text even though it starts with <img>.
+    expect(isRichTextHtml('<img src="/media/x.jpg" alt="X">')).toBe(true);
+    expect(isRichTextHtml('<img src="/media/x.jpg"><p>Hello</p>')).toBe(true);
+    expect(plainTextToRichHtml('<img src="/media/x.jpg" alt="X">')).toBe(
+      '<img src="/media/x.jpg" alt="X">'
+    );
+    expect(richHtmlToPlainText('<img src="/media/x.jpg" alt="X">')).toBe('');
   });
 });

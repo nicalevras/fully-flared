@@ -7,6 +7,7 @@ import { getSettings } from './settings';
 import { emailStatement, commitWithEmails, enqueueJob } from './email';
 import { broadcastAdminRealtime } from './realtime';
 import { escapeHtml, sanitizeHtml } from './sanitize';
+import { isRichTextHtml, richHtmlToPlainText } from '../lib/rich-text';
 import { adminActionSchema, csvProductRowSchema } from '../schemas/admin';
 import { z } from 'zod';
 import { settingKeySchema, validateSetting } from '../schemas/settings';
@@ -141,6 +142,16 @@ async function acceptedMediaOrigins(db: D1Database, requestOrigin?: string): Pro
       ].filter(Boolean)
     ),
   ];
+}
+
+async function cleanProductDescription(
+  db: D1Database,
+  description: string,
+  requestOrigin?: string
+): Promise<string> {
+  if (!isRichTextHtml(description)) return description;
+  const origins = await acceptedMediaOrigins(db, requestOrigin);
+  return canonicalizeMediaUrls(sanitizeHtml(description), origins);
 }
 
 type MediaSaveTarget = {
@@ -373,17 +384,19 @@ export async function runAdminAction(
           if (dupeSku) return { ok: false, error: `SKU ${v.sku} is already in use` };
         }
         const productId = id();
+        const storedDescription = await cleanProductDescription(db, f.description, requestOrigin);
         await db.batch([
           db
             .prepare(
-              `INSERT INTO products (id, slug, title, description, status, seo_title, seo_description, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+              `INSERT INTO products (id, slug, title, description, description_text, status, seo_title, seo_description, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
             )
             .bind(
               productId,
               f.slug,
               f.title,
-              f.description,
+              storedDescription,
+              richHtmlToPlainText(storedDescription),
               f.status || 'draft',
               f.seoTitle || null,
               f.seoDescription || null,
@@ -990,12 +1003,14 @@ export async function runAdminAction(
             conflict: true,
           };
         }
-        const updateSql = `UPDATE products SET title = ?, slug = ?, description = ?, status = ?, seo_title = ?, seo_description = ?, updated_at = ?
+        const storedDescription = await cleanProductDescription(db, f.description, requestOrigin);
+        const updateSql = `UPDATE products SET title = ?, slug = ?, description = ?, description_text = ?, status = ?, seo_title = ?, seo_description = ?, updated_at = ?
            WHERE id = ?`;
         const updateValues = [
           f.title,
           slug,
-          f.description,
+          storedDescription,
+          richHtmlToPlainText(storedDescription),
           f.status || 'draft',
           f.seoTitle || null,
           f.seoDescription || null,
@@ -1183,9 +1198,19 @@ export async function runAdminAction(
             `UPDATE media SET deletion_pending=1 WHERE id=? AND NOT EXISTS(SELECT 1 FROM product_media WHERE media_id=?) AND NOT EXISTS(SELECT 1 FROM posts WHERE cover_media_id=?)
              AND NOT EXISTS(SELECT 1 FROM posts WHERE instr(REPLACE(content_html, '\\/', '/'), '/media/' || ?) > 0 OR instr(REPLACE(COALESCE(content_json, ''), '\\/', '/'), '/media/' || ?) > 0)
              AND NOT EXISTS(SELECT 1 FROM pages WHERE instr(REPLACE(content_html, '\\/', '/'), '/media/' || ?) > 0)
+             AND NOT EXISTS(SELECT 1 FROM products WHERE instr(REPLACE(COALESCE(description, ''), '\\/', '/'), '/media/' || ?) > 0)
              AND NOT EXISTS(SELECT 1 FROM settings WHERE key IN ('logo_media_id','hero_media_id') AND value=?)`
           )
-          .bind(mediaId, mediaId, mediaId, media.r2_key, media.r2_key, media.r2_key, mediaId)
+          .bind(
+            mediaId,
+            mediaId,
+            mediaId,
+            media.r2_key,
+            media.r2_key,
+            media.r2_key,
+            media.r2_key,
+            mediaId
+          )
           .run();
         if (!claim.meta.changes)
           return {

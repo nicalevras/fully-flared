@@ -2,7 +2,6 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
   Table,
   TableBody,
-  TableCaption,
   TableCell,
   TableHead,
   TableHeader,
@@ -11,7 +10,7 @@ import {
 import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router';
 import { createServerFn, useServerFn } from '@tanstack/react-start';
 import * as z from 'zod';
-import { ChevronDownIcon, ChevronRightIcon, EllipsisIcon, MinusIcon, PlusIcon } from 'lucide-react';
+import { ChevronDownIcon, ChevronRightIcon, MinusIcon, PlusIcon } from 'lucide-react';
 import { staffMiddleware } from '../../server/staff-middleware';
 import { validateServerInput } from '../../server/function-boundary';
 import { useAdminAction } from '../../components/AdminNav';
@@ -25,12 +24,17 @@ import {
   AdminActionFeedback,
   type AdminActionFeedbackState,
 } from '../../components/AdminActionFeedback';
-import { AdminPagination } from '../../components/AdminPagination';
+import { AdminDataTableShell, AdminRowActions } from '../../components/AdminDataTable';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { StatusBadge } from '../../components/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import type { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table';
+import { DataTable, DataTableSearch } from '../../components/ui/data-table';
+import type { DataTableFeatures } from '../../components/data-table-features';
+import { isPageSize, pageSizeOptions } from '../../schemas/pagination';
 import {
   Select,
   SelectContent,
@@ -110,7 +114,13 @@ const getSkuDetail = createServerFn({ method: 'GET' })
 
 export const Route = createFileRoute('/admin/inventory')({
   staleTime: 30_000,
-  validateSearch: (search: { q?: unknown; page?: unknown; low?: unknown; sku?: unknown }) => ({
+  validateSearch: (search: {
+    q?: unknown;
+    page?: unknown;
+    low?: unknown;
+    sku?: unknown;
+    size?: unknown;
+  }) => ({
     q: typeof search.q === 'string' ? search.q : '',
     page:
       typeof search.page === 'number' && Number.isInteger(search.page) && search.page > 0
@@ -118,6 +128,7 @@ export const Route = createFileRoute('/admin/inventory')({
         : 1,
     low: search.low === true || search.low === 'true',
     sku: typeof search.sku === 'string' && search.sku ? search.sku : undefined,
+    size: isPageSize(search.size) ? search.size : undefined,
   }),
   loaderDeps: ({ search }) => {
     const { sku: _sku, ...rest } = search;
@@ -126,6 +137,10 @@ export const Route = createFileRoute('/admin/inventory')({
   loader: async ({ deps }) => getList({ data: deps }),
   component: AdminInventory,
 });
+
+type InventoryTableRow =
+  | { kind: 'product'; group: InventoryProductGroup }
+  | { kind: 'sku'; group: InventoryProductGroup; sku: InventorySkuRow };
 
 type StagedAdjustment = {
   total: string;
@@ -189,27 +204,11 @@ function AdminInventory() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const navigateAll = useNavigate();
-  const [query, setQuery] = useState(search.q);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [menuFor, setMenuFor] = useState<string | null>(null);
   const [staged, setStaged] = useState<Record<string, StagedAdjustment>>({});
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<AdminActionFeedbackState>(null);
 
-  useEffect(() => setQuery(search.q), [search.q]);
-  useEffect(() => {
-    if (!menuFor) return;
-    const close = () => setMenuFor(null);
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') close();
-    };
-    document.addEventListener('click', close);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('click', close);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [menuFor]);
   useEffect(() => setExpanded({}), [search.q, search.page, search.low]);
 
   const skuRows = useMemo(() => {
@@ -284,6 +283,187 @@ function AdminInventory() {
     return expanded[group.id] ?? false;
   }
 
+  const tableData = useMemo<InventoryTableRow[]>(() => {
+    const rows: InventoryTableRow[] = [];
+    for (const group of products) {
+      rows.push({ kind: 'product', group });
+      if (expanded[group.id] ?? false)
+        for (const sku of group.skus) rows.push({ kind: 'sku', group, sku });
+    }
+    return rows;
+  }, [products, expanded]);
+
+  const inventoryColumns: ColumnDef<DataTableFeatures, InventoryTableRow>[] = [
+    {
+      id: 'product',
+      accessorFn: (row) => (row.kind === 'product' ? row.group.title : row.sku.sku),
+      header: 'Product',
+      cell: ({ row }) => {
+        const item = row.original;
+        if (item.kind === 'sku') {
+          const skuRow = item.sku;
+          return (
+            <div className="pl-12 whitespace-normal">
+              <span className="font-medium text-zinc-950">{skuRow.sku}</span>
+              <span className="block text-[13px] text-zinc-500">{skuRow.variantTitle}</span>
+              {skuRow.available <= 5 ? (
+                <span className="mt-1 inline-block rounded-full bg-yellow-50 px-2 py-0.5 text-[11px] font-medium text-yellow-800 ring-1 ring-yellow-600/20 ring-inset">
+                  Low
+                </span>
+              ) : null}
+            </div>
+          );
+        }
+        const group = item.group;
+        const open = isExpanded(group);
+        return (
+          <span className="flex items-center gap-3 whitespace-normal">
+            <button
+              type="button"
+              aria-expanded={open}
+              aria-label={`${open ? 'Collapse' : 'Expand'} ${group.title}`}
+              onClick={() => setExpanded((current) => ({ ...current, [group.id]: !open }))}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-950/5 hover:text-zinc-950"
+            >
+              {open ? (
+                <ChevronDownIcon className="size-4" />
+              ) : (
+                <ChevronRightIcon className="size-4" />
+              )}
+            </button>
+            {group.image_key ? (
+              <img
+                src={`/media/${group.image_key}`}
+                alt=""
+                className="h-10 w-10 shrink-0 rounded-lg object-cover"
+              />
+            ) : (
+              <span
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-sm font-medium text-zinc-500"
+                aria-hidden
+              >
+                {group.title.slice(0, 1).toUpperCase()}
+              </span>
+            )}
+            <span>
+              <span className="flex flex-wrap items-center gap-2">
+                <span className="font-medium text-zinc-950">{group.title}</span>
+                <StatusBadge value={group.status} />
+              </span>
+              <span className="block text-[13px] text-zinc-500">
+                {group.variantCount} {group.variantCount === 1 ? 'variant' : 'variants'}
+                {group.lowCount > 0 ? ` · ${group.lowCount} low` : ''}
+              </span>
+            </span>
+          </span>
+        );
+      },
+    },
+    {
+      id: 'onHand',
+      accessorFn: (row) => (row.kind === 'product' ? row.group.onHand : row.sku.onHand),
+      header: 'On hand',
+      cell: ({ row }) => (
+        <span>
+          {row.original.kind === 'product' ? row.original.group.onHand : row.original.sku.onHand}
+        </span>
+      ),
+    },
+    {
+      id: 'reserved',
+      accessorFn: (row) => (row.kind === 'product' ? row.group.reserved : row.sku.reserved),
+      header: 'Reserved',
+      cell: ({ row }) => (
+        <span>
+          {row.original.kind === 'product'
+            ? row.original.group.reserved
+            : row.original.sku.reserved}
+        </span>
+      ),
+    },
+    {
+      id: 'available',
+      accessorFn: (row) => (row.kind === 'product' ? row.group.available : row.sku.available),
+      header: 'Available',
+      cell: ({ row }) => (
+        <span>
+          {row.original.kind === 'product'
+            ? row.original.group.available
+            : row.original.sku.available}
+        </span>
+      ),
+    },
+    {
+      id: 'actions',
+      header: () => <span className="sr-only">Actions</span>,
+      enableHiding: false,
+      cell: ({ row }) => {
+        const item = row.original;
+        if (item.kind === 'product') return null;
+        const skuRow = item.sku;
+        return (
+          <div className="flex justify-end">
+            <AdminRowActions label={`Actions for ${skuRow.sku}`}>
+              <DropdownMenuItem
+                onSelect={() =>
+                  void navigate({
+                    search: {
+                      q: search.q,
+                      page: search.page,
+                      low: search.low,
+                      size: search.size,
+                      sku: skuRow.sku,
+                    },
+                  })
+                }
+              >
+                Adjust stock
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() =>
+                  void navigateAll({ to: '/admin/products', search: { edit: item.group.id } })
+                }
+              >
+                Open product
+              </DropdownMenuItem>
+            </AdminRowActions>
+          </div>
+        );
+      },
+    },
+  ];
+
+  const handleRowClick = (row: InventoryTableRow) => {
+    if (row.kind === 'product') {
+      const group = row.group;
+      setExpanded((current) => ({ ...current, [group.id]: !(current[group.id] ?? false) }));
+      return;
+    }
+    void navigate({
+      search: {
+        q: search.q,
+        page: search.page,
+        low: search.low,
+        size: search.size,
+        sku: row.sku.sku,
+      },
+    });
+  };
+
+  const handlePaginationChange: OnChangeFn<PaginationState> = (updater) => {
+    const next =
+      typeof updater === 'function' ? updater({ pageIndex: page - 1, pageSize }) : updater;
+    void navigate({
+      search: {
+        q: search.q,
+        page: next.pageIndex + 1,
+        low: search.low,
+        size: isPageSize(next.pageSize) ? next.pageSize : isPageSize(pageSize) ? pageSize : 25,
+        sku: undefined,
+      },
+    });
+  };
+
   return (
     <main>
       <h1 className="text-[28px] leading-tight font-medium tracking-tight text-zinc-950">
@@ -292,229 +472,62 @@ function AdminInventory() {
       <p className="mt-1 text-sm text-zinc-500">On hand, reserved, and available by product.</p>
       <AdminActionFeedback value={feedback} />
 
-      <form
-        className="mt-5 flex flex-wrap items-end gap-3"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void navigate({
-            search: { q: query.trim(), page: 1, low: search.low, sku: undefined },
-          });
-        }}
-      >
-        <div className="min-w-48 flex-1">
-          <Label htmlFor="inventory-q" className="mb-1.5">
-            Find a SKU or product
-          </Label>
-          <Input
-            id="inventory-q"
-            className="rounded-lg"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="SKU starts with, or part of a product title"
-          />
-        </div>
-        <Button type="submit">Search</Button>
-        <label className="flex items-center gap-2 pb-2 text-sm text-zinc-700">
-          <Switch
-            checked={search.low}
-            onCheckedChange={(checked) =>
-              void navigate({
-                search: { q: search.q, page: 1, low: checked, sku: undefined },
-              })
-            }
-          />
-          Low stock only
-        </label>
-      </form>
-
-      {products.length === 0 ? (
+      {products.length === 0 && !search.q && !search.low ? (
         <p className="mt-5 rounded-2xl bg-zinc-50 p-5 text-sm text-zinc-500" role="status">
           {search.q || search.low ? 'No products match that search.' : 'No products yet.'}
         </p>
       ) : (
         <div className="mt-5" tabIndex={0} role="region" aria-label="Inventory">
-          <Table className="min-w-[760px]">
-            <TableCaption className="sr-only">Inventory by product</TableCaption>
-            <TableHeader>
-              <TableRow>
-                <TableHead scope="col">Product</TableHead>
-                <TableHead scope="col">On hand</TableHead>
-                <TableHead scope="col">Reserved</TableHead>
-                <TableHead scope="col">Available</TableHead>
-                <TableHead scope="col">
-                  <span className="sr-only">Actions</span>
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            {products.map((group) => {
-              const open = isExpanded(group);
-              return (
-                <TableBody key={group.id}>
-                  <TableRow
-                    className="cursor-pointer"
-                    onClick={(event) => {
-                      if ((event.target as HTMLElement).closest('a, button, input')) return;
-                      setExpanded((current) => ({ ...current, [group.id]: !open }));
-                    }}
-                  >
-                    <TableCell className="whitespace-normal">
-                      <span className="flex items-center gap-3">
-                        <button
-                          type="button"
-                          aria-expanded={open}
-                          aria-label={`${open ? 'Collapse' : 'Expand'} ${group.title}`}
-                          onClick={() =>
-                            setExpanded((current) => ({ ...current, [group.id]: !open }))
-                          }
-                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-950/5 hover:text-zinc-950"
-                        >
-                          {open ? (
-                            <ChevronDownIcon className="size-4" />
-                          ) : (
-                            <ChevronRightIcon className="size-4" />
-                          )}
-                        </button>
-                        {group.image_key ? (
-                          <img
-                            src={`/media/${group.image_key}`}
-                            alt=""
-                            className="h-10 w-10 shrink-0 rounded-lg object-cover"
-                          />
-                        ) : (
-                          <span
-                            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-sm font-medium text-zinc-500"
-                            aria-hidden
-                          >
-                            {group.title.slice(0, 1).toUpperCase()}
-                          </span>
-                        )}
-                        <span>
-                          <span className="flex flex-wrap items-center gap-2">
-                            <span className="font-medium text-zinc-950">{group.title}</span>
-                            <StatusBadge value={group.status} />
-                          </span>
-                          <span className="block text-[13px] text-zinc-500">
-                            {group.variantCount} {group.variantCount === 1 ? 'variant' : 'variants'}
-                            {group.lowCount > 0 ? ` · ${group.lowCount} low` : ''}
-                          </span>
-                        </span>
-                      </span>
-                    </TableCell>
-                    <TableCell>{group.onHand}</TableCell>
-                    <TableCell>{group.reserved}</TableCell>
-                    <TableCell>{group.available}</TableCell>
-                    <TableCell />
-                  </TableRow>
-                  {open
-                    ? group.skus.map((row) => (
-                        <TableRow
-                          key={row.sku}
-                          className="cursor-pointer bg-zinc-50/60"
-                          onClick={() => {
-                            void navigate({
-                              search: {
-                                q: search.q,
-                                page: search.page,
-                                low: search.low,
-                                sku: row.sku,
-                              },
-                            });
-                          }}
-                        >
-                          <TableCell className="pl-14 whitespace-normal">
-                            <span className="font-medium text-zinc-950">{row.sku}</span>
-                            <span className="block text-[13px] text-zinc-500">
-                              {row.variantTitle}
-                            </span>
-                            {row.available <= 5 ? (
-                              <span className="mt-1 inline-block rounded-full bg-yellow-50 px-2 py-0.5 text-[11px] font-medium text-yellow-800 ring-1 ring-yellow-600/20 ring-inset">
-                                Low
-                              </span>
-                            ) : null}
-                          </TableCell>
-                          <TableCell>{row.onHand}</TableCell>
-                          <TableCell>{row.reserved}</TableCell>
-                          <TableCell>{row.available}</TableCell>
-                          <TableCell className="text-right">
-                            <span className="relative inline-block text-left">
-                              <button
-                                type="button"
-                                aria-haspopup="menu"
-                                aria-expanded={menuFor === row.sku}
-                                aria-label={`Actions for ${row.sku}`}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setMenuFor(menuFor === row.sku ? null : row.sku);
-                                }}
-                                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-950/5 hover:text-zinc-950"
-                              >
-                                <EllipsisIcon className="size-4" />
-                              </button>
-                              {menuFor === row.sku ? (
-                                <span
-                                  role="menu"
-                                  onClick={(event) => event.stopPropagation()}
-                                  className="absolute top-full right-0 z-20 mt-1 block w-44 rounded-xl border border-zinc-200 bg-white p-1 shadow-lg"
-                                >
-                                  <button
-                                    type="button"
-                                    role="menuitem"
-                                    onClick={() => {
-                                      setMenuFor(null);
-                                      void navigate({
-                                        search: {
-                                          q: search.q,
-                                          page: search.page,
-                                          low: search.low,
-                                          sku: row.sku,
-                                        },
-                                      });
-                                    }}
-                                    className="block w-full rounded-lg px-3 py-2 text-left text-[13px] font-medium text-zinc-950 transition-colors hover:bg-zinc-50"
-                                  >
-                                    Adjust stock
-                                  </button>
-                                  <button
-                                    type="button"
-                                    role="menuitem"
-                                    onClick={() => {
-                                      setMenuFor(null);
-                                      void navigateAll({
-                                        to: '/admin/products',
-                                        search: { edit: group.id },
-                                      });
-                                    }}
-                                    className="block w-full rounded-lg px-3 py-2 text-left text-[13px] font-medium text-zinc-950 transition-colors hover:bg-zinc-50"
-                                  >
-                                    Open product
-                                  </button>
-                                </span>
-                              ) : null}
-                            </span>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    : null}
-                </TableBody>
-              );
-            })}
-          </Table>
+          <DataTable
+            caption="Inventory by product"
+            columns={inventoryColumns}
+            data={tableData}
+            pageIndex={page - 1}
+            pageSize={pageSize}
+            rowCount={total}
+            pageSizeOptions={pageSizeOptions}
+            onPaginationChange={handlePaginationChange}
+            onRowClick={handleRowClick}
+            getRowId={(row) =>
+              row.kind === 'product' ? `product:${row.group.id}` : `sku:${row.sku.sku}`
+            }
+            getRowClassName={(row) => (row.kind === 'sku' ? 'bg-zinc-50/60' : undefined)}
+            hideViewOptions
+            toolbar={
+              <DataTableSearch
+                minCharsHint
+                value={search.q}
+                onSearch={(q) =>
+                  void navigate({
+                    search: { q, page: 1, low: search.low, size: search.size, sku: undefined },
+                  })
+                }
+                placeholder="SKU starts with, or part of a product title"
+                ariaLabel="Find a SKU or product"
+              >
+                <label className="flex items-center gap-2 text-sm text-zinc-700">
+                  <Switch
+                    checked={search.low}
+                    onCheckedChange={(checked) =>
+                      void navigate({
+                        search: {
+                          q: search.q,
+                          page: 1,
+                          low: checked,
+                          size: search.size,
+                          sku: undefined,
+                        },
+                      })
+                    }
+                  />
+                  Low stock only
+                </label>
+              </DataTableSearch>
+            }
+            tableClassName="min-w-[760px]"
+          />
         </div>
       )}
-
-      {total > 0 ? (
-        <AdminPagination
-          label="Inventory pagination"
-          page={page}
-          total={total}
-          pageSize={pageSize}
-          onPage={(nextPage) =>
-            void navigate({
-              search: { q: search.q, page: nextPage, low: search.low, sku: undefined },
-            })
-          }
-        />
-      ) : null}
 
       {dirtyEntries.length > 0 ? (
         <div className="sticky bottom-4 z-10 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-lg">
@@ -546,7 +559,13 @@ function AdminInventory() {
           onStage={stageFromSheet}
           onClose={() =>
             void navigate({
-              search: { q: search.q, page: search.page, low: search.low, sku: undefined },
+              search: {
+                q: search.q,
+                page: search.page,
+                low: search.low,
+                size: search.size,
+                sku: undefined,
+              },
             })
           }
         />
@@ -803,26 +822,28 @@ function SkuSheetForm({
             </p>
           ) : (
             <div className="mt-3" tabIndex={0} role="region" aria-label="Stock movements">
-              <Table className="min-w-[520px]">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>When</TableHead>
-                    <TableHead>On hand change</TableHead>
-                    <TableHead>Reserved change</TableHead>
-                    <TableHead>Reason</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {detail.history.map((row) => (
-                    <TableRow key={row.id}>
-                      <TableCell>{row.created_at}</TableCell>
-                      <TableCell>{row.delta_on_hand}</TableCell>
-                      <TableCell>{row.delta_reserved}</TableCell>
-                      <TableCell>{row.reason}</TableCell>
+              <AdminDataTableShell>
+                <Table className="min-w-[520px]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>When</TableHead>
+                      <TableHead>On hand change</TableHead>
+                      <TableHead>Reserved change</TableHead>
+                      <TableHead>Reason</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {detail.history.map((row) => (
+                      <TableRow key={row.id}>
+                        <TableCell>{row.created_at}</TableCell>
+                        <TableCell>{row.delta_on_hand}</TableCell>
+                        <TableCell>{row.delta_reserved}</TableCell>
+                        <TableCell>{row.reason}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </AdminDataTableShell>
             </div>
           )}
         </section>

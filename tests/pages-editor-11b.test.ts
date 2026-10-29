@@ -8,10 +8,10 @@ describe('Phase 11B pages list and editor split', () => {
     expect(list).not.toContain('content_html');
     expect(list).toContain('PageEditor');
     expect(list).toContain('getPageDetail');
-    expect(list).toContain('ui/table');
-    expect(list).toContain('<Table');
+    expect(list).toContain('ui/data-table');
+    expect(list).toContain('<DataTable');
     expect(list).toContain('LIMIT ? OFFSET ?');
-    expect(list).toContain('AdminPagination');
+    expect(list).toContain('<DataTable');
     const editor = readFileSync('web/src/components/PageEditor.tsx', 'utf8');
     expect(editor).toContain('page.save');
     expect(editor).toContain("key={form.id || 'new'}");

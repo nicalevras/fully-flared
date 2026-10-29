@@ -8,7 +8,6 @@ import {
   TableHeader,
   TableRow,
 } from '../../components/ui/table';
-import { createPortal } from 'react-dom';
 import { staffMiddleware } from '../../server/staff-middleware';
 import { Link, createFileRoute, useRouter, useRouterState } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
@@ -26,6 +25,14 @@ import { validateServerInput } from '../../server/function-boundary';
 import { adminProductDiscovery } from '../../server/admin-product-discovery';
 import { normalizeProductSearch } from '../../lib/product-search';
 import { labelCls, textareaCls } from '../../components/ui';
+import { DataTableSearch } from '../../components/ui/data-table';
+import { ftsPhrase, ftsUsable } from '../../lib/fts-search';
+import {
+  AdminColumnToggle,
+  AdminDataTableShell,
+  AdminRowActions,
+} from '../../components/AdminDataTable';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { SearchIcon } from '../../components/icons';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -44,14 +51,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-import {
-  ArrowLeftIcon,
-  CheckIcon,
-  EllipsisIcon,
-  LoaderCircleIcon,
-  PlusIcon,
-  XIcon,
-} from 'lucide-react';
+import { ArrowLeftIcon, CheckIcon, LoaderCircleIcon, PlusIcon, XIcon } from 'lucide-react';
 
 type CollectionRow = {
   id: string;
@@ -75,6 +75,7 @@ const getData = createServerFn({ method: 'GET' })
     validateServerInput(
       z.object({
         q: z.string().max(200).default(''),
+        cq: z.string().max(200).default(''),
         pcursor: z.string().max(2000).optional(),
       })
     )
@@ -82,10 +83,19 @@ const getData = createServerFn({ method: 'GET' })
   .handler(async ({ data }) => {
     const { env } = await import('cloudflare:workers');
     const db = env.DB;
+    const cq = data.cq.trim();
+    // < 3 chars cannot hit the trigram index; return nothing rather than scan.
+    const colWhere = cq
+      ? ftsUsable(cq)
+        ? 'WHERE rowid IN (SELECT rowid FROM collections_fts WHERE collections_fts MATCH ?)'
+        : 'WHERE 1=0'
+      : '';
+    const colBinds = cq && ftsUsable(cq) ? [ftsPhrase(cq)] : [];
     const cols = await db
       .prepare(
-        'SELECT id, slug, title, description, seo_title, seo_description, kind, rule_json, featured_rank FROM collections ORDER BY title'
+        `SELECT id, slug, title, description, seo_title, seo_description, kind, rule_json, featured_rank FROM collections ${colWhere} ORDER BY title`
       )
+      .bind(...colBinds)
       .all<Omit<CollectionRow, 'productIds'>>();
     const discovery = await adminProductDiscovery(
       db,
@@ -137,6 +147,7 @@ const getData = createServerFn({ method: 'GET' })
 export const Route = createFileRoute('/admin/collections')({
   validateSearch: (search: Record<string, unknown>) => ({
     q: typeof search.q === 'string' ? search.q.slice(0, 200) : '',
+    cq: typeof search.cq === 'string' ? search.cq.slice(0, 200) : '',
     pcursor: typeof search.pcursor === 'string' ? search.pcursor.slice(0, 2000) : '',
   }),
   loaderDeps: ({ search }) => search,
@@ -188,40 +199,15 @@ function AdminCollections() {
     action: () => void | Promise<void>;
   } | null>(null);
   const [paletteFor, setPaletteFor] = useState<string | null>(null);
-  const [sheetMenuOpen, setSheetMenuOpen] = useState(false);
-  const [rowMenu, setRowMenu] = useState<{ id: string; top: number; right: number } | null>(null);
+  const [hiddenCols, setHiddenCols] = useState<ReadonlySet<string>>(new Set());
+  const toggleCol = (id: string, visible: boolean) =>
+    setHiddenCols((prev) => {
+      const n = new Set(prev);
+      if (visible) n.delete(id);
+      else n.add(id);
+      return n;
+    });
 
-  useEffect(() => {
-    if (!rowMenu) return;
-    const close = () => setRowMenu(null);
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') close();
-    };
-    document.addEventListener('click', close);
-    document.addEventListener('keydown', onKey);
-    window.addEventListener('scroll', close, true);
-    window.addEventListener('resize', close);
-    return () => {
-      document.removeEventListener('click', close);
-      document.removeEventListener('keydown', onKey);
-      window.removeEventListener('scroll', close, true);
-      window.removeEventListener('resize', close);
-    };
-  }, [rowMenu]);
-
-  useEffect(() => {
-    if (!sheetMenuOpen) return;
-    const close = () => setSheetMenuOpen(false);
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') close();
-    };
-    document.addEventListener('click', close);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('click', close);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [sheetMenuOpen]);
   const [knownProducts, setKnownProducts] = useState<Record<string, ProductOption>>({});
   const [resultIds, setResultIds] = useState<string[]>([]);
   const [resultQuery, setResultQuery] = useState('');
@@ -252,7 +238,7 @@ function AdminCollections() {
     if (paletteFor === null) return;
     const timer = setTimeout(() => {
       const q = productQuery.trim();
-      if (q !== search.q) void navigate({ search: { q, pcursor: '' } });
+      if (q !== search.q) void navigate({ search: { q, cq: search.cq, pcursor: '' } });
     }, 300);
     return () => clearTimeout(timer);
   }, [productQuery, paletteFor, search.q, navigate]);
@@ -263,7 +249,7 @@ function AdminCollections() {
     const observer = new IntersectionObserver((entries) => {
       if (entries[0]?.isIntersecting && nextCursor && !loadingMoreRef.current) {
         loadingMoreRef.current = true;
-        void navigate({ search: { q: search.q, pcursor: nextCursor } });
+        void navigate({ search: { q: search.q, cq: search.cq, pcursor: nextCursor } });
       }
     });
     observer.observe(el);
@@ -492,7 +478,8 @@ function AdminCollections() {
                       onClick={() => {
                         setResultIds([]);
                         setResultQuery(search.q);
-                        if (search.pcursor) void navigate({ search: { q: search.q, pcursor: '' } });
+                        if (search.pcursor)
+                          void navigate({ search: { q: search.q, cq: search.cq, pcursor: '' } });
                         setPaletteFor(c.id);
                       }}
                       className="group/add w-24 text-left sm:w-28"
@@ -679,8 +666,6 @@ function AdminCollections() {
   };
 
   const askDelete = (c: CollectionRow) => {
-    setSheetMenuOpen(false);
-    setRowMenu(null);
     setConfirm({
       title: `Delete collection ${c.title}?`,
       body: 'Products stay. Only the grouping is removed.',
@@ -743,7 +728,6 @@ function AdminCollections() {
       setFeedback({ kind: 'status', message: `Collection ${ed.title} saved.` });
       setEditingId(null);
       setPaletteFor(null);
-      setSheetMenuOpen(false);
     }
   }
 
@@ -955,112 +939,92 @@ function AdminCollections() {
         </p>
       ) : (
         <div className="mt-8" tabIndex={0} role="region" aria-label="Collections">
-          <Table className="min-w-[640px]">
-            <TableCaption className="sr-only">Collections</TableCaption>
-            <TableHeader>
-              <TableRow>
-                <TableHead scope="col">Collection</TableHead>
-                <TableHead scope="col">Products</TableHead>
-                <TableHead scope="col">Featured</TableHead>
-                <TableHead scope="col">
-                  <span className="sr-only">Actions</span>
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {collections.map((c) => {
-                const selected = memberOf(c);
-                return (
-                  <TableRow
-                    key={c.id}
-                    className="cursor-pointer"
-                    onClick={(event) => {
-                      if ((event.target as HTMLElement).closest('a, button')) return;
-                      setEditingId(c.id);
-                    }}
-                  >
-                    <TableCell className="whitespace-normal">
-                      <span className="font-medium text-zinc-950">{c.title}</span>
-                      <span className="block text-[13px] text-zinc-500">/collections/{c.slug}</span>
-                    </TableCell>
-                    <TableCell className="text-zinc-500">
-                      {selected.length} product{selected.length === 1 ? '' : 's'}
-                    </TableCell>
-                    <TableCell className="text-zinc-500">
-                      {c.featured_rank ? `#${c.featured_rank}` : '—'}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <span className="relative inline-block text-left">
-                        <button
-                          type="button"
-                          aria-haspopup="menu"
-                          aria-expanded={rowMenu?.id === c.id}
-                          aria-label={`Actions for ${c.title}`}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            if (rowMenu?.id === c.id) {
-                              setRowMenu(null);
-                            } else {
-                              const rect = event.currentTarget.getBoundingClientRect();
-                              setRowMenu({
-                                id: c.id,
-                                top: rect.bottom + 4,
-                                right: window.innerWidth - rect.right,
-                              });
-                            }
-                          }}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-950/5 hover:text-zinc-950"
-                        >
-                          <EllipsisIcon className="size-4" />
-                        </button>
-                        {rowMenu?.id === c.id
-                          ? createPortal(
-                              <div
-                                role="menu"
-                                onClick={(event) => event.stopPropagation()}
-                                style={{ top: rowMenu.top, right: rowMenu.right }}
-                                className="fixed z-50 w-44 rounded-xl border border-zinc-200 bg-white p-1 shadow-lg"
-                              >
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  onClick={() => {
-                                    setRowMenu(null);
-                                    setEditingId(c.id);
-                                  }}
-                                  className="block w-full rounded-lg px-3 py-2 text-left text-[13px] font-medium text-zinc-950 transition-colors hover:bg-zinc-50"
-                                >
-                                  Edit
-                                </button>
-                                <Link
-                                  role="menuitem"
-                                  to="/collections/$slug"
-                                  params={{ slug: c.slug }}
-                                  onClick={() => setRowMenu(null)}
-                                  className="block rounded-lg px-3 py-2 text-[13px] font-medium text-zinc-950 transition-colors hover:bg-zinc-50"
-                                >
-                                  View in store
-                                </Link>
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  disabled={busy}
-                                  onClick={() => askDelete(c)}
-                                  className="block w-full rounded-lg px-3 py-2 text-left text-[13px] font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-40"
-                                >
-                                  Delete
-                                </button>
-                              </div>,
-                              document.body
-                            )
-                          : null}
-                      </span>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+          <AdminDataTableShell
+            toolbar={
+              <div className="flex flex-wrap items-center gap-2">
+                <DataTableSearch
+                  minCharsHint
+                  value={search.cq}
+                  onSearch={(cq) => void navigate({ search: { ...search, cq } })}
+                  placeholder="Filter collections…"
+                  ariaLabel="Find a collection"
+                />
+                <AdminColumnToggle
+                  columns={[
+                    { id: 'products', label: 'Products' },
+                    { id: 'featured', label: 'Featured' },
+                  ]}
+                  hidden={hiddenCols}
+                  onToggle={toggleCol}
+                />
+              </div>
+            }
+          >
+            <Table className="min-w-[640px]">
+              <TableCaption className="sr-only">Collections</TableCaption>
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope="col">Collection</TableHead>
+                  {hiddenCols.has('products') ? null : <TableHead scope="col">Products</TableHead>}
+                  {hiddenCols.has('featured') ? null : <TableHead scope="col">Featured</TableHead>}
+                  <TableHead scope="col">
+                    <span className="sr-only">Actions</span>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {collections.map((c) => {
+                  const selected = memberOf(c);
+                  return (
+                    <TableRow
+                      key={c.id}
+                      className="cursor-pointer"
+                      onClick={(event) => {
+                        if ((event.target as HTMLElement).closest('a, button')) return;
+                        setEditingId(c.id);
+                      }}
+                    >
+                      <TableCell className="whitespace-normal">
+                        <span className="font-medium text-zinc-950">{c.title}</span>
+                        <span className="block text-[13px] text-zinc-500">
+                          /collections/{c.slug}
+                        </span>
+                      </TableCell>
+                      {hiddenCols.has('products') ? null : (
+                        <TableCell className="text-zinc-500">
+                          {selected.length} product{selected.length === 1 ? '' : 's'}
+                        </TableCell>
+                      )}
+                      {hiddenCols.has('featured') ? null : (
+                        <TableCell className="text-zinc-500">
+                          {c.featured_rank ? `#${c.featured_rank}` : '—'}
+                        </TableCell>
+                      )}
+                      <TableCell className="text-right">
+                        <AdminRowActions label={`Actions for ${c.title}`}>
+                          <DropdownMenuItem onSelect={() => setEditingId(c.id)}>
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem asChild>
+                            <Link to="/collections/$slug" params={{ slug: c.slug }}>
+                              View in store
+                            </Link>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={busy}
+                            variant="destructive"
+                            onSelect={() => askDelete(c)}
+                          >
+                            Delete
+                          </DropdownMenuItem>
+                        </AdminRowActions>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </AdminDataTableShell>
         </div>
       )}
 
@@ -1068,7 +1032,6 @@ function AdminCollections() {
         open={editingCollection !== null}
         onOpenChange={(open) => {
           if (open || !editingCollection) return;
-          setSheetMenuOpen(false);
           if (detailsDirtyOf(editingCollection) || productsDirtyOf(editingCollection)) {
             const c = editingCollection;
             setConfirm({
@@ -1110,45 +1073,20 @@ function AdminCollections() {
                   <SheetDescription>/collections/{editingCollection.slug}</SheetDescription>
                 </SheetHeader>
                 <div className="absolute top-3 right-12 z-20">
-                  <button
-                    type="button"
-                    aria-haspopup="menu"
-                    aria-expanded={sheetMenuOpen}
-                    aria-label={`Actions for ${editingCollection.title}`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setSheetMenuOpen(!sheetMenuOpen);
-                    }}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-950/5 hover:text-zinc-950"
-                  >
-                    <EllipsisIcon className="size-4" />
-                  </button>
-                  {sheetMenuOpen ? (
-                    <div
-                      role="menu"
-                      onClick={(event) => event.stopPropagation()}
-                      className="absolute top-full right-0 mt-1 w-44 rounded-xl border border-zinc-200 bg-white p-1 shadow-lg"
-                    >
-                      <Link
-                        role="menuitem"
-                        to="/collections/$slug"
-                        params={{ slug: editingCollection.slug }}
-                        onClick={() => setSheetMenuOpen(false)}
-                        className="block rounded-lg px-3 py-2 text-[13px] font-medium text-zinc-950 transition-colors hover:bg-zinc-50"
-                      >
+                  <AdminRowActions label={`Actions for ${editingCollection.title}`}>
+                    <DropdownMenuItem asChild>
+                      <Link to="/collections/$slug" params={{ slug: editingCollection.slug }}>
                         View in store
                       </Link>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        disabled={busy}
-                        onClick={() => askDelete(editingCollection)}
-                        className="block w-full rounded-lg px-3 py-2 text-left text-[13px] font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-40"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  ) : null}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={busy}
+                      variant="destructive"
+                      onSelect={() => askDelete(editingCollection)}
+                    >
+                      Delete
+                    </DropdownMenuItem>
+                  </AdminRowActions>
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
                   {renderEditor(editingCollection)}
@@ -1165,7 +1103,6 @@ function AdminCollections() {
                           discardChanges(editingCollection);
                           setEditingId(null);
                           setPaletteFor(null);
-                          setSheetMenuOpen(false);
                         }}
                       >
                         Discard

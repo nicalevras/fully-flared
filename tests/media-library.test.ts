@@ -4,8 +4,8 @@ import { readFileSync } from 'node:fs';
 describe('media library table and sheet', () => {
   it('renders files in a shadcn table and edits alt text in a sheet', () => {
     const page = readFileSync('web/src/routes/admin/media.tsx', 'utf8');
-    expect(page).toContain("from '../../components/ui/table'");
-    expect(page).toContain('<Table');
+    expect(page).toContain("from '../../components/ui/data-table'");
+    expect(page).toContain('<DataTable');
     expect(page).not.toContain('cardCls');
     expect(page).not.toContain('sm:grid-cols-2');
     expect(page).not.toContain('Save alt text');
@@ -17,10 +17,10 @@ describe('media library table and sheet', () => {
     expect(page).toContain("'media.delete'");
     expect(page).toContain('LIMIT ? OFFSET ?');
     expect(page).not.toContain('LIMIT 200');
-    expect(page).toContain('AdminPagination');
+    expect(page).toContain('<DataTable');
     expect(page).not.toContain('mediaKeysInContent');
-    expect(page).toContain('<TableHead scope="col">Type</TableHead>');
-    expect(page).not.toContain('<TableHead scope="col">Used</TableHead>');
+    expect(page).toContain("header: 'Type'");
+    expect(page).not.toContain("header: 'Used'");
     expect(page).toContain("m.alt_text || 'No alt text'");
     const listLoader = page.slice(
       page.indexOf('const getData'),
