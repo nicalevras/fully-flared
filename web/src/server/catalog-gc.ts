@@ -316,6 +316,8 @@ export async function runCatalogGcUnit(
     } else if (s.step === 4) {
       const rows = await db
         .prepare(
+          // shortcut: suffix LIKE on kind cannot use the key index; bounded by
+          // keyset LIMIT 100 on a background sweep. Revisit past ~1M documents.
           `SELECT key,CASE WHEN kind LIKE '%-pointer' THEN json_extract(payload_json,'$.key') END AS target FROM catalog_documents WHERE key>? ORDER BY key LIMIT 100`
         )
         .bind(s.cursor)

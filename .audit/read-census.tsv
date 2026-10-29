@@ -1,0 +1,15 @@
+query	plan_before	plan_after	rows_seeded	verdict
+orders reports all-time (paidRevenueByCurrency)	SCAN orders + TEMP B-TREE	SCAN orders USING COVERING INDEX orders_payment_currency_idx	0 (plan-only; index choice is row-count independent)	VERIFIED
+posts list (articles)	SCAN posts + TEMP B-TREE FOR ORDER BY	SCAN posts USING COVERING INDEX posts_created_id_idx	0	VERIFIED
+media list	SCAN media + TEMP B-TREE FOR ORDER BY	SCAN media USING COVERING INDEX media_created_id_idx	0	VERIFIED
+discounts list	SCAN discounts + TEMP B-TREE FOR ORDER BY	SCAN discounts USING COVERING INDEX discounts_created_id_idx	0	VERIFIED
+orders list / posts count / pages / collections / customers / inventory	already covering-index or SEARCH	unchanged	0	VERIFIED (no change needed)
+admin <3-char substring search (articles/pages/media/collections)	LIKE '%..%' bare SCAN	branch deleted; server returns empty page (WHERE 1=0); hint in toolbar	behavioral test in tests/read-census.test.ts	VERIFIED
+admin inventory <3-char	(title LIKE '%..%' OR sku prefix)	title waits for FTS threshold; SKU prefix kept (B-tree)	seeded product in tests/read-census.test.ts	VERIFIED
+orders <3-char	already prefix LIKE on indexed number/email	unchanged	EXPLAIN in census	VERIFIED (no change needed)
+global admin search product lookup	2x full discovery (up to 1001 candidates + projection)	2 bounded LIMIT 5 queries (FTS title, SKU prefix)	tests/global-search-18 + read-census	VERIFIED
+products_fts update trigger	DELETE+INSERT on every product UPDATE	WHEN title/description_text/slug changed only (migration 0029)	code inspection; triggers exercised by createTestDb	VERIFIED
+catalog GC kind LIKE '%-pointer'	suffix LIKE inside keyset LIMIT 100 batch	unchanged; shortcut comment added	background batch, bounded	VERIFIED (accepted)
+sitemap window query	SEARCH posts USING COVERING INDEX posts_status_published_id_idx	unchanged	0	VERIFIED (no change needed)
+storefront product search (products_fts + KV read models)	FTS SEARCH	unchanged	prior phase benchmark	VERIFIED (no change needed)
+D1 pricing/index claims	not re-fetched this session (no numbers cited from docs)	n/a	n/a	INCONCLUSIVE (no D1-measured saving claimed)

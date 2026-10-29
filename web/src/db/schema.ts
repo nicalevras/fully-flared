@@ -161,6 +161,7 @@ export const products = sqliteTable(
     slug: text('slug').notNull().unique(),
     title: text('title').notNull(),
     description: text('description').notNull().default(''),
+    descriptionText: text('description_text').notNull().default(''),
     status: text('status', { enum: ['active', 'draft', 'archived'] })
       .notNull()
       .default('draft'),
@@ -204,19 +205,23 @@ export const variants = sqliteTable(
   (t) => [index('variants_product_idx').on(t.productId)]
 );
 
-export const media = sqliteTable('media', {
-  id: text('id').primaryKey(),
-  r2Key: text('r2_key').notNull().unique(),
-  filename: text('filename').notNull(),
-  contentType: text('content_type').notNull(),
-  altText: text('alt_text').notNull().default(''),
-  deletionPending: integer('deletion_pending', { mode: 'boolean' }).notNull().default(false),
-  publicUrl: text('public_url'),
-  ready: integer('ready', { mode: 'boolean' }).notNull().default(true),
-  uploadClaimToken: text('upload_claim_token'),
-  uploadClaimUntil: text('upload_claim_until'),
-  createdAt: text('created_at').notNull(),
-});
+export const media = sqliteTable(
+  'media',
+  {
+    id: text('id').primaryKey(),
+    r2Key: text('r2_key').notNull().unique(),
+    filename: text('filename').notNull(),
+    contentType: text('content_type').notNull(),
+    altText: text('alt_text').notNull().default(''),
+    deletionPending: integer('deletion_pending', { mode: 'boolean' }).notNull().default(false),
+    publicUrl: text('public_url'),
+    ready: integer('ready', { mode: 'boolean' }).notNull().default(true),
+    uploadClaimToken: text('upload_claim_token'),
+    uploadClaimUntil: text('upload_claim_until'),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [index('media_created_id_idx').on(t.createdAt, t.id)]
+);
 
 // Destinations are registered before public writes, including incomplete uploads.
 // Tombstones survive media deletion so delayed writers cannot revive publication.
@@ -822,6 +827,7 @@ export const orders = sqliteTable(
       .where(
         sql`${t.status}='canceled' AND ${t.paymentStatus}='unpaid' AND ${t.reminderConsent}=1 AND ${t.reminderSuppressedAt} IS NULL AND ${t.abandonedRemindedAt} IS NULL`
       ),
+    index('orders_payment_currency_idx').on(t.paymentStatus, t.currency, t.totalCents),
     index('orders_created_id_idx').on(t.createdAt, t.id),
     index('orders_email_idx').on(t.customerEmail),
     index('orders_user_idx').on(t.userId, t.createdAt, t.id),
@@ -961,6 +967,8 @@ export const refunds = sqliteTable(
     index('refunds_order_idx').on(t.orderId),
     index('refunds_age_due_idx').on(t.status, t.createdAt, t.id),
     index('refunds_attempt_due_idx').on(t.status, t.attempts, t.id),
+    index('refunds_return_status_idx').on(t.returnId, t.status),
+    index('refunds_stripe_refund_idx').on(t.stripeRefundId),
   ]
 );
 
@@ -1012,24 +1020,28 @@ export const returnItems = sqliteTable(
 );
 
 // ---------- Discounts, shipping, customers ----------
-export const discounts = sqliteTable('discounts', {
-  id: text('id').primaryKey(),
-  code: text('code').notNull().unique(),
-  type: text('type', { enum: ['percentage', 'fixed_amount'] }).notNull(),
-  value: integer('value').notNull(),
-  status: text('status', { enum: ['active', 'inactive'] })
-    .notNull()
-    .default('active'),
-  minPurchaseCents: integer('min_purchase_cents').notNull().default(0),
-  maxDiscountCents: integer('max_discount_cents'),
-  startsAt: text('starts_at'),
-  expiresAt: text('expires_at'),
-  usageLimit: integer('usage_limit'),
-  usagePerCustomer: integer('usage_per_customer').notNull().default(1),
-  usageCount: integer('usage_count').notNull().default(0),
-  stripeCouponId: text('stripe_coupon_id'),
-  createdAt: text('created_at').notNull(),
-});
+export const discounts = sqliteTable(
+  'discounts',
+  {
+    id: text('id').primaryKey(),
+    code: text('code').notNull().unique(),
+    type: text('type', { enum: ['percentage', 'fixed_amount'] }).notNull(),
+    value: integer('value').notNull(),
+    status: text('status', { enum: ['active', 'inactive'] })
+      .notNull()
+      .default('active'),
+    minPurchaseCents: integer('min_purchase_cents').notNull().default(0),
+    maxDiscountCents: integer('max_discount_cents'),
+    startsAt: text('starts_at'),
+    expiresAt: text('expires_at'),
+    usageLimit: integer('usage_limit'),
+    usagePerCustomer: integer('usage_per_customer').notNull().default(1),
+    usageCount: integer('usage_count').notNull().default(0),
+    stripeCouponId: text('stripe_coupon_id'),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [index('discounts_created_id_idx').on(t.createdAt, t.id)]
+);
 
 export const discountUsage = sqliteTable(
   'discount_usage',
@@ -1115,6 +1127,7 @@ export const posts = sqliteTable(
   (t) => [
     index('posts_status_idx').on(t.status, t.publishedAt),
     index('posts_status_published_id_idx').on(t.status, t.publishedAt, t.id),
+    index('posts_created_id_idx').on(t.createdAt, t.id),
   ]
 );
 

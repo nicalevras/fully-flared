@@ -9,6 +9,7 @@ import {
   type ReturnSearchCursor,
 } from '../lib/order-search';
 import type { AdminOrderRow, AdminReturnRow } from './admin-lists';
+import { ftsPhrase, ftsUsable, escapeLike } from '../lib/fts-search';
 
 export const orderDiscoveryInputSchema = z.object({
   q: z.string().max(200).default(''),
@@ -76,10 +77,6 @@ function encodeCursor(
   return btoa(String.fromCharCode(...bytes));
 }
 
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, '\\$&');
-}
-
 export async function adminOrderDiscovery(
   db: D1Database,
   rawInput: unknown
@@ -108,7 +105,12 @@ export async function adminOrderDiscovery(
     binds.push(input.to);
   }
   if (input.q) {
-    if (input.q.includes('@')) {
+    const column = input.q.includes('@') ? 'customer_email' : 'number';
+    if (ftsUsable(input.q)) {
+      // Trigram FTS: substring match on the routed column, index-served.
+      conditions.push('o.rowid IN (SELECT rowid FROM orders_fts WHERE orders_fts MATCH ?)');
+      binds.push(`${column} : ${ftsPhrase(input.q)}`);
+    } else if (column === 'customer_email') {
       conditions.push("o.customer_email LIKE ? ESCAPE '\\'");
       binds.push(`${escapeLike(input.q)}%`);
     } else {

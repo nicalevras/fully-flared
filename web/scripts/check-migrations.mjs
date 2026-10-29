@@ -16,7 +16,8 @@ const migrationOnlyIndexes = new Set([
   'user_email_lower_idx',
 ]);
 // Tables, the FTS5 virtual table with its shadow tables, and triggers are written by hand in the migrations.
-const migrationOnlyTables = /^(batch_guard|products_fts(_.*)?)$/;
+const migrationOnlyTables =
+  /^(batch_guard|products_fts|orders_fts|discounts_fts|posts_fts|pages_fts|media_fts|collections_fts)(_.*)?$/;
 const internalName = /^(sqlite_|_cf_|d1_)/;
 
 function applySql(db, files) {
@@ -136,6 +137,8 @@ try {
   const reviewedDrops = new Map([
     ['0005_drop_catalog_publication.sql', 'catalog_publication'],
     ['0008_publication_progress.sql', 'catalog_listing_pages'],
+    // Rebuilt as a standalone index over description_text (plain text).
+    ['0027_product_description_text.sql', 'products_fts'],
   ]);
   for (const file of readdirSync(join(root, 'migrations')).filter(
     (f) => /^\d{4}_.*\.sql$/.test(f) && !f.startsWith('0000_')

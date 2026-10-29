@@ -1,9 +1,12 @@
 import * as z from 'zod';
+import { ftsTitleMatch, ftsUsable, escapeLike } from '../lib/fts-search';
 import type { ProductStatus } from '../db/schema';
+import { pageSizeSchema } from '../schemas/pagination';
 
 export const inventoryListInputSchema = z.object({
   q: z.string().max(200).default(''),
   page: z.number().int().min(1).default(1),
+  size: pageSizeSchema,
   low: z.boolean().default(false),
 });
 export type InventoryListInput = z.infer<typeof inventoryListInputSchema>;
@@ -38,12 +41,7 @@ export type InventoryListResult = {
   pageSize: number;
 };
 
-export const INVENTORY_PAGE_SIZE = 25;
 export const LOW_STOCK_AVAILABLE = 5;
-
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, '\\$&');
-}
 
 export async function adminInventoryList(
   db: D1Database,
@@ -51,13 +49,25 @@ export async function adminInventoryList(
 ): Promise<InventoryListResult> {
   const q = input.q.trim();
   const page = Math.max(1, input.page);
+  // Callers may pass unparsed input; the schema default is 25.
+  const size = input.size ?? 25;
   const clauses: string[] = [];
   const binds: string[] = [];
   if (q) {
-    clauses.push(
-      `(p.title LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM variants v WHERE v.product_id = p.id AND v.sku LIKE ? ESCAPE '\\'))`
-    );
-    binds.push(`%${escapeLike(q)}%`, `${escapeLike(q)}%`);
+    if (ftsUsable(q)) {
+      // Title hits come from the existing products_fts index; SKU stays a
+      // prefix LIKE (index-friendly).
+      clauses.push(
+        `(p.rowid IN (SELECT rowid FROM products_fts WHERE products_fts MATCH ?) OR EXISTS (SELECT 1 FROM variants v WHERE v.product_id = p.id AND v.sku LIKE ? ESCAPE '\\'))`
+      );
+      binds.push(ftsTitleMatch('title', q), `${escapeLike(q)}%`);
+    } else {
+      // < 3 chars: title waits for the FTS threshold; SKU prefix still hits.
+      clauses.push(
+        `EXISTS (SELECT 1 FROM variants v WHERE v.product_id = p.id AND v.sku LIKE ? ESCAPE '\\')`
+      );
+      binds.push(`${escapeLike(q)}%`);
+    }
   }
   if (input.low) {
     clauses.push(
@@ -75,10 +85,10 @@ export async function adminInventoryList(
       .prepare(
         `SELECT p.id FROM products p ${where} ORDER BY p.title COLLATE NOCASE, p.id LIMIT ? OFFSET ?`
       )
-      .bind(...binds, INVENTORY_PAGE_SIZE, (page - 1) * INVENTORY_PAGE_SIZE)
+      .bind(...binds, size, (page - 1) * size)
       .all<{ id: string }>()
   ).results;
-  if (pageRows.length === 0) return { products: [], total, page, pageSize: INVENTORY_PAGE_SIZE };
+  if (pageRows.length === 0) return { products: [], total, page, pageSize: size };
   const placeholders = pageRows.map(() => '?').join(',');
   const rows = (
     await db
@@ -151,6 +161,6 @@ export async function adminInventoryList(
     }),
     total,
     page,
-    pageSize: INVENTORY_PAGE_SIZE,
+    pageSize: size,
   };
 }
