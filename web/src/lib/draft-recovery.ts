@@ -1,3 +1,5 @@
+import { isRecord } from './is-record';
+
 export const DRAFT_FORMAT_VERSION = 1;
 
 export type DraftEntityType = 'post' | 'page';
@@ -18,10 +20,6 @@ export function draftKey(staffId: string, entityType: DraftEntityType, entityId:
 
 export function serializeDraft(record: DraftRecord): string {
   return JSON.stringify(record);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 export function parseDraft(

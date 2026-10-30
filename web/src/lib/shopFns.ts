@@ -47,12 +47,7 @@ export const validateDiscountFn = createServerFn({ method: 'POST' })
   .validator(validateServerInput(discountValidateBodySchema))
   .handler(async ({ data }) => {
     const { env } = await import('cloudflare:workers');
-    if (
-      await discountAttemptLimited(
-        env as { AUTH_LIMITER?: RateLimiterBinding },
-        discountNetworkIdentity()
-      )
-    ) {
+    if (await discountAttemptLimited(env, discountNetworkIdentity())) {
       return {
         valid: false as const,
         limited: true as const,

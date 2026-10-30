@@ -1,3 +1,5 @@
+import { isRecord } from './is-record';
+
 export const orderViews = ['queue', 'all', 'payment-issues', 'returns'] as const;
 
 export type OrderView = (typeof orderViews)[number];
@@ -42,8 +44,8 @@ export function decodeReturnSearchCursor(
   try {
     const bytes = Uint8Array.from(atob(cursor), (character) => character.charCodeAt(0));
     const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
-    const record = value as Record<string, unknown>;
+    if (!isRecord(value)) return null;
+    const record = value;
     if (record.v !== 1 || record.kind !== 'returns') return null;
     if (record.direction !== 'next' && record.direction !== 'previous') return null;
     if (
@@ -70,11 +72,11 @@ export type OrderSearchCursor = {
 };
 
 export function isOrderView(value: unknown): value is OrderView {
-  return typeof value === 'string' && (orderViews as readonly string[]).includes(value);
+  return orderViews.some((item) => item === value);
 }
 
 export function isOrderPaymentFilter(value: unknown): value is OrderPaymentFilter {
-  return typeof value === 'string' && (orderPaymentFilters as readonly string[]).includes(value);
+  return orderPaymentFilters.some((item) => item === value);
 }
 
 function dateValue(value: unknown): string {
@@ -90,8 +92,8 @@ export function decodeOrderSearchCursor(
   try {
     const bytes = Uint8Array.from(atob(cursor), (character) => character.charCodeAt(0));
     const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
-    const record = value as Record<string, unknown>;
+    if (!isRecord(value)) return null;
+    const record = value;
     if (record.v !== 1) return null;
     if (record.direction !== 'next' && record.direction !== 'previous') return null;
     if (
@@ -111,10 +113,10 @@ export function decodeOrderSearchCursor(
 }
 
 export function normalizeOrderSearch(value: unknown): OrderSearch {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+  if (!isRecord(value)) {
     return { q: '', mode: 'number', view: 'queue', payment: 'all', from: '', to: '' };
   }
-  const raw = value as Record<string, unknown>;
+  const raw = value;
   const base: Omit<OrderSearch, 'cursor'> = {
     q: typeof raw.q === 'string' && raw.q.length <= 200 ? raw.q.trim() : '',
     mode: 'number',

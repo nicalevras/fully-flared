@@ -1,19 +1,24 @@
+import * as z from 'zod';
 // Single media-upload path for every admin surface. The server route checks
 // magic bytes and size; this helper only builds the multipart request and
 // normalizes the response/error shape.
 export type UploadedMedia = { id: string; key: string; url?: string };
+
+const uploadResponseSchema = z
+  .object({
+    id: z.string().optional(),
+    key: z.string().optional(),
+    url: z.string().optional(),
+    error: z.string().optional(),
+  })
+  .loose();
 
 export async function uploadMedia(file: File, alt = ''): Promise<UploadedMedia> {
   const form = new FormData();
   form.set('file', file);
   if (alt) form.set('alt', alt);
   const res = await fetch('/api/media', { method: 'POST', body: form });
-  const body = (await res.json().catch(() => null)) as {
-    id?: string;
-    key?: string;
-    url?: string;
-    error?: string;
-  } | null;
+  const body = uploadResponseSchema.safeParse(await res.json().catch(() => null)).data ?? null;
   if (!res.ok || !body?.id || !body.key) {
     throw new Error(body?.error ?? `Upload failed (${res.status})`);
   }
