@@ -116,6 +116,7 @@ export const Route = createFileRoute('/_shop/products/$slug')({
       }),
     };
   },
+  remountDeps: ({ params }) => params,
   component: ProductPage,
 });
 
