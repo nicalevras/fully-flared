@@ -14,7 +14,24 @@ A missing reference resolves committed D1 history once per request. A missing
 known artifact in both stores fails visibly rather than inventing a 404 or
 silently exposing a draft. Search runs
 against the D1 `products_fts` index and fetches only matching cards; it
-never walks listing pages.
+never walks listing pages. Results are ordered newest rowid first and paged
+with a rowid cursor, so a page reads about one page of matches (101 FTS rows
+for a 50-card page of 2,500 matches at 20k products, previously 7,500). Rowid
+order follows insert order, which tracks `created_at`; a product re-created by
+an import gets a new rowid and sorts as new. Cursors from the older
+`created_at` format restart at the first page.
+
+Admin order search treats a query shaped like an order number's start
+(`ORD-`, up to six date digits, then the suffix) as a number range and keeps
+`created_at` order, newest first. Numbers carry their UTC order date, and
+checkout stamps `created_at` just before drawing the number, so the date digits
+bound `created_at` to a window that starts one day early. The page walks
+`orders_created_id_idx` newest first inside that window. A query that reaches into
+the suffix sorts its few matches from `orders_number_unique` instead. At 50k
+orders, one 50-order page reads 51–52 rows and a full number reads 3 ("ORD-26"
+previously read 98,893 through the trigram index; a number range sorted by
+`created_at` without the window reads 48,890). Other queries keep the trigram
+match.
 
 Change capture is transactional: D1 triggers (migration 0004) write
 `catalog_work` rows with each catalog edit, and the publisher drains
@@ -81,6 +98,31 @@ old result indefinitely. Unknown/failed reads leave purchasing enabled within
 product status and configured quantity limits, without invented stock counts;
 confirmed responses update badges and controls. Cached product JSON-LD omits
 stock availability.
+
+On a client navigation, the home, shop, collection, search and product loaders
+return availability inside their own server-function call. The page uses it without
+a second request while it is under 10 seconds old. Hover preloads never read stock:
+the loader sees `preload` and leaves availability out. A click after a hover reuses
+the preloaded page data and makes one availability request. SSR loaders never
+include availability, because their data is dehydrated into publicly cached HTML,
+so after an SSR page load the page still makes one availability request. Measured
+locally, a click to a product page makes 1 server-function call and 1 stock read,
+with or without a hover first, and the hover itself reads no stock. First-visit
+request counts on a deployed preview are not measured here.
+
+A tab still running the previous deploy can fail a client navigation in two ways. It
+can ask for chunks that deploy removed, which Vite reports as `vite:preloadError`. Or
+it can call a server function whose input changed, such as the product page's
+(a slug string before, `{ slug, live }` now), and the loader fails. Either way, the
+root route loads the target URL as a full page, so the server renders it with the
+current build. Preloads and the first page load never reload, and neither do
+not-found pages. The target is recorded in `sessionStorage`, so a target that still
+fails after its reload shows the error page; a successful navigation elsewhere
+re-arms the reload. A loader error is not distinguishable from version skew, so an
+ordinary server error during navigation also gets one full page load. Public HTML
+is shared at the edge for up to 60 seconds and its cache key is not versioned, so a
+reload inside that minute can still get the previous build's HTML; the guard stops
+that from looping.
 
 The server helper performs one parameterized, indexed D1 query for the batch of
 missing products. Internal Workers Cache API entries are per product and mode,
