@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedProduct } from './helpers/d1';
+import { actionData, z } from './helpers/json';
 import { runAdminAction } from '../web/src/server/admin-actions';
 
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, env: Env, dispose: () => Promise<void>;
 const owner = { id: 'owner', role: 'owner' };
-const env = {} as Cloudflare.Env;
 
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env, dispose } = await createTestDb());
   await seedProduct(db, { onHand: 5 });
 });
 afterEach(async () => {
@@ -30,8 +30,7 @@ describe('Phase 6A replay-protected stock adjustment', () => {
     const first = await adjust(payload);
     expect(first.ok).toBe(true);
     const replay = await adjust(payload);
-    expect(replay.ok).toBe(true);
-    if (replay.ok) expect((replay.data as { replayed: boolean }).replayed).toBe(true);
+    expect(actionData(replay, z.object({ replayed: z.boolean() })).replayed).toBe(true);
     expect(await onHand()).toBe(15);
     const ledger = await db
       .prepare("SELECT COUNT(*) AS n FROM stock_ledger WHERE ref_type = 'stock_operation'")

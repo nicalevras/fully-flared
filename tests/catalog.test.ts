@@ -3,6 +3,7 @@ import { createTestDb, seedProduct } from './helpers/d1';
 import { listProducts } from '../web/src/server/catalog';
 import { readListingPage, readProductDocument } from '../web/src/server/catalog-read';
 import { ALL_LISTING } from '../web/src/server/catalog-models';
+import { published } from './helpers/fixtures';
 
 let db: D1Database;
 let dispose: () => Promise<void>;
@@ -42,10 +43,10 @@ describe('catalog typed queries', () => {
 
   it('loads the published product detail with variants and separate stock availability', async () => {
     await buildCatalogReadModels(db, undefined);
-    const detail = await readProductDocument(db, undefined, 'tee');
-    expect(detail?.variants).toHaveLength(1);
-    expect(detail?.variants[0]).toMatchObject({ sku: 'TEE-1', priceCents: 2000 });
-    expect(detail?.variants[0]).not.toHaveProperty('available');
+    const detail = published(await readProductDocument(db, undefined, 'tee'), 'the tee product');
+    expect(detail.variants).toHaveLength(1);
+    expect(detail.variants[0]).toMatchObject({ sku: 'TEE-1', priceCents: 2000 });
+    expect(detail.variants[0]).not.toHaveProperty('available');
     expect(await readProductDocument(db, undefined, 'missing')).toBeNull();
   });
 
@@ -97,8 +98,8 @@ describe('partitioned build past the D1 bound-parameter limit', () => {
     };
     const result = await buildCatalogReadModels(db, kv);
     expect(result.products).toBeGreaterThanOrEqual(250);
-    const doc = await readProductDocument(db, kv, 'cat-250');
-    expect(doc?.variants[0]?.sku).toBe('CAT-250');
+    const doc = published(await readProductDocument(db, kv, 'cat-250'), 'the cat-250 product');
+    expect(doc.variants[0]?.sku).toBe('CAT-250');
   });
 });
 import { buildCatalogReadModels } from './helpers/catalog-driver';

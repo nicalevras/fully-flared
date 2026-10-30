@@ -10,9 +10,9 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 it('loads once and batches listings without subscriptions for cart changes, focus or time', async () => {
   const events = new EventTarget();
   const update = vi.fn();
-  const read = vi.fn(async ({ data }) => ({
-    products: data.ids.map((id: string) => ({ id, status: 'sold_out' as const })),
-  })) as AvailabilityReader;
+  const read = vi.fn<AvailabilityReader>(async ({ data }) => ({
+    products: data.ids.map((id) => ({ id, status: 'sold_out' as const })),
+  }));
   const stop = loadPageAvailability(
     Array.from({ length: 100 }, (_, i) => 'p' + i),
     'products',

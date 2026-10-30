@@ -3,17 +3,22 @@ import { createTestDb } from './helpers/d1';
 import { env } from './helpers/cloudflare-workers-stub';
 import { runAdminAction } from '../web/src/server/admin-actions';
 import { processInboxEvent } from '../web/src/server/checkout';
+import { actionFailure } from './helpers/json';
+import { fakeProvider } from './helpers/payments';
 
 // Phase 6 guarded staff replay: owner/admin re-enqueue a quarantined
 // webhook under its original event identity; support/manager cannot,
 // processed events refuse, and a queue failure leaves the event
 // quarantined for automatic recovery.
-const provider = {
+const provider = fakeProvider({
   retrieveRefund: async (id: string) => ({ id, status: 'succeeded' }),
-};
-const queueProvider = vi.hoisted(() => ({
-  current: null as import('../web/src/server/payments').PaymentProvider | null,
-}));
+});
+const queueProvider = vi.hoisted(() => {
+  const holder: { current: import('../web/src/server/payments').PaymentProvider | null } = {
+    current: null,
+  };
+  return holder;
+});
 vi.mock('../web/src/server/payments', async (original) => {
   const actual = await original<typeof import('../web/src/server/payments')>();
   return {
@@ -94,15 +99,17 @@ it('rejects unprivileged roles, unknown and processed events', async () => {
   expect(manager.ok).toBe(false);
   const owner = { id: 's3', role: 'owner' };
   expect(
-    (await runAdminAction(db, env as never, owner, 'webhook.replay', { eventId: 'evt_missing' }))
-      .status
+    actionFailure(
+      await runAdminAction(db, env as never, owner, 'webhook.replay', { eventId: 'evt_missing' })
+    ).status
   ).toBe(404);
   await db
     .prepare("UPDATE webhook_inbox SET status = 'processed' WHERE event_id = 'evt_replay_1'")
     .run();
   expect(
-    (await runAdminAction(db, env as never, owner, 'webhook.replay', { eventId: 'evt_replay_1' }))
-      .status
+    actionFailure(
+      await runAdminAction(db, env as never, owner, 'webhook.replay', { eventId: 'evt_replay_1' })
+    ).status
   ).toBe(409);
   expect(queue).toHaveLength(0);
 });
@@ -117,8 +124,8 @@ it('replays a dead event exactly once and audits the action', async () => {
   expect(queue).toHaveLength(1);
   expect(queue[0]).toMatchObject({ type: 'webhook.process', eventId: 'evt_replay_1' });
 
-  await processInboxEvent(db, 'evt_replay_1', provider as never);
-  await processInboxEvent(db, 'evt_replay_1', provider as never);
+  await processInboxEvent(db, 'evt_replay_1', provider);
+  await processInboxEvent(db, 'evt_replay_1', provider);
   const refund = await db
     .prepare("SELECT status FROM refunds WHERE id = 'rf'")
     .first<{ status: string }>();
@@ -144,8 +151,7 @@ it('queue failure leaves the event quarantined; a later replay recovers it', asy
   const failed = await runAdminAction(db, env as never, owner, 'webhook.replay', {
     eventId: 'evt_replay_1',
   });
-  expect(failed.ok).toBe(false);
-  expect(failed.status).toBe(503);
+  expect(actionFailure(failed).status).toBe(503);
   const still = await db
     .prepare("SELECT status FROM webhook_inbox WHERE event_id = 'evt_replay_1'")
     .first<{ status: string }>();
@@ -160,7 +166,7 @@ it('queue failure leaves the event quarantined; a later replay recovers it', asy
     (await runAdminAction(db, env as never, owner, 'webhook.replay', { eventId: 'evt_replay_1' }))
       .ok
   ).toBe(true);
-  await processInboxEvent(db, 'evt_replay_1', provider as never);
+  await processInboxEvent(db, 'evt_replay_1', provider);
   const refund = await db
     .prepare("SELECT status FROM refunds WHERE id = 'rf'")
     .first<{ status: string }>();

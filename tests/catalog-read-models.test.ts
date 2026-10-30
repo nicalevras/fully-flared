@@ -9,6 +9,7 @@ import { getFeaturedRails } from '../web/src/server/catalog-discovery';
 import { repairPendingDeliveries } from '../web/src/server/catalog-publisher';
 import { CatalogBudget } from '../web/src/server/catalog-exec';
 import { ALL_LISTING } from '../web/src/server/catalog-models';
+import { present, published } from './helpers/fixtures';
 
 class FakeKv {
   map = new Map<string, string>();
@@ -64,17 +65,17 @@ it('publishes cards, product documents and paged listings without inventory data
   expect(page?.total).toBe(3);
   expect(JSON.stringify(page)).not.toContain('available');
 
-  const doc = await readProductDocument(db, kv, 'alpha');
-  expect(doc?.slug).toBe('alpha');
-  expect(doc?.variants[0]?.sku).toBe('SKU-p1');
+  const doc = published(await readProductDocument(db, kv, 'alpha'));
+  expect(doc.slug).toBe('alpha');
+  expect(doc.variants[0]?.sku).toBe('SKU-p1');
   expect(JSON.stringify(doc)).not.toContain('available');
-  expect(doc?.revision).toBeTruthy();
+  expect(doc.revision).toBeTruthy();
 
   const cardRow = await db
     .prepare('SELECT card_json FROM catalog_cards WHERE product_id=?')
     .bind('p1')
     .first<{ card_json: string }>();
-  expect(JSON.parse(cardRow!.card_json)).toMatchObject({ slug: 'alpha', priceCents: 1000 });
+  expect(JSON.parse(present(cardRow).card_json)).toMatchObject({ slug: 'alpha', priceCents: 1000 });
 });
 
 it('paginates listings at 24 (home) and 48 (collections) with stable ordering', async () => {
@@ -223,8 +224,7 @@ it('KV miss or corrupt values fall back to the exact D1 payload', async () => {
   for (const key of [...kv.map.keys()]) kv.map.set(key, '{broken');
   const viaFallback = await readListingPage(db, kv, ALL_LISTING, 1);
   expect(viaFallback?.cards.map((c) => c.id)).toEqual(['p1']);
-  const doc = await readProductDocument(db, kv, 'alpha');
-  expect(doc?.slug).toBe('alpha');
+  expect(published(await readProductDocument(db, kv, 'alpha')).slug).toBe('alpha');
 });
 
 it(

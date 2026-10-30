@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { responseJson, z } from './helpers/json';
 import {
   checkoutBodySchema,
   discountValidateBodySchema,
@@ -130,7 +131,7 @@ describe('HTTP boundary parsing', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.response.status).toBe(400);
-      const body = (await r.response.json()) as { fieldErrors: unknown[] };
+      const body = await responseJson(r.response, z.object({ fieldErrors: z.array(z.unknown()) }));
       expect(body.fieldErrors.length).toBeGreaterThan(0);
     }
   });

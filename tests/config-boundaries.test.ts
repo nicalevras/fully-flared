@@ -7,16 +7,17 @@ import { runAdminAction } from '../web/src/server/admin-actions';
 import { exactDevOrigins, runtimeConfigSchema } from '../web/src/server/env';
 import { resolveAuthBaseUrl } from '../web/src/server/session';
 import { operationalRecipients } from '../web/src/server/email';
+import { at, withOverrides } from './helpers/fixtures';
 
 it('missing Stripe configuration returns native HTTP 503 without changing a cart, order, reservation or stock', async () => {
-  const { db, dispose } = await createTestDb();
+  const { db, env, dispose } = await createTestDb();
   try {
     await seedProduct(db);
     const cart = await ensureCart(db, null);
     await setCartLine(db, cart.creds, 'TEE-1', 1);
     const response = await handleCheckoutRequest(
       new Request('http://localhost/api/checkout', { method: 'POST', body: '{}' }),
-      { DB: db } as never
+      env
     );
     expect(response.status).toBe(503);
     expect(await response.json()).toMatchObject({ code: 'DEPENDENCY' });
@@ -34,7 +35,7 @@ it('missing Stripe configuration returns native HTTP 503 without changing a cart
 });
 it('exact Tunnel origins are accepted and arbitrary hosts and wildcard origins are refused', () => {
   const allowed = exactDevOrigins('http://localhost:8799,https://exact-tunnel.trycloudflare.com');
-  expect(resolveAuthBaseUrl(undefined, new Request(allowed[1]!), allowed)).toBe(allowed[1]);
+  expect(resolveAuthBaseUrl(undefined, new Request(at(allowed, 1)), allowed)).toBe(allowed[1]);
   expect(() =>
     resolveAuthBaseUrl(undefined, new Request('https://untrusted.test'), allowed)
   ).toThrow();
@@ -42,7 +43,7 @@ it('exact Tunnel origins are accepted and arbitrary hosts and wildcard origins a
   expect(() => runtimeConfigSchema.parse({ BETTER_AUTH_SECRET: 'short' })).toThrow();
 });
 it('failed media deletion preserves its database record and returns a generic error', async () => {
-  const { db, dispose } = await createTestDb();
+  const { db, env, dispose } = await createTestDb();
   try {
     await db
       .prepare(
@@ -51,13 +52,13 @@ it('failed media deletion preserves its database record and returns a generic er
       .run();
     const result = await runAdminAction(
       db,
-      {
-        MEDIA: {
+      withOverrides(env, {
+        MEDIA: withOverrides(env.MEDIA, {
           async delete() {
             throw new Error('secret internal R2 error');
           },
-        },
-      } as never,
+        }),
+      }),
       { id: 'owner', role: 'owner' },
       'media.delete',
       { mediaId: 'failed-media' }

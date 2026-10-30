@@ -31,7 +31,7 @@ describe('Phase 9 bulk fulfillment state', () => {
   });
 });
 
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, env: Env, dispose: () => Promise<void>;
 const owner = { id: 'owner', role: 'owner' };
 
 async function insertOrder(id: string, number: string, status: string) {
@@ -45,7 +45,7 @@ async function insertOrder(id: string, number: string, status: string) {
 }
 
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env, dispose } = await createTestDb());
   await insertOrder('o1', 'FF-1', 'paid');
   await insertOrder('o2', 'FF-2', 'paid');
   await insertOrder('o3', 'FF-3', 'shipped');
@@ -57,7 +57,7 @@ afterEach(async () => {
 describe('Phase 9 bulk shipment server outcomes', () => {
   it('ships eligible orders once and a repeated ship creates no second shipment email', async () => {
     const ship = (orderId: string) =>
-      runAdminAction(db, {} as Cloudflare.Env, owner, 'order.ship', {
+      runAdminAction(db, env, owner, 'order.ship', {
         orderId,
         trackingNumber: 'TRK-1',
       });
@@ -79,7 +79,7 @@ describe('Phase 9 bulk shipment server outcomes', () => {
     await insertOrder('o11', 'FF-11', 'paid');
     const ids = ['o1', 'o2', 'o4', 'o5', 'o6', 'o7', 'o8', 'o11', 'o3', 'o10'];
     const ship = (orderId: string) =>
-      runAdminAction(db, {} as Cloudflare.Env, owner, 'order.ship', {
+      runAdminAction(db, env, owner, 'order.ship', {
         orderId,
         trackingNumber: 'TRK-9',
       });

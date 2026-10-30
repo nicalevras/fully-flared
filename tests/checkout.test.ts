@@ -9,17 +9,18 @@ import {
 import { releaseExpiredReservations } from '../web/src/server/inventory';
 import type { PaymentProvider } from '../web/src/server/payments';
 import { heldOrder } from './helpers/pending-intent';
+import { stripeEventSchema } from '../web/src/schemas/webhook';
 
 let db: D1Database;
 let dispose: () => Promise<void>;
 
-const refundCalls: { pi: string; amount?: number; rowId: string }[] = [];
+const refundCalls: { pi: string; amount: number | undefined; rowId: string }[] = [];
 const fakeProvider: PaymentProvider = {
   async createCheckout() {
     return { sessionId: 'cs_fake', url: 'https://stripe.test/checkout' };
   },
   async verifyWebhook(payload: string) {
-    const e = JSON.parse(payload) as { id: string; type: string; data: { object: unknown } };
+    const e = stripeEventSchema.parse(JSON.parse(payload));
     return { id: e.id, type: e.type, data: e.data.object };
   },
   async refund(pi: string, amount: number | undefined, rowId: string) {

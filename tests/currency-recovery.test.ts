@@ -7,15 +7,18 @@ import { setSetting } from '../web/src/server/settings';
 import { settleRefund, requestRefund } from '../web/src/server/refunds';
 import { paidRevenueByCurrency, monetaryReportQueries } from '../web/src/server/reports';
 import { heldOrder } from './helpers/pending-intent';
+import { at, present } from './helpers/fixtures';
+import { type ProviderCall } from './helpers/payments';
+import type { PaymentProvider } from '../web/src/server/payments';
 let db: D1Database, dispose: () => Promise<void>;
 const provider = {
-  createCheckout: vi.fn(),
+  createCheckout: vi.fn<ProviderCall<'createCheckout'>>(),
   verifyWebhook: async (payload: string) => {
     const e = JSON.parse(payload);
     return { ...e, data: e.data.object };
   },
-  refund: vi.fn(async () => ({ id: 're_currency', status: 'pending' })),
-};
+  refund: vi.fn<ProviderCall<'refund'>>(async () => ({ id: 're_currency', status: 'pending' })),
+} satisfies PaymentProvider;
 beforeEach(async () => {
   ({ db, dispose } = await createTestDb());
   await seedProduct(db, { onHand: 20 });
@@ -43,7 +46,7 @@ async function event(
 ) {
   return deliverStripeEvent(
     db,
-    provider as never,
+    provider,
     JSON.stringify({
       id: eventId,
       type: eventType,
@@ -107,7 +110,7 @@ it.each(['pending', 'failed', 'uncertain', 'succeeded'])(
     if (status === 'uncertain') await expect(event(o)).rejects.toThrow();
     else await event(o);
     if (status !== 'uncertain') await settleRefund(db, `late-${o.orderId}`, status, 're_currency');
-    await requestRefund(db, provider as never, {
+    await requestRefund(db, provider, {
       orderId: o.orderId,
       amountCents: o.totalCents,
       requestId: `late-${o.orderId}`,
@@ -120,10 +123,13 @@ it.each(['pending', 'failed', 'uncertain', 'succeeded'])(
     if (status === 'succeeded')
       expect(
         JSON.parse(
-          (await db
-            .prepare('SELECT payload_json FROM outbox WHERE id=?')
-            .bind(`refund-late-${o.orderId}`)
-            .first<{ payload_json: string }>())!.payload_json
+          present(
+            await db
+              .prepare('SELECT payload_json FROM outbox WHERE id=?')
+              .bind(`refund-late-${o.orderId}`)
+              .first<{ payload_json: string }>(),
+            'the late refund notice'
+          ).payload_json
         ).text
       ).toMatch(/currency/);
   }
@@ -143,7 +149,7 @@ it('cancels an old-currency zero-total session and notifies once without refundi
     .prepare("SELECT payload_json FROM outbox WHERE id LIKE 'expired-free-%'")
     .all<{ payload_json: string }>();
   expect(rows.results).toHaveLength(1);
-  expect(JSON.parse(rows.results[0]!.payload_json).text).toMatch(/currency/);
+  expect(JSON.parse(at(rows.results, 0).payload_json).text).toMatch(/currency/);
   expect(await currencies()).toEqual([{ key: 'currency', value: 'EUR' }]);
 });
 it('serializes currency changes against payment and preserves a completed winner', async () => {
@@ -179,8 +185,8 @@ it('captures the rejection reason in the transaction even when settings subseque
     },
   });
   await deliverStripeEvent(
-    wrapped as never,
-    provider as never,
+    wrapped,
+    provider,
     JSON.stringify({
       id: 'evt_race',
       type: 'checkout.session.completed',

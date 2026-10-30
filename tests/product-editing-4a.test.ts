@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedProduct } from './helpers/d1';
+import { actionData, actionFailure, z } from './helpers/json';
 import { runAdminAction } from '../web/src/server/admin-actions';
 import { productDocumentSchema } from '../web/src/server/catalog-models';
 
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, env: Env, dispose: () => Promise<void>;
 const owner = { id: 'owner', role: 'owner' };
-const env = {} as Cloudflare.Env;
 
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env, dispose } = await createTestDb());
   await seedProduct(db);
 });
 afterEach(async () => {
@@ -38,12 +38,9 @@ describe('Phase 4A reviewed product save', () => {
   it('saves with the opened revision and returns the accepted revision', async () => {
     const opened = await revision();
     const result = await update(opened);
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      const data = result.data as { revision: number; publication: string };
-      expect(data.publication).toBe('pending');
-      expect(data.revision).toBeGreaterThan(opened);
-    }
+    const data = actionData(result, z.object({ revision: z.number(), publication: z.string() }));
+    expect(data.publication).toBe('pending');
+    expect(data.revision).toBeGreaterThan(opened);
     const row = await db.prepare("SELECT title FROM products WHERE id = 'p1'").first();
     expect(row?.title).toBe('Renamed Tee');
   });
@@ -70,8 +67,7 @@ describe('Phase 4A reviewed product save', () => {
     const opened = await revision();
     expect((await update(opened, 'First Save')).ok).toBe(true);
     const stale = await update(opened, 'Second Save');
-    expect(stale.ok).toBe(false);
-    if (!stale) expect(stale.conflict).toBe(true);
+    expect(actionFailure(stale).conflict).toBe(true);
     const row = await db.prepare("SELECT title FROM products WHERE id = 'p1'").first();
     expect(row?.title).toBe('First Save');
   });

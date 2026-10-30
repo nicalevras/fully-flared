@@ -18,16 +18,24 @@ import { adminCustomers, adminOrders } from '../web/src/server/admin-lists';
 import { adminProductDiscovery } from '../web/src/server/admin-product-discovery';
 import { orderPagesSchema } from '../web/src/schemas/pagination';
 import { heldOrder } from './helpers/pending-intent';
+import { at, present, withOverrides } from './helpers/fixtures';
+import { fakeProvider, type ProviderCall } from './helpers/payments';
+import type { PaymentProvider } from '../web/src/server/payments';
 
-const provider = vi.hoisted(() => ({
-  refund: vi.fn(async () => ({ id: 're_safety', status: 'pending' })),
-  findRefundByOperation: vi.fn(async () => null),
-}));
+const provider = vi.hoisted(
+  () =>
+    ({
+      createCheckout: vi.fn<ProviderCall<'createCheckout'>>(),
+      verifyWebhook: vi.fn<ProviderCall<'verifyWebhook'>>(),
+      refund: vi.fn<ProviderCall<'refund'>>(async () => ({ id: 're_safety', status: 'pending' })),
+      findRefundByOperation: vi.fn<ProviderCall<'findRefundByOperation'>>(async () => null),
+    }) satisfies PaymentProvider
+);
 vi.mock('../web/src/server/payments', () => ({ getStripeProvider: () => provider }));
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, testEnv: Env, dispose: () => Promise<void>;
 const owner = { id: 'owner', role: 'owner' };
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env: testEnv, dispose } = await createTestDb());
   provider.refund.mockClear();
 });
 afterEach(async () => {
@@ -80,21 +88,21 @@ it('refund replay preserves disputes, shipping stays blocked, and a won dispute 
   ).toBe('disputed');
   expect(
     (
-      await runAdminAction(db, {} as never, owner, 'order.ship', {
+      await runAdminAction(db, testEnv, owner, 'order.ship', {
         orderId: 'o',
         trackingNumber: 'fixture',
       })
     ).ok
   ).toBe(false);
-  const webhook = {
-    verifyWebhook: async (payload: string) => {
+  const webhook = fakeProvider({
+    verifyWebhook: async (payload) => {
       const event = JSON.parse(payload);
       return { ...event, data: event.data.object };
     },
-  };
+  });
   await deliverStripeEvent(
     db,
-    webhook as never,
+    webhook,
     JSON.stringify({
       id: 'evt_won_safety',
       type: 'charge.dispute.closed',
@@ -104,7 +112,7 @@ it('refund replay preserves disputes, shipping stays blocked, and a won dispute 
   );
   expect(
     (
-      await runAdminAction(db, {} as never, owner, 'order.ship', {
+      await runAdminAction(db, testEnv, owner, 'order.ship', {
         orderId: 'o',
         trackingNumber: 'fixture',
       })
@@ -122,7 +130,7 @@ it('checkout winning the deletion race preserves its variant, order, holds and s
     });
   });
   expect(
-    (await runAdminAction(wrapped, {} as never, owner, 'variant.delete', { variantId: 'v1' })).ok
+    (await runAdminAction(wrapped, testEnv, owner, 'variant.delete', { variantId: 'v1' })).ok
   ).toBe(false);
   expect((await db.prepare("SELECT reserved FROM stock WHERE sku='TEE-1'").first())?.reserved).toBe(
     1
@@ -136,14 +144,14 @@ it('deletion reads the current stock correction and concurrent last-variant dele
   await extraVariant();
   const wrapped = beforeBatch(() => adjustStock(db, 'TEE-1', 2, 'restock'));
   expect(
-    (await runAdminAction(wrapped, {} as never, owner, 'variant.delete', { variantId: 'v1' })).ok
+    (await runAdminAction(wrapped, testEnv, owner, 'variant.delete', { variantId: 'v1' })).ok
   ).toBe(true);
   expect(
     (await db.prepare("SELECT SUM(delta_on_hand) n FROM stock_ledger WHERE sku='TEE-1'").first())?.n
   ).toBe(0);
-  expect(
-    (await runAdminAction(db, {} as never, owner, 'variant.delete', { variantId: 'v2' })).ok
-  ).toBe(false);
+  expect((await runAdminAction(db, testEnv, owner, 'variant.delete', { variantId: 'v2' })).ok).toBe(
+    false
+  );
 });
 it('attachment after the media deletion claim fails before storage work can break a reference', async () => {
   await db
@@ -166,7 +174,7 @@ it('attachment after the media deletion claim fails before storage work can brea
   });
   const result = await runAdminAction(
     db,
-    { MEDIA: { delete: remove } } as never,
+    withOverrides(testEnv, { MEDIA: withOverrides(testEnv.MEDIA, { delete: remove }) }),
     owner,
     'media.delete',
     { mediaId: 'm' }
@@ -185,26 +193,32 @@ it('failed media deletion stays marked and manual retry finishes without allowin
     .mockResolvedValueOnce(undefined)
     .mockRejectedValueOnce(new Error('storage unavailable'))
     .mockResolvedValue(undefined);
-  const env = { MEDIA: { delete: remove } } as never;
-  expect((await runAdminAction(db, env, owner, 'media.delete', { mediaId: 'm' })).ok).toBe(false);
+  const mediaEnv = withOverrides(testEnv, {
+    MEDIA: withOverrides(testEnv.MEDIA, { delete: remove }),
+  });
+  expect((await runAdminAction(db, mediaEnv, owner, 'media.delete', { mediaId: 'm' })).ok).toBe(
+    false
+  );
   expect(
     (await db.prepare("SELECT deletion_pending FROM media WHERE id='m'").first())?.deletion_pending
   ).toBe(1);
-  expect((await runAdminAction(db, env, owner, 'media.delete', { mediaId: 'm' })).ok).toBe(true);
+  expect((await runAdminAction(db, mediaEnv, owner, 'media.delete', { mediaId: 'm' })).ok).toBe(
+    true
+  );
   expect(await db.prepare("SELECT id FROM media WHERE id='m'").first()).toBeNull();
 });
 it('simultaneous last-two-variant deletes leave one variant, and deletion winning rejects a stale checkout', async () => {
   await extraVariant();
   const results = await Promise.all(
     ['v1', 'v2'].map((variantId) =>
-      runAdminAction(db, {} as never, owner, 'variant.delete', { variantId })
+      runAdminAction(db, testEnv, owner, 'variant.delete', { variantId })
     )
   );
   expect(results.filter((r) => r.ok)).toHaveLength(1);
   expect(
     (await db.prepare("SELECT COUNT(*) n FROM variants WHERE product_id='p1'").first())?.n
   ).toBe(1);
-  const deleted = results[0].ok ? 'TEE-1' : 'SECOND';
+  const deleted = at(results, 0).ok ? 'TEE-1' : 'SECOND';
   await expect(
     heldOrder(db, {
       email: 'fixture@example.invalid',
@@ -219,7 +233,7 @@ it('a full refund can restock once without clearing an existing dispute', async 
   await seedProduct(db, { onHand: 5 });
   await order('o', 'disputed');
   const [hold] = await reserveStock(db, [{ sku: 'TEE-1', qty: 1 }], { orderId: 'o' });
-  await commitReservation(db, hold);
+  await commitReservation(db, present(hold));
   await db
     .prepare(
       "INSERT INTO refunds(id,request_id,order_id,amount_cents,purpose,status,restock,created_at) VALUES('r','r','o',1000,'staff','pending',1,'2026')"
@@ -298,13 +312,13 @@ it('pages tied timestamps and keeps older pending returns ahead of newer decided
   expect(orders.orders.map((o) => o.id)).toEqual(['o001']);
   expect(orders.returns.map((r) => r.id)).toEqual(['o051']);
   expect(orders.totalReturns).toBe(51);
-  expect((await adminOrders(db, { page: 1, returnsPage: 1 })).returns[0].id).toBe('o001');
+  expect(at((await adminOrders(db, { page: 1, returnsPage: 1 })).returns, 0).id).toBe('o001');
   for (const bad of [0, -1, 1.5, 'no', Number.MAX_SAFE_INTEGER])
     expect(orderPagesSchema.parse({ page: bad, returnsPage: bad })).toEqual({
       page: 1,
       returnsPage: 1,
     });
-  expect((await adminProductDiscovery(db, { cursor: 'bad' })).products[0].id).toBe('p101');
+  expect(at((await adminProductDiscovery(db, { cursor: 'bad' })).products, 0).id).toBe('p101');
 });
 it('baseline media defaults deletion_pending to 0 and stays FK-clean', async () => {
   await db
@@ -334,16 +348,16 @@ it('return.refund refunds only the explicit confirmed balance and reports pendin
       "INSERT INTO returns(id,order_id,status,created_at) VALUES('r','o','requested','2026')"
     )
     .run();
-  expect(
-    (await runAdminAction(db, {} as never, owner, 'return.approve', { returnId: 'r' })).ok
-  ).toBe(true);
-  const result = await runAdminAction(db, {} as never, owner, 'return.refund', {
+  expect((await runAdminAction(db, testEnv, owner, 'return.approve', { returnId: 'r' })).ok).toBe(
+    true
+  );
+  const result = await runAdminAction(db, testEnv, owner, 'return.refund', {
     returnId: 'r',
     amountCents: 600,
   });
   expect(result.ok).toBe(true);
   expect(provider.refund).toHaveBeenCalledWith('pi_safety', 600, 'return-r-0');
-  expect(result.data).toMatchObject({ refundStatus: 'pending', amountCents: 600 });
+  expect(result).toMatchObject({ data: { refundStatus: 'pending', amountCents: 600 } });
   expect((await db.prepare("SELECT status FROM returns WHERE id='r'").first())?.status).toBe(
     'approved'
   );
@@ -356,7 +370,7 @@ it('return approval without refund moves no money and support can approve', asyn
     )
     .run();
   const support = { id: 'support', role: 'support' };
-  const result = await runAdminAction(db, {} as never, support, 'return.approve', {
+  const result = await runAdminAction(db, testEnv, support, 'return.approve', {
     returnId: 'r',
   });
   expect(result.ok).toBe(true);
@@ -371,18 +385,18 @@ it('return.refund refunds exactly the confirmed amount and closes the return on 
   await db
     .prepare("INSERT INTO returns(id,order_id,status,created_at) VALUES('r','o','approved','2026')")
     .run();
-  const result = await runAdminAction(db, {} as never, owner, 'return.refund', {
+  const result = await runAdminAction(db, testEnv, owner, 'return.refund', {
     returnId: 'r',
     amountCents: 800,
   });
   expect(result.ok).toBe(true);
-  expect(result.data).toMatchObject({ refundStatus: 'pending', amountCents: 800 });
+  expect(result).toMatchObject({ data: { refundStatus: 'pending', amountCents: 800 } });
   expect(provider.refund).toHaveBeenCalledWith('pi_safety', 800, 'return-r-0');
   const refund = await db
     .prepare("SELECT id FROM refunds WHERE return_id='r'")
     .first<{ id: string }>();
   expect(refund?.id).toBeTruthy();
-  await settleRefund(db, refund!.id, 'succeeded');
+  await settleRefund(db, present(refund).id, 'succeeded');
   expect((await db.prepare("SELECT status FROM returns WHERE id='r'").first())?.status).toBe(
     'refunded'
   );
@@ -393,7 +407,7 @@ it('return.refund rejects support and manager, requested returns, and live refun
     .prepare("INSERT INTO returns(id,order_id,status,created_at) VALUES('r','o','approved','2026')")
     .run();
   for (const role of ['support', 'manager']) {
-    const denied = await runAdminAction(db, {} as never, { id: role, role }, 'return.refund', {
+    const denied = await runAdminAction(db, testEnv, { id: role, role }, 'return.refund', {
       returnId: 'r',
       amountCents: 100,
     });
@@ -406,7 +420,7 @@ it('return.refund rejects support and manager, requested returns, and live refun
     )
     .run();
   expect(
-    await runAdminAction(db, {} as never, owner, 'return.refund', {
+    await runAdminAction(db, testEnv, owner, 'return.refund', {
       returnId: 'r2',
       amountCents: 100,
     })
@@ -417,7 +431,7 @@ it('return.refund rejects support and manager, requested returns, and live refun
     )
     .run();
   expect(
-    await runAdminAction(db, {} as never, owner, 'return.refund', {
+    await runAdminAction(db, testEnv, owner, 'return.refund', {
       returnId: 'r',
       amountCents: 100,
     })
@@ -431,7 +445,7 @@ it('general refunds are blocked while a return is open, in the action and in the
       "INSERT INTO returns(id,order_id,status,created_at) VALUES('r','o','requested','2026')"
     )
     .run();
-  const blocked = await runAdminAction(db, {} as never, owner, 'order.refund', {
+  const blocked = await runAdminAction(db, testEnv, owner, 'order.refund', {
     orderId: 'o',
     requestId: 'req-open-1',
     amountCents: 100,
@@ -445,10 +459,10 @@ it('general refunds are blocked while a return is open, in the action and in the
       )
       .run()
   ).rejects.toThrow(/open return/);
-  expect(
-    (await runAdminAction(db, {} as never, owner, 'return.reject', { returnId: 'r' })).ok
-  ).toBe(true);
-  const allowed = await runAdminAction(db, {} as never, owner, 'order.refund', {
+  expect((await runAdminAction(db, testEnv, owner, 'return.reject', { returnId: 'r' })).ok).toBe(
+    true
+  );
+  const allowed = await runAdminAction(db, testEnv, owner, 'order.refund', {
     orderId: 'o',
     requestId: 'req-open-2',
     amountCents: 100,
@@ -461,7 +475,7 @@ it('general refunds are blocked while a return is open, in the action and in the
     )
     .run();
   expect(
-    await runAdminAction(db, {} as never, owner, 'order.refund', {
+    await runAdminAction(db, testEnv, owner, 'order.refund', {
       orderId: 'o2',
       requestId: 'req-open-3',
       amountCents: 100,
@@ -470,7 +484,7 @@ it('general refunds are blocked while a return is open, in the action and in the
   await db.prepare("UPDATE returns SET status='refunded' WHERE id='r2'").run();
   expect(
     (
-      await runAdminAction(db, {} as never, owner, 'order.refund', {
+      await runAdminAction(db, testEnv, owner, 'order.refund', {
         orderId: 'o2',
         requestId: 'req-open-4',
         amountCents: 100,
@@ -529,7 +543,7 @@ it('dead-lettered webhooks park as dead, email once, and replay via the sweep', 
   await db
     .prepare("UPDATE webhook_inbox SET retry_after='2020-01-01' WHERE event_id='evt_dead'")
     .run();
-  await reprocessStaleInbox(db, provider as never);
+  await reprocessStaleInbox(db, provider);
   expect(
     (await db.prepare("SELECT status FROM webhook_inbox WHERE event_id='evt_dead'").first())?.status
   ).toBe('processed');
@@ -578,7 +592,7 @@ it('a refund that fails after succeeding marks the return refund_failed', async 
   await db
     .prepare("INSERT INTO returns(id,order_id,status,created_at) VALUES('r','o','approved','2026')")
     .run();
-  const result = await runAdminAction(db, {} as never, owner, 'return.refund', {
+  const result = await runAdminAction(db, testEnv, owner, 'return.refund', {
     returnId: 'r',
     amountCents: 800,
   });
@@ -586,11 +600,11 @@ it('a refund that fails after succeeding marks the return refund_failed', async 
   const refund = await db
     .prepare("SELECT id FROM refunds WHERE return_id='r'")
     .first<{ id: string }>();
-  await settleRefund(db, refund!.id, 'succeeded');
+  await settleRefund(db, present(refund).id, 'succeeded');
   expect((await db.prepare("SELECT status FROM returns WHERE id='r'").first())?.status).toBe(
     'refunded'
   );
-  await settleRefund(db, refund!.id, 'failed');
+  await settleRefund(db, present(refund).id, 'failed');
   expect((await db.prepare("SELECT status FROM returns WHERE id='r'").first())?.status).toBe(
     'refund_failed'
   );
@@ -607,7 +621,7 @@ it('a failed refund with a second open return settles cleanly and can be refunde
       "INSERT INTO returns(id,order_id,status,created_at) VALUES('ra','o','approved','2026')"
     )
     .run();
-  const first = await runAdminAction(db, {} as never, owner, 'return.refund', {
+  const first = await runAdminAction(db, testEnv, owner, 'return.refund', {
     returnId: 'ra',
     amountCents: 400,
   });
@@ -615,7 +629,7 @@ it('a failed refund with a second open return settles cleanly and can be refunde
   const refundA = await db
     .prepare("SELECT id FROM refunds WHERE return_id='ra'")
     .first<{ id: string }>();
-  await settleRefund(db, refundA!.id, 'succeeded');
+  await settleRefund(db, present(refundA).id, 'succeeded');
   expect((await db.prepare("SELECT status FROM returns WHERE id='ra'").first())?.status).toBe(
     'refunded'
   );
@@ -627,7 +641,7 @@ it('a failed refund with a second open return settles cleanly and can be refunde
       "INSERT INTO returns(id,order_id,status,created_at) VALUES('rb','o','requested','2026')"
     )
     .run();
-  await settleRefund(db, refundA!.id, 'failed');
+  await settleRefund(db, present(refundA).id, 'failed');
   expect((await db.prepare("SELECT status FROM returns WHERE id='ra'").first())?.status).toBe(
     'refund_failed'
   );
@@ -646,13 +660,13 @@ it('a failed refund with a second open return settles cleanly and can be refunde
   ).toBeGreaterThan(0);
   // General refunds stay blocked while A is refund_failed.
   expect(
-    await runAdminAction(db, {} as never, owner, 'order.refund', {
+    await runAdminAction(db, testEnv, owner, 'order.refund', {
       orderId: 'o',
       requestId: 'req-blocked-failed',
       amountCents: 100,
     })
   ).toMatchObject({ ok: false, status: 409 });
-  const retry = await runAdminAction(db, {} as never, owner, 'return.refund', {
+  const retry = await runAdminAction(db, testEnv, owner, 'return.refund', {
     returnId: 'ra',
     amountCents: 400,
   });
@@ -661,7 +675,7 @@ it('a failed refund with a second open return settles cleanly and can be refunde
     .prepare("SELECT id FROM refunds WHERE return_id='ra' AND status NOT IN ('failed','canceled')")
     .first<{ id: string }>();
   expect(refundRetry?.id).toBeTruthy();
-  await settleRefund(db, refundRetry!.id, 'succeeded');
+  await settleRefund(db, present(refundRetry).id, 'succeeded');
   expect((await db.prepare("SELECT status FROM returns WHERE id='ra'").first())?.status).toBe(
     'refunded'
   );
@@ -678,7 +692,7 @@ it('closing a refund_failed return frees the order for general refunds, owner on
     .run();
   // Blocked while refund_failed is open.
   expect(
-    await runAdminAction(db, {} as never, owner, 'order.refund', {
+    await runAdminAction(db, testEnv, owner, 'order.refund', {
       orderId: 'o',
       requestId: 'req-close-1',
       amountCents: 100,
@@ -690,21 +704,21 @@ it('closing a refund_failed return frees the order for general refunds, owner on
   expect(queue.totalReturns).toBe(1);
   // Support can reject requested returns but cannot close a failed refund.
   expect(
-    await runAdminAction(db, {} as never, { id: 'support', role: 'support' }, 'return.reject', {
+    await runAdminAction(db, testEnv, { id: 'support', role: 'support' }, 'return.reject', {
       returnId: 'rf',
     })
   ).toMatchObject({ ok: false, status: 403 });
   expect((await db.prepare("SELECT status FROM returns WHERE id='rf'").first())?.status).toBe(
     'refund_failed'
   );
-  const closed = await runAdminAction(db, {} as never, owner, 'return.reject', {
+  const closed = await runAdminAction(db, testEnv, owner, 'return.reject', {
     returnId: 'rf',
   });
   expect(closed.ok).toBe(true);
   expect((await db.prepare("SELECT status FROM returns WHERE id='rf'").first())?.status).toBe(
     'rejected'
   );
-  const allowed = await runAdminAction(db, {} as never, owner, 'order.refund', {
+  const allowed = await runAdminAction(db, testEnv, owner, 'order.refund', {
     orderId: 'o',
     requestId: 'req-close-2',
     amountCents: 100,
@@ -724,7 +738,7 @@ it('closing a refund_failed return with a live retry refund is refused, and the 
     )
     .run();
   expect(
-    await runAdminAction(db, {} as never, owner, 'return.reject', { returnId: 'rf' })
+    await runAdminAction(db, testEnv, owner, 'return.reject', { returnId: 'rf' })
   ).toMatchObject({ ok: false, status: 409 });
   expect((await db.prepare("SELECT status FROM returns WHERE id='rf'").first())?.status).toBe(
     'refund_failed'
@@ -756,9 +770,9 @@ it('database guards both orders of the close versus retry race', async () => {
   // Close first, refund second: the insert guard refuses a refund on a
   // rejected return.
   await db.prepare("DELETE FROM refunds WHERE id='retry'").run();
-  expect(
-    (await runAdminAction(db, {} as never, owner, 'return.reject', { returnId: 'rf' })).ok
-  ).toBe(true);
+  expect((await runAdminAction(db, testEnv, owner, 'return.reject', { returnId: 'rf' })).ok).toBe(
+    true
+  );
   await expect(
     db
       .prepare(
@@ -784,13 +798,13 @@ it('a delivered order keeps its fulfillment status through a full refund and its
     .prepare("SELECT status,payment_status FROM orders WHERE id='o'")
     .first<{ status: string; payment_status: string }>();
   expect(row).toEqual({ status: 'delivered', payment_status: 'paid' });
-  expect(canShipOrder(row!)).toBe(false);
+  expect(canShipOrder(present(row))).toBe(false);
 });
 it('a restocked order cannot ship after its refund reverses', async () => {
   await seedProduct(db, { onHand: 10 });
   await order('o', 'paid', 'paid');
   const [hold] = await reserveStock(db, [{ sku: 'TEE-1', qty: 2 }], { orderId: 'o' });
-  await commitReservation(db, hold!);
+  await commitReservation(db, present(hold));
   await db
     .prepare(
       "INSERT INTO refunds(id,request_id,order_id,amount_cents,purpose,status,restock,created_at) VALUES('r','r','o',1000,'staff','pending',1,'2026')"
@@ -808,8 +822,8 @@ it('a restocked order cannot ship after its refund reverses', async () => {
     .prepare("SELECT status,payment_status,restocked_at FROM orders WHERE id='o'")
     .first<{ status: string; payment_status: string; restocked_at: string | null }>();
   expect(row?.payment_status).toBe('paid');
-  expect(canShipOrder(row!)).toBe(false);
-  const ship = await runAdminAction(db, {} as never, owner, 'order.ship', {
+  expect(canShipOrder(present(row))).toBe(false);
+  const ship = await runAdminAction(db, testEnv, owner, 'order.ship', {
     orderId: 'o',
     trackingNumber: 'TRK1',
   });
@@ -840,7 +854,7 @@ it('canceled and pending_payment orders keep fulfillment status through full ref
       .first<{ status: string; payment_status: string }>();
     // Settlement or reversal alone must not make the order shippable.
     expect(row?.status).toBe(status);
-    expect(canShipOrder({ status: row!.status, payment_status: row!.payment_status })).toBe(false);
+    expect(canShipOrder(present(row))).toBe(false);
   }
 });
 it('stale validation cannot insert more returned units than were purchased', async () => {
@@ -906,7 +920,7 @@ it('a failed return retry defaults to its own share, not the balance claimed by 
   ).toBe(100);
   // Once B is actually refunded, A becomes final and takes what remains.
   const settled = [
-    returns[0]!,
+    at(returns, 0),
     { id: 'rb', status: 'refunded', items: [{ order_item_id: 'a', qty: 9 }] },
   ];
   expect(
