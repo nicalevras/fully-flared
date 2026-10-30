@@ -269,7 +269,8 @@ retained reference disappears, the first unreferenced observation starts another
 seven-day artifact grace period; creation age never authorizes deletion. This is
 conservative: a superseded publication can retain artifacts for at least fourteen
 days, plus sweep delay. KV-only interrupted writes receive the same grace.
-Terminal-build staging rows and expired history are pruned in bounded pages.
+Terminal-build staging rows and expired history are pruned in bounded pages,
+up to 100 expired builds per delivery.
 
 KV deletion precedes mirror deletion. Failure retains the artifact and durable
 five-minute retry time. Re-reference clears retirement/retry state. A lost fence
@@ -292,6 +293,27 @@ Documentation checked through Context7:
 [KV listing](https://developers.cloudflare.com/kv/api/list-keys/) and
 [KV deletion](https://developers.cloudflare.com/kv/api/delete-key-value-pairs/).
 These runtime semantics are independent of the installed Wrangler 4.151.1 CLI.
+
+## Measured D1 row reads for maintenance queries (0034–0036)
+
+Local Miniflare D1, `meta.rows_read`, identical across three runs. `catalogWorkDue`
+excludes the reads of its other clauses, measured on the same store first. These
+are local measurements; no deployed figures are claimed.
+
+| Query                                        | Fixture                      | Before      | After                                | Bound by                                                |
+| -------------------------------------------- | ---------------------------- | ----------- | ------------------------------------ | ------------------------------------------------------- |
+| GC state read (active-build check)           | 400 retained terminal builds | 802         | 3 (2 singleton rows + 1 index probe) | live builds, via `catalog_builds_active_idx`            |
+| GC build prune per delivery                  | 250 expired builds           | 1 build     | 100 builds, 11 D1 statements         | `LIMIT 100`, within `d1Statements: 400`                 |
+| Checkout supersede lookup                    | 5,000 retained intents       | 5,030       | 20                                   | `LIMIT 20`, via `checkout_intents_superseded_idx`       |
+| Invalidation drain DELETE, one 100-tag chunk | 1,000 pending rows           | 96,050      | 500                                  | rows matched, via `catalog_invalidations_scope_idx`     |
+| `catalogWorkDue` catalog_work probe          | 1,600 processed + 5 pending  | 1,605       | 4                                    | pending rows, via `INDEXED BY catalog_work_pending_idx` |
+| Card retirement in one build                 | 200 inactive cards           | 128 retired | 200 retired                          | 128 per step, counted with `RETURNING`                  |
+
+A D1 DELETE through a secondary index reads about five rows per deleted row
+(locally, 100 primary-key deletes read 400 and 100 index-matched deletes read
+500), so the drain's floor is about 5 × chunk size, not the number pending.
+`meta.changes` includes rows written by triggers, so loops that compare a
+batch size use `RETURNING` row counts instead.
 
 ## Current delivery/operations implementation, not measured capacity
 
