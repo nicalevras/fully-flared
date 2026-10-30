@@ -1,5 +1,6 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestDb } from './helpers/d1';
+import { env as stubEnv } from './helpers/cloudflare-workers-stub';
 import { MAX_EMAIL_ATTEMPTS } from '../web/src/server/outbox';
 
 // P0 item 3: outbox reclaim must key on claimed_at, never created_at.
@@ -20,8 +21,7 @@ const payload = JSON.stringify({
 const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString();
 
 beforeAll(async () => {
-  const stub = (await import('cloudflare:workers')) as unknown as { env: Record<string, unknown> };
-  stub.env.EMAIL = {
+  stubEnv.EMAIL = {
     send: async () => {
       sends++;
     },
@@ -85,7 +85,6 @@ describe('outbox claimed_at reclaim', () => {
   }, 60_000);
 });
 
-import { afterAll } from 'vitest';
 afterAll(async () => {
   await dispose();
 });

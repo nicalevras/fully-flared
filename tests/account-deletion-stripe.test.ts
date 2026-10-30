@@ -6,19 +6,29 @@ import { deleteAccountAtomically } from '../web/src/server/account-deletion';
 import { MAX_EMAIL_ATTEMPTS } from '../web/src/server/outbox';
 import { workerEnv } from '../web/src/server/env';
 import * as payments from '../web/src/server/payments';
+import { fakeProvider, type ProviderCall } from './helpers/payments';
+import { fakeQueue, messageBatch, queueMessage } from './helpers/queue';
+import { gatewayContext } from './helpers/gateway';
+import { stubStripeHttp } from './helpers/stripe-http';
 
-let db: D1Database, dispose: () => Promise<void>;
-const names = { JOBS: 'money', NOTIFICATIONS: 'mail', CATALOG_JOBS: 'catalog', DLQ: 'dead' };
+let db: D1Database, bindings: Cloudflare.Env, dispose: () => Promise<void>;
 const mail = vi.fn();
-const provider = { deleteCustomer: vi.fn(async (_id: string) => {}) };
+const notifications = fakeQueue(mail);
+const deleteCustomer = vi.fn<ProviderCall<'deleteCustomer'>>(async () => {});
+const customerOrders: [userId: string, customerId: string][] = [
+  ['cust', 'cus_a'],
+  ['cust', 'cus_b'],
+  ['cust', 'cus_a'],
+  ['other', 'cus_other'],
+];
 
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env: bindings, dispose } = await createTestDb());
   mail.mockReset();
-  provider.deleteCustomer.mockReset();
-  provider.deleteCustomer.mockResolvedValue(undefined);
-  workerEnv.NOTIFICATIONS = { send: mail };
-  vi.spyOn(payments, 'getStripeProvider').mockReturnValue(provider);
+  deleteCustomer.mockReset();
+  deleteCustomer.mockResolvedValue(undefined);
+  workerEnv.NOTIFICATIONS = notifications;
+  vi.spyOn(payments, 'getStripeProvider').mockReturnValue(fakeProvider({ deleteCustomer }));
   await seedProduct(db, { onHand: 10, priceCents: 2000 });
   await db
     .prepare(
@@ -32,12 +42,7 @@ beforeEach(async () => {
       )
       .bind(id, `${id}@example.invalid`)
       .run();
-  for (const [userId, customerId] of [
-    ['cust', 'cus_a'],
-    ['cust', 'cus_b'],
-    ['cust', 'cus_a'],
-    ['other', 'cus_other'],
-  ]) {
+  for (const [userId, customerId] of customerOrders) {
     const created = await heldOrder(
       db,
       {
@@ -56,8 +61,9 @@ beforeEach(async () => {
   }
 });
 afterEach(async () => {
-  delete workerEnv.NOTIFICATIONS;
+  Reflect.deleteProperty(workerEnv, 'NOTIFICATIONS');
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   await dispose();
 });
 
@@ -66,9 +72,18 @@ async function deliver(bodies: unknown[]) {
   const ack = vi.fn(),
     retry = vi.fn();
   await worker.queue(
-    { queue: 'mail', messages: bodies.map((body) => ({ body, ack, retry })) },
-    { DB: db, QUEUE_NAMES: names, NOTIFICATIONS: { send: mail } },
-    {}
+    messageBatch(
+      bindings.QUEUE_NAMES.NOTIFICATIONS,
+      bodies.map((body) => queueMessage(body, { ack, retry }))
+    ),
+    {
+      ...bindings,
+      DB: db,
+      JOBS: fakeQueue(),
+      NOTIFICATIONS: notifications,
+      CATALOG_JOBS: fakeQueue(),
+    },
+    gatewayContext()
   );
   return { ack, retry };
 }
@@ -94,7 +109,7 @@ it('deletion queues customers.del for each id', async () => {
 
   await deliver(queued);
   await deliver(queued);
-  expect(provider.deleteCustomer.mock.calls.map(([id]) => id).sort()).toEqual(['cus_a', 'cus_b']);
+  expect(deleteCustomer.mock.calls.map(([id]) => id).sort()).toEqual(['cus_a', 'cus_b']);
   expect(await outboxRow('stripe-customer-delete-cus_a')).toEqual({
     type: 'stripe.customer.delete',
     status: 'sent',
@@ -108,13 +123,13 @@ it('an email job never runs a customer deletion row', async () => {
 
   const { ack } = await deliver([{ type: 'email.send', outboxId: 'stripe-customer-delete-cus_a' }]);
   expect(ack).toHaveBeenCalledTimes(1);
-  expect(provider.deleteCustomer).not.toHaveBeenCalled();
+  expect(deleteCustomer).not.toHaveBeenCalled();
   expect((await outboxRow('stripe-customer-delete-cus_a'))?.status).toBe('pending');
 });
 
 it('a failing delete backs off, then alerts the operator once attempts run out', async () => {
   await deleteAccountAtomically(db, 'cust');
-  provider.deleteCustomer.mockRejectedValue(new Error('Stripe unavailable'));
+  deleteCustomer.mockRejectedValue(new Error('Stripe unavailable'));
 
   const first = await deliver([deleteJob('cus_a')]);
   expect(first.retry).toHaveBeenCalledTimes(1);
@@ -144,16 +159,25 @@ it('a failing delete backs off, then alerts the operator once attempts run out',
 
 it('a customer Stripe no longer has counts as deleted', async () => {
   const stripeProvider = new payments.StripeProvider('sk_test_fixture', 'whsec_fixture');
-  const stripe = Reflect.get(stripeProvider, 'stripe');
-  const del = vi.spyOn(stripe.customers, 'del');
-  del.mockRejectedValueOnce(
-    new Stripe.errors.StripeInvalidRequestError({
-      message: 'No such customer',
-      statusCode: 404,
-      code: 'resource_missing',
-    })
-  );
+  const requests = stubStripeHttp(({ url }) => {
+    if (url.pathname === '/v1/customers/cus_x') throw new TypeError('provider outage');
+    return Response.json(
+      {
+        error: {
+          type: 'invalid_request_error',
+          code: 'resource_missing',
+          message: 'No such customer',
+        },
+      },
+      { status: 404 }
+    );
+  });
   await expect(stripeProvider.deleteCustomer('cus_gone')).resolves.toBeUndefined();
-  del.mockRejectedValueOnce(new Error('provider outage'));
-  await expect(stripeProvider.deleteCustomer('cus_x')).rejects.toThrow('provider outage');
+  await expect(stripeProvider.deleteCustomer('cus_x')).rejects.toBeInstanceOf(
+    Stripe.errors.StripeConnectionError
+  );
+  expect(requests.map(({ method, url }) => `${method} ${url.pathname}`)).toEqual([
+    'DELETE /v1/customers/cus_gone',
+    'DELETE /v1/customers/cus_x',
+  ]);
 });

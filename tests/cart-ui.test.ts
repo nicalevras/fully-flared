@@ -38,10 +38,10 @@ describe('cart "+" increment', () => {
 });
 
 describe('zone selection', () => {
-  const zones = [
-    { name: 'Canada', countries: ['CA'], rates: [] },
-    { name: 'Europe', countries: ['DE', 'FR'], rates: [] },
-  ] as unknown as Zone[];
+  const zones: Zone[] = [
+    { id: 'ca', name: 'Canada', countries: ['CA'], rates: [] },
+    { id: 'eu', name: 'Europe', countries: ['DE', 'FR'], rates: [] },
+  ];
 
   it('returns the serving zone and undefined for an unsupported destination', () => {
     expect(zoneForCountry(zones, 'CA')?.name).toBe('Canada');
@@ -62,27 +62,27 @@ describe('zone selection', () => {
 
 describe('delivery option label', () => {
   it('weight-based rate displays base plus rounded-up per-kg charge ($9, not $5)', () => {
-    const rate = {
+    const rate: ZoneRate = {
       id: 'w1',
       name: 'Weighted',
       kind: 'weight',
       amountCents: 500,
       perKgCents: 200,
       freeOverCents: null,
-    } as ZoneRate;
+    };
     // 1.5 kg rounds up to 2 kg: $5.00 + 2 x $2.00 = $9.00.
     expect(ratePriceLabel(rate, 10_000, 1500, 'USD')).toBe('$9.00');
   });
 
   it('free-over rate at the threshold displays Free; flat rate displays its amount', () => {
-    const freeOver = {
+    const freeOver: ZoneRate = {
       id: 'f1',
       name: 'Free over',
       kind: 'free_over',
       amountCents: 700,
       perKgCents: null,
       freeOverCents: 5_000,
-    } as ZoneRate;
+    };
     expect(ratePriceLabel(freeOver, 5_000, 0, 'USD')).toBe('Free');
     expect(ratePriceLabel(freeOver, 4_999, 0, 'USD')).toBe('$7.00');
   });

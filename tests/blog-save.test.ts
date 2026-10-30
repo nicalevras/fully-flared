@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { runEditorSave, saveBlogPost, type BlogPostForm } from '../web/src/lib/blog-save';
 import { resolveScheduledIso, utcToLocalDateTimeInput } from '../web/src/lib/format';
+import { present } from './helpers/fixtures';
 
 const form: BlogPostForm = {
   id: 'p1',
@@ -120,7 +121,7 @@ describe('saveBlogPost', () => {
     );
     expect(first.ok).toBe(true);
     if (!first.ok) return;
-    await saveBlogPost(action, { ...form, updatedAt: first.updatedAt }, null);
+    await saveBlogPost(action, { ...form, updatedAt: present(first.updatedAt) }, null);
     expect(calls[0]?.expectedUpdatedAt).toBe('2026-07-01T00:00:00.000Z');
     expect(calls[1]?.expectedUpdatedAt).toBe('2026-07-02T00:00:00.000Z');
   });

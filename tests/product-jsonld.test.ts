@@ -36,7 +36,7 @@ describe('product JSON-LD', () => {
       url: 'https://store.test/products/tee',
       image: 'https://store.test/media/tee.jpg',
     });
-    expect(ld.offers).toEqual([
+    expect(ld).toHaveProperty('offers', [
       {
         '@type': 'Offer',
         sku: 'TEE-S',
@@ -56,7 +56,7 @@ describe('product JSON-LD', () => {
   });
 
   it('a single variant emits one Offer with its sku', () => {
-    expect(productJsonLd(product([variant('TEE-1', 2000)])).offers).toEqual({
+    expect(productJsonLd(product([variant('TEE-1', 2000)]))).toHaveProperty('offers', {
       '@type': 'Offer',
       sku: 'TEE-1',
       url: 'https://store.test/products/tee',

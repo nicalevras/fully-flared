@@ -2,9 +2,8 @@ import { afterEach, beforeEach, expect, it } from 'vitest';
 import { createTestDb, seedProduct } from './helpers/d1';
 import { runAdminAction } from '../web/src/server/admin-actions';
 
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, env: Cloudflare.Env, dispose: () => Promise<void>;
 const owner = { id: 'owner', role: 'owner' };
-const env = {} as Cloudflare.Env;
 
 const edit = (patch: Record<string, unknown>) => ({
   variantId: 'v1',
@@ -30,7 +29,7 @@ const audited = async () =>
   ).results.map((row) => row.action);
 
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env, dispose } = await createTestDb());
   await seedProduct(db);
   await db
     .prepare(

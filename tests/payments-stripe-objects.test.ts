@@ -4,6 +4,7 @@ import { handleCheckoutRequest } from '../web/src/routes/api/checkout';
 import { handleGuestBootstrapRequest } from '../web/src/routes/api/checkout/guest-session';
 import { quoteOrder } from '../web/src/server/checkout';
 import { fakeAdmissionNamespace } from './helpers/admission';
+import { at } from './helpers/fixtures';
 import { ensureCart, addCartLine, cartIdentity, type CartCreds } from '../web/src/server/cart';
 
 vi.mock('../web/src/server/session', () => ({ getSessionUser: async () => null }));
@@ -23,7 +24,7 @@ const provider = {
 };
 vi.mock('../web/src/server/payments', () => ({ getStripeProvider: () => provider }));
 
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, env: Cloudflare.Env, dispose: () => Promise<void>;
 let admission: ReturnType<typeof fakeAdmissionNamespace>;
 let guestCookie: string | undefined;
 let cart: CartCreds;
@@ -38,7 +39,7 @@ const shippingAddress = {
 
 beforeEach(async () => {
   guestCookie = undefined;
-  ({ db, dispose } = await createTestDb());
+  ({ db, env, dispose } = await createTestDb());
   admission = fakeAdmissionNamespace({
     admission_starts_per_second: 100,
     admission_burst: 200,
@@ -114,7 +115,7 @@ async function bootstrapCookie(): Promise<string> {
   expect(res.status).toBe(204);
   const setCookie = res.headers.get('set-cookie') ?? '';
   expect(setCookie.startsWith('guest_checkout=')).toBe(true);
-  return setCookie.split(';')[0]!;
+  return at(setCookie.split(';'), 0);
 }
 
 async function post(
@@ -163,7 +164,7 @@ async function post(
         confirmedQuote: opts.confirmedQuote ?? quoted,
       }),
     }),
-    { DB: db, CHECKOUT_ADMISSION: admission.namespace }
+    { ...env, CHECKOUT_ADMISSION: admission.namespace }
   );
 }
 

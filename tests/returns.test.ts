@@ -7,7 +7,7 @@ import { settleRefund } from '../web/src/server/refunds';
 import { runAdminAction } from '../web/src/server/admin-actions';
 import * as payments from '../web/src/server/payments';
 
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, env: Cloudflare.Env, dispose: () => Promise<void>;
 const owner = { id: 'owner', role: 'owner' };
 const provider = {
   async createCheckout() {
@@ -23,7 +23,7 @@ const provider = {
 };
 
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env, dispose } = await createTestDb());
   await seedProduct(db, { onHand: 10 });
   const now = new Date().toISOString();
   await db.batch([
@@ -96,7 +96,7 @@ async function approvedReturn(orderId: string, items: { sku: string; qty: number
 }
 
 async function refundReturn(returnId: string, amountCents: number, restock: boolean) {
-  const result = await runAdminAction(db, {}, owner, 'return.refund', {
+  const result = await runAdminAction(db, env, owner, 'return.refund', {
     returnId,
     amountCents,
     restock,
@@ -155,7 +155,7 @@ it('a return refunded without restock leaves stock alone', async () => {
 it('a later full refund does not restock units that were never returned', async () => {
   const o = await paidOrder('later', [{ sku: 'TEE-1', qty: 2 }]);
   await refundReturn(await approvedReturn(o.orderId, [{ sku: 'TEE-1', qty: 1 }]), 2000, true);
-  const rest = await runAdminAction(db, {}, owner, 'order.refund', {
+  const rest = await runAdminAction(db, env, owner, 'order.refund', {
     requestId: 'later-rest',
     orderId: o.orderId,
   });
@@ -169,7 +169,7 @@ it('a later full refund does not restock units that were never returned', async 
 });
 
 async function refundOrder(orderId: string, amountCents: number) {
-  const result = await runAdminAction(db, {}, owner, 'order.refund', {
+  const result = await runAdminAction(db, env, owner, 'order.refund', {
     requestId: `staff-${orderId}-${amountCents}`,
     orderId,
     amountCents,

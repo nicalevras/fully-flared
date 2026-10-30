@@ -80,13 +80,12 @@ describe('settings save flow', () => {
 });
 
 describe('settings.setMany', () => {
-  let db: D1Database, dispose: () => Promise<void>;
+  let db: D1Database, env: Cloudflare.Env, dispose: () => Promise<void>;
   const owner = { id: 'owner', role: 'owner' };
-  const env = {} as Cloudflare.Env;
   const stamp = '2026-10-01T00:00:00.000Z';
 
   beforeEach(async () => {
-    ({ db, dispose } = await createTestDb());
+    ({ db, env, dispose } = await createTestDb());
     await db
       .prepare(
         "INSERT INTO settings (key, value, updated_at) VALUES ('store_name', 'Shop', ?), ('announcement_text', 'Hi', ?)"
