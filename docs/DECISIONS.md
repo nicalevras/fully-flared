@@ -479,6 +479,9 @@ unapplied. Verification is deferred: see
   and the stock delta is computed from fresh data at save time. Each staged
   stock edit carries its own `operationId` and reason; a retry reuses the ID,
   and changing the total or reason stages a new one.
+  The editor and the inventory page also send `expectedOnHand` (R-10); the
+  server applies the change only if `on_hand` still equals it, otherwise it
+  returns a conflict naming the current value and writes nothing.
 - **Prices stay strings until save (UX-01, UX-02).** Variant price fields keep
   what the admin typed and `parseMoneyCents` runs at save. A blank or invalid
   price blocks the save with a field error, and a new variant needs an explicit

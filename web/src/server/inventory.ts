@@ -353,6 +353,7 @@ export type StockAdjustmentOperation = {
   delta: number;
   reason: 'restock' | 'correction' | 'damaged' | 'return';
   note?: string;
+  expectedOnHand?: number;
 };
 
 export type StockAdjustmentOutcome =
@@ -380,6 +381,15 @@ export async function adjustStockIdempotent(
   const timestamp = now();
   try {
     await db.batch([
+      ...(op.expectedOnHand === undefined
+        ? []
+        : [
+            db
+              .prepare(
+                'INSERT INTO batch_guard SELECT 1 WHERE NOT EXISTS(SELECT 1 FROM stock WHERE sku = ? AND on_hand = ?)'
+              )
+              .bind(op.sku, op.expectedOnHand),
+          ]),
       db
         .prepare(
           'INSERT INTO stock_operations (id, actor_id, sku, delta, reason, note, payload_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
@@ -415,7 +425,16 @@ export async function adjustStockIdempotent(
       .prepare('SELECT payload_hash FROM stock_operations WHERE id = ?')
       .bind(op.operationId)
       .first<{ payload_hash: string }>();
-    if (!existing) throw new Error('Stock adjustment failed');
+    if (!existing) {
+      const current = await getStock(db, op.sku);
+      if (op.expectedOnHand !== undefined && current && current.on_hand !== op.expectedOnHand) {
+        return {
+          status: 'conflict',
+          error: `Stock for ${op.sku} is now ${current.on_hand}, not ${op.expectedOnHand}. Reload before saving.`,
+        };
+      }
+      throw new Error('Stock adjustment failed');
+    }
     if (existing.payload_hash !== hash) {
       return {
         status: 'conflict',

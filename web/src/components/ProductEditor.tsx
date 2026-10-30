@@ -449,6 +449,7 @@ export function ProductEditor({
         const r = await runAction('stock.adjust', {
           sku: v.sku,
           delta: Number(stockDelta[id]) - v.on_hand,
+          expectedOnHand: v.on_hand,
           reason: op.reason,
           operationId: op.operationId,
         });

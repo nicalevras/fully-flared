@@ -80,14 +80,20 @@ export const adminActionSchema = z.discriminatedUnion('action', [
     priceCents: nullableCents,
     stockDelta: z.number().int().min(-1_000_000).max(1_000_000).optional().default(0),
   }),
-  z.object({
-    action: z.literal('stock.adjust'),
-    sku: nonEmptyString(100),
-    delta: z.number().int().min(-1_000_000).max(1_000_000),
-    reason: z.enum(['restock', 'correction', 'damaged', 'return']).optional().default('restock'),
-    operationId: idString.optional(),
-    note: text(500).optional(),
-  }),
+  z
+    .object({
+      action: z.literal('stock.adjust'),
+      sku: nonEmptyString(100),
+      delta: z.number().int().min(-1_000_000).max(1_000_000),
+      reason: z.enum(['restock', 'correction', 'damaged', 'return']).optional().default('restock'),
+      operationId: idString.optional(),
+      expectedOnHand: z.number().int().optional(),
+      note: text(500).optional(),
+    })
+    .refine((adjust) => adjust.expectedOnHand === undefined || adjust.operationId !== undefined, {
+      path: ['expectedOnHand'],
+      message: 'expectedOnHand needs an operationId',
+    }),
   z.object({ action: z.literal('media.updateAlt'), mediaId: idString, altText: text(500) }),
   z.object({ action: z.literal('media.delete'), mediaId: idString }),
   z

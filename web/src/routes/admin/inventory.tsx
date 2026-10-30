@@ -256,6 +256,7 @@ function AdminInventory() {
       const result = await adminAction('stock.adjust', {
         sku,
         delta,
+        expectedOnHand: onHand,
         reason: entry.reason,
         note: entry.note,
         operationId: entry.operationId,

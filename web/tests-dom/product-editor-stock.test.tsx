@@ -114,7 +114,9 @@ it('after invalidate, the delta uses the new on_hand', async () => {
   await act(() => router.invalidate({ sync: true }));
   await save();
 
-  expect(stockAdjusts()).toEqual([expect.objectContaining({ sku: 'TOTE-001', delta: 3 })]);
+  expect(stockAdjusts()).toEqual([
+    expect.objectContaining({ sku: 'TOTE-001', delta: 3, expectedOnHand: 7 }),
+  ]);
 });
 
 it('a retried save replays the same operationId', async () => {

@@ -460,6 +460,7 @@ export async function runAdminAction(
             delta: f.delta,
             reason: (f.reason as 'restock') || 'restock',
             ...(f.note !== undefined ? { note: f.note } : {}),
+            ...(f.expectedOnHand !== undefined ? { expectedOnHand: f.expectedOnHand } : {}),
             extraStatements: [
               auditStmt(db, actor.id, 'stock.adjust', 'stock', f.sku, {
                 delta: f.delta,
