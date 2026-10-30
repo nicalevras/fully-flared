@@ -41,6 +41,7 @@ import {
   ARTIFACT_BYTE_LIMIT,
   catalogCardSchema,
   documentPointerSchema,
+  imageVariantsSchema,
   type CatalogCard,
   type DirectoryNode,
   type ListingPage,
@@ -57,6 +58,20 @@ import { z } from 'zod';
 // and listing generations produce no writes, so a re-run is a no-op.
 
 const now = () => new Date().toISOString();
+/** First and last item of a list the caller has built non-empty. */
+function bounds<T>(items: readonly T[]): [T, T] {
+  const first = items.at(0),
+    last = items.at(-1);
+  if (first === undefined || last === undefined) throw new Error('Expected a non-empty list');
+  return [first, last];
+}
+async function nextPublicationSeq(db: D1Database): Promise<number> {
+  const state = await db
+    .prepare('SELECT publication_seq FROM catalog_publication_state WHERE id=1')
+    .first<{ publication_seq: number }>();
+  if (!state) throw new Error('catalog_publication_state row 1 is missing');
+  return state.publication_seq + 1;
+}
 const POST_METADATA_FIELDS = `(SELECT r2_key FROM media WHERE id=source.cover_media_id AND ready=1 AND deletion_pending=0) AS cover_key,
  (SELECT public_url FROM media WHERE id=source.cover_media_id AND ready=1 AND deletion_pending=0) AS cover_public_url,
  (SELECT name FROM user WHERE id=source.author_id) AS author_name,
@@ -198,7 +213,8 @@ async function buildDirectory(
     const slice = entries.slice(i, i + DIRECTORY_FANOUT);
     const node = nodeOf({ kind: 'pages', entries: slice });
     nodes.push(node);
-    level.push({ from: slice[0]!.page, to: slice[slice.length - 1]!.page, hash: node.hash });
+    const [first, last] = bounds(slice);
+    level.push({ from: first.page, to: last.page, hash: node.hash });
   }
   while (level.length > 1) {
     const next: { from: number; to: number; hash: string }[] = [];
@@ -206,12 +222,14 @@ async function buildDirectory(
       const slice = level.slice(i, i + DIRECTORY_FANOUT);
       const node = nodeOf({ kind: 'index', entries: slice });
       nodes.push(node);
-      next.push({ from: slice[0]!.from, to: slice[slice.length - 1]!.to, hash: node.hash });
+      const [first, last] = bounds(slice);
+      next.push({ from: first.from, to: last.to, hash: node.hash });
     }
     level = next;
   }
   await storeDirectoryNodes(db, kv, put, listingId, nodes, forceKv);
-  return level[0]!.hash;
+  const [root] = bounds(level);
+  return root.hash;
 }
 
 async function patchDirectory(
@@ -558,7 +576,7 @@ async function processPublishedIndex(
     return false;
   }
   const epoch = await db.prepare(epochSql).bind(entity).first<{ revision: number }>();
-  if (epoch?.revision !== build?.source_revision || state.seen !== state.total) {
+  if (!build || epoch?.revision !== build.source_revision || state.seen !== state.total) {
     await db.prepare("UPDATE catalog_builds SET state_json='{}' WHERE id=?").bind(buildId).run();
     return false;
   }
@@ -615,7 +633,7 @@ async function processPublishedIndex(
         .prepare(
           'INSERT INTO batch_guard SELECT 1 WHERE (SELECT COALESCE(SUM(target_revision),0) FROM catalog_work WHERE entity_type=?)<>?'
         )
-        .bind(entity, build!.source_revision),
+        .bind(entity, build.source_revision),
       db
         .prepare("UPDATE catalog_builds SET state='done',phase='done',updated_at=? WHERE id=?")
         .bind(now(), buildId),
@@ -1223,9 +1241,10 @@ export async function processCatalogBuild(
           )
           .bind(state.workCursor || prefix, prefix + '~')
           .all<{ id: string; scope_listing_id: string; source_revision: number }>();
-        if (!captured.results.length) return await finish();
+        const lastCaptured = captured.results.at(-1);
+        if (!lastCaptured) return await finish();
         const payload = JSON.stringify(captured.results);
-        state.workCursor = captured.results.at(-1)!.id;
+        state.workCursor = lastCaptured.id;
         await db.batch([
           db
             .prepare(
@@ -1249,7 +1268,8 @@ export async function processCatalogBuild(
           .prepare('SELECT id FROM collections WHERE id>? ORDER BY id LIMIT 100')
           .bind(state.memCursorI)
           .all<{ id: string }>();
-        if (rows.results.length) {
+        const lastCollection = rows.results.at(-1);
+        if (lastCollection) {
           await captureBuildWork(
             db,
             build.id,
@@ -1262,7 +1282,7 @@ export async function processCatalogBuild(
             )
             .bind(build.id, JSON.stringify(rows.results.map((r) => r.id)))
             .run();
-          state.memCursorI = rows.results.at(-1)!.id;
+          state.memCursorI = lastCollection.id;
         } else {
           phase = 'memberships';
           state.memCursorI = '';
@@ -1433,7 +1453,7 @@ export async function processCatalogBuild(
           tick(changedRows.length);
         }
 
-        state.cardsCursor = ids[ids.length - 1]!;
+        state.cardsCursor = bounds(ids)[1];
         await save();
         continue;
       }
@@ -1528,7 +1548,7 @@ export async function processCatalogBuild(
           tick();
           state.memPos += memberIds.length;
         }
-        const lastRow = rows.results[rows.results.length - 1]!;
+        const [, lastRow] = bounds(rows.results);
         state.memCursorC = lastRow.created_at;
         state.memCursorI = lastRow.id;
         await save();
@@ -1622,7 +1642,8 @@ export async function processCatalogBuild(
         }
         const groupPages: number[] = [];
         for (let g = 0; g < groupSize; g++) groupPages.push(state.nextPage + g);
-        const fromPos = (groupPages[0]! - 1) * listing.pageSize;
+        const [firstPage, lastPage] = bounds(groupPages);
+        const fromPos = (firstPage - 1) * listing.pageSize;
         const toPos = fromPos + groupPages.length * listing.pageSize;
         const members = await db
           .prepare(
@@ -1654,12 +1675,7 @@ export async function processCatalogBuild(
               `SELECT page, revision FROM catalog_listing_page_revisions
                WHERE listing_id = ? AND generation = ? AND page >= ? AND page <= ?`
             )
-            .bind(
-              listing.id,
-              state.generation - 1,
-              groupPages[0]!,
-              groupPages[groupPages.length - 1]!
-            )
+            .bind(listing.id, state.generation - 1, firstPage, lastPage)
             .all<{ page: number; revision: string }>();
           tick();
           for (const r of rows.results) activeRevs.set(r.page, r.revision);
@@ -1667,7 +1683,9 @@ export async function processCatalogBuild(
         const idsByPage = new Map<number, string[]>();
         for (const m of members.results) {
           const pg = Math.floor(m.position / listing.pageSize) + 1;
-          (idsByPage.get(pg) ?? idsByPage.set(pg, []).get(pg)!).push(m.product_id);
+          const pageIds = idsByPage.get(pg);
+          if (pageIds) pageIds.push(m.product_id);
+          else idsByPage.set(pg, [m.product_id]);
         }
         const at = now();
         const stmts: D1PreparedStatement[] = [];
@@ -1957,10 +1975,7 @@ export async function processCatalogBuild(
           return { done: false, buildId: build.id, phase, opsUsed: ops };
         }
         if (state.layoutChanged) {
-          const seq =
-            (await db
-              .prepare('SELECT publication_seq FROM catalog_publication_state WHERE id=1')
-              .first<{ publication_seq: number }>())!.publication_seq + 1;
+          const seq = await nextPublicationSeq(db);
           const payload = JSON.stringify({ revision: state.layoutRevision });
           state.layoutChanged = false;
           state.seq = seq;
@@ -2054,15 +2069,16 @@ export async function runCatalogUnit(
   const metered = countedDb(db, budget);
   let cdb = metered;
   kv = kv ? countedKv(kv, budget) : undefined;
-  let lease: CatalogLease | null = null;
+  let claimed: CatalogLease | null;
   try {
-    lease = await claimCatalogLease(cdb, opts.nowMs);
+    claimed = await claimCatalogLease(cdb, opts.nowMs);
   } catch (error) {
     if (error instanceof BudgetExhausted)
       return { done: false, busy: false, budgetExhausted: true };
     throw error;
   }
-  if (!lease) return { done: false, busy: true, retryAfterSeconds: BUSY_RETRY_SECONDS };
+  if (!claimed) return { done: false, busy: true, retryAfterSeconds: BUSY_RETRY_SECONDS };
+  const lease = claimed;
   cdb = fencedCatalogDb(metered, lease);
   try {
     // Maintenance runs only its own step; catalogue work stays on the catalog.rebuild chain.
@@ -2182,7 +2198,7 @@ export async function runCatalogUnit(
       return { done: false, busy: false, budgetExhausted: true };
     throw error;
   } finally {
-    if (lease) await budget.finalize(() => releaseCatalogLease(metered, lease!));
+    await budget.finalize(() => releaseCatalogLease(metered, lease));
   }
 }
 
@@ -2288,11 +2304,10 @@ async function buildProductDocuments(
         }>();
       if ((variants.results[0]?.catalog_total ?? 0) > variants.results.length)
         throw new Error('Product variants exceed publication unit capacity');
-      for (const v of variants.results)
-        (
-          variantsByProduct.get(v.product_id) ??
-          variantsByProduct.set(v.product_id, []).get(v.product_id)!
-        ).push({
+      for (const v of variants.results) {
+        const list = variantsByProduct.get(v.product_id) ?? [];
+        variantsByProduct.set(v.product_id, list);
+        list.push({
           id: v.id,
           sku: v.sku,
           title: v.title,
@@ -2302,6 +2317,7 @@ async function buildProductDocuments(
           continueSelling: v.continue_selling === 1,
           weightGrams: v.weight_grams,
         });
+      }
       if (budget.rows >= 5000) throw new BudgetExhausted('rows');
       const media = await db
         .prepare(
@@ -2318,16 +2334,16 @@ async function buildProductDocuments(
         }>();
       if ((media.results[0]?.catalog_total ?? 0) > media.results.length)
         throw new Error('Product media exceed publication unit capacity');
-      for (const m of media.results)
-        (
-          imagesByProduct.get(m.product_id) ??
-          imagesByProduct.set(m.product_id, []).get(m.product_id)!
-        ).push({
+      for (const m of media.results) {
+        const list = imagesByProduct.get(m.product_id) ?? [];
+        imagesByProduct.set(m.product_id, list);
+        list.push({
           key: m.r2_key,
           alt: m.alt_text,
           publicUrl: m.public_url,
-          variants: JSON.parse(m.variants_json ?? '[]'),
+          variants: imageVariantsSchema.parse(JSON.parse(m.variants_json ?? '[]')),
         });
+      }
     }
     for (const id of orderedIds) {
       const p = productById.get(id);
@@ -2694,7 +2710,8 @@ async function refreshAffectedListing(
     newRevisions.set(page, revision);
   }
   if (!changed) return false;
-  let rootHash = refState!.root_hash!;
+  if (!refState?.root_hash) throw new Error(`Listing ${listingId} has no committed root`);
+  let rootHash = refState.root_hash;
   for (const [page, revision] of newRevisions)
     rootHash = await patchDirectory(db, kv, put, listingId, rootHash, page, revision);
   const pub: ListingPublication = {
@@ -2771,7 +2788,8 @@ export async function processCatalogWork(
   budget.reserve(claimed.length + 6);
 
   try {
-    const checkpointId = claimed.length === 1 ? `work-${claimed[0]!.id}` : null;
+    const single = claimed.length === 1 ? claimed.at(0) : undefined;
+    const checkpointId = single ? `work-${single.id}` : null;
     const checkpoint = checkpointId
       ? await db
           .prepare('SELECT source_revision,state_json FROM catalog_builds WHERE id=?')
@@ -2779,7 +2797,7 @@ export async function processCatalogWork(
           .first<{ source_revision: number; state_json: string }>()
       : null;
     const progress =
-      checkpoint && checkpoint.source_revision === claimed[0]!.target_revision
+      checkpoint && checkpoint.source_revision === single?.target_revision
         ? workCheckpointSchema.parse(JSON.parse(checkpoint.state_json))
         : null;
     const invalidations: InvalidationEntry[] = [];
@@ -2791,7 +2809,7 @@ export async function processCatalogWork(
       cardChanged: boolean,
       publication?: ListingPublication
     ) => {
-      if (!checkpointId) return;
+      if (!checkpointId || !single) return;
       await budget.finalize(() =>
         db.batch([
           ...(publication
@@ -2817,14 +2835,14 @@ export async function processCatalogWork(
             .bind(
               checkpointId,
               JSON.stringify({ stage, lastListing, cardChanged }),
-              claimed[0]!.target_revision,
+              single.target_revision,
               now(),
               now()
             ),
           ...invalidationStatements(db, invalidations),
           db
             .prepare('UPDATE catalog_work SET build_token=NULL WHERE id=? AND build_token=?')
-            .bind(claimed[0]!.id, token),
+            .bind(single.id, token),
         ])
       );
     };
@@ -2921,7 +2939,8 @@ export async function processCatalogWork(
           .bind(now(), now(), JSON.stringify(linked.results.map((l) => l.product_id)))
           .run();
         if (linked.results.length === CHUNK) {
-          const lastId = linked.results[linked.results.length - 1]!.product_id;
+          const [, lastLinked] = bounds(linked.results);
+          const lastId = lastLinked.product_id;
           const stateJson = JSON.stringify({ cursor: lastId });
           if (fanout)
             await db
@@ -3053,7 +3072,7 @@ export async function processCatalogWork(
     if (!pastListings) {
       const affected = new Set<string>(collectionIds);
       if (productIds.size) {
-        const pid = [...productIds][0]!;
+        const [pid] = bounds([...productIds]);
         const next = await db
           .prepare(
             "SELECT id FROM (SELECT 'all' AS id UNION SELECT c.id FROM collections c WHERE c.kind='rule' OR EXISTS(SELECT 1 FROM product_collections pc WHERE pc.product_id=? AND pc.collection_id=c.id) OR EXISTS(SELECT 1 FROM catalog_page_products pp WHERE pp.product_id=? AND pp.listing_id=c.id)) WHERE id>? ORDER BY id LIMIT 1"
@@ -3257,10 +3276,7 @@ export async function processCatalogWork(
         // The durable reference is also GC's root. Commit it before delivering
         // the mutable pointer, just as full builds do. Replay is idempotent.
         if (current?.root_hash !== layoutRev) {
-          const seq =
-            (await db
-              .prepare('SELECT publication_seq FROM catalog_publication_state WHERE id=1')
-              .first<{ publication_seq: number }>())!.publication_seq + 1;
+          const seq = await nextPublicationSeq(db);
           await db.batch([
             db
               .prepare(
