@@ -13,7 +13,8 @@ import { recoveryContext, reservationDue, type RecoveryContext } from './recover
 
 export type StockItem = { sku: string; qty: number };
 
-/** Restock only units that were actually sold, once for the whole order. */
+/** Restock the units that were actually sold and that no return has already
+ *  put back, once for the whole order. */
 export function restockOrderStatements(
   db: D1Database,
   orderId: string,
@@ -21,17 +22,19 @@ export function restockOrderStatements(
 ): D1PreparedStatement[] {
   const timestamp = new Date().toISOString();
   const eligible = `EXISTS(SELECT 1 FROM orders WHERE id=? AND restocked_at IS NULL) AND ${gate.sql}`;
+  const returned = `COALESCE((SELECT SUM(ri.qty) FROM returns rt JOIN return_items ri ON ri.return_id=rt.id
+      WHERE rt.order_id=r.order_id AND ri.sku=r.sku AND EXISTS(SELECT 1 FROM stock_ledger WHERE id='return-item-'||ri.id)),0)`;
   return [
     db
       .prepare(
         `INSERT INTO stock_ledger(id,sku,delta_on_hand,reason,ref_type,ref_id,created_at)
-      SELECT 'return-sale-'||id,sku,qty,'return','order',order_id,? FROM reservations
-      WHERE order_id=? AND status='committed' AND ${eligible}`
+      SELECT 'return-sale-'||r.order_id||'-'||r.sku,r.sku,SUM(r.qty)-${returned},'return','order',r.order_id,? FROM reservations r
+      WHERE r.order_id=? AND r.status='committed' AND ${eligible} GROUP BY r.sku HAVING SUM(r.qty)>${returned}`
       )
       .bind(timestamp, orderId, orderId, ...gate.values),
     db
       .prepare(
-        `UPDATE stock SET on_hand=on_hand+COALESCE((SELECT SUM(qty) FROM reservations WHERE order_id=? AND sku=stock.sku AND status='committed'),0),updated_at=?
+        `UPDATE stock SET on_hand=on_hand+COALESCE((SELECT delta_on_hand FROM stock_ledger WHERE id='return-sale-'||?||'-'||stock.sku),0),updated_at=?
       WHERE sku IN(SELECT sku FROM reservations WHERE order_id=? AND status='committed') AND ${eligible}`
       )
       .bind(orderId, timestamp, orderId, orderId, ...gate.values),
@@ -45,14 +48,15 @@ export function restockOrderStatements(
 
 /** Restock exactly the items and quantities of one return, once per return
  *  item: the ledger row id is derived from the return item, and the counter
- *  update skips items whose ledger row already exists. */
+ *  update skips items whose ledger row already exists. An order that a full
+ *  refund already restocked has nothing left to put back. */
 export function restockReturnStatements(
   db: D1Database,
   returnId: string,
   gate: { sql: string; values: (string | number | null)[] }
 ): D1PreparedStatement[] {
   const timestamp = new Date().toISOString();
-  const pending = `ri.return_id=? AND NOT EXISTS(SELECT 1 FROM stock_ledger WHERE id='return-item-'||ri.id) AND ${gate.sql}`;
+  const pending = `ri.return_id=? AND NOT EXISTS(SELECT 1 FROM stock_ledger WHERE id='return-item-'||ri.id) AND EXISTS(SELECT 1 FROM returns rt JOIN orders o ON o.id=rt.order_id WHERE rt.id=ri.return_id AND o.restocked_at IS NULL) AND ${gate.sql}`;
   return [
     db
       .prepare(
