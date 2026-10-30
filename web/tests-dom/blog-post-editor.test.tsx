@@ -6,8 +6,6 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { BlogPostEditor, type BlogPostDetail } from '@/components/BlogPostEditor';
 import { renderRoute } from './render-route';
 
-vi.mock('@/components/BlogEditor', () => ({ BlogEditor: () => null }));
-
 afterEach(() => {
   vi.unstubAllEnvs();
 });

@@ -1,6 +1,7 @@
 import { configDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  css: { preprocessorOptions: { scss: { api: 'modern-compiler' } } },
   resolve: {
     alias: {
       'cloudflare:workers': new URL('./tests/helpers/cloudflare-workers-stub.ts', import.meta.url)
