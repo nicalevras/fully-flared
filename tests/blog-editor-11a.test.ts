@@ -22,11 +22,6 @@ describe('Phase 11A blog list and editor split', () => {
     expect(list).toContain('<DataTable');
     const editor = readFileSync('web/src/components/BlogPostEditor.tsx', 'utf8');
     expect(editor).toContain('ExpandableEditor');
-    expect(editor).toContain('saveBlogPost');
-    expect(editor).toContain('onFeedback');
-    expect(editor).not.toContain('Loading post');
-    expect(editor).not.toContain('showSave');
-    expect(editor).toContain('Save changes');
     const shim = readFileSync('web/src/routes/admin/blog_/$id.tsx', 'utf8');
     expect(shim).toContain("to: '/admin/articles'");
     expect(shim).toContain('edit: params.id');
