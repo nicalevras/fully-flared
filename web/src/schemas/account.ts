@@ -29,6 +29,10 @@ export const reportQuerySchema = z.object({
     .default('sales'),
   format: z.enum(['json', 'csv']).optional().default('json'),
 });
+export const reportRangeSchema = z
+  .object({ from: z.iso.date().optional(), to: z.iso.date().optional() })
+  .refine(({ from, to }) => !from || !to || from <= to, { message: 'from is after to' });
+export type ReportRange = z.infer<typeof reportRangeSchema>;
 export type ReportQuery = z.infer<typeof reportQuerySchema>;
 
 export const mediaUploadMetaSchema = z.object({

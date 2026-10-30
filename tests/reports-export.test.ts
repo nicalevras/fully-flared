@@ -64,4 +64,5 @@ it('30k orders export in two ranges under the cap', async () => {
 it('rejects a range that is not a calendar date or ends before it starts', async () => {
   for (const range of ['from=2026-02-30', 'to=yesterday', 'from=2026-02-01&to=2026-01-01'])
     expect((await get(`type=orders&${range}`)).status).toBe(400);
+  expect((await get('type=sales&from=2026-01-01')).status).toBe(400);
 });
