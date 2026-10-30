@@ -39,3 +39,6 @@ web/worker-configuration.d.ts
 
 # Local agent settings
 .claude/
+
+# Audit ledgers written by tests/read-census.test.ts and local audit runs
+.audit/

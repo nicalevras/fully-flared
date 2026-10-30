@@ -22,7 +22,8 @@ import { ftsPhrase, ftsUsable } from '../../lib/fts-search';
 import type { DataTableFeatures } from '../../components/data-table-features';
 import { formatDate } from '../../lib/format';
 import { pageWindow } from '../../lib/catalog-page';
-import { isPageSize, pageSizeOptions, pageSizeSchema } from '../../schemas/pagination';
+import { isPageSize, pageSizeOptions } from '../../lib/search-params';
+import { pageSizeSchema } from '../../schemas/pagination';
 import * as z from 'zod';
 import { validateServerInput } from '../../server/function-boundary';
 import { Button, pageSub, pageTitle } from '../../components/ui';
@@ -142,7 +143,6 @@ function AdminPages() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingId]);
   const openEditor = (id: string) =>
     void navigate({ search: { q: search.q, page: search.page, size: search.size, edit: id } });

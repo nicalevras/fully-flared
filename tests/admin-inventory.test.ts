@@ -96,6 +96,41 @@ describe('grouped inventory list', () => {
     expect(byTitle.products.map((p) => p.title)).toEqual(['Mug']);
     expect(byTitle.products[0]?.matchedSkus).toEqual(['MUG-1']);
     const skuTerm = await adminInventoryList(db, { q: 'HAT-1', page: 1, low: false });
-    expect(skuTerm.products).toHaveLength(0);
+    expect(skuTerm.products.map((p) => p.id)).toEqual(['p2']);
+    expect(skuTerm.products[0]?.matchedSkus).toEqual(['HAT-1']);
+  });
+});
+
+describe('SKU search', () => {
+  beforeEach(async () => {
+    await db.batch([
+      db
+        .prepare(
+          `INSERT INTO products (id, slug, title, description, status, created_at, updated_at) VALUES ('p4', 'widget', 'Widget', '', 'active', ?, ?)`
+        )
+        .bind(now, now),
+      db
+        .prepare(
+          `INSERT INTO variants (id, product_id, sku, title, price_cents, status, continue_selling, created_at) VALUES ('v5', 'p4', 'AB-1', 'Default', 1000, 'active', 0, ?)`
+        )
+        .bind(now),
+    ]);
+  });
+
+  it('SKU prefix "ab" matches SKU "AB-1" whose title lacks it', async () => {
+    const result = await adminInventoryList(db, { q: 'ab', page: 1, low: false });
+    expect(result.products.map((p) => p.id)).toEqual(['p4']);
+    expect(result.total).toBe(1);
+    expect(result.products[0]?.matchedSkus).toEqual(['AB-1']);
+  });
+
+  it('a SKU prefix of 3+ characters matches even though the title does not', async () => {
+    const result = await adminInventoryList(db, { q: 'ab-1', page: 1, low: false });
+    expect(result.products.map((p) => p.id)).toEqual(['p4']);
+  });
+
+  it('LIKE wildcards in the query are literal', async () => {
+    const result = await adminInventoryList(db, { q: '%', page: 1, low: false });
+    expect(result.total).toBe(0);
   });
 });

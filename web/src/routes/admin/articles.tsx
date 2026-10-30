@@ -27,7 +27,8 @@ import type { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-tab
 import { DataTable, DataTableSearch } from '../../components/ui/data-table';
 import { ftsPhrase, ftsUsable } from '../../lib/fts-search';
 import type { DataTableFeatures } from '../../components/data-table-features';
-import { isPageSize, pageSizeOptions, pageSizeSchema } from '../../schemas/pagination';
+import { isPageSize, pageSizeOptions } from '../../lib/search-params';
+import { pageSizeSchema } from '../../schemas/pagination';
 import * as z from 'zod';
 import { validateServerInput } from '../../server/function-boundary';
 import { mediaUrl } from '../../lib/media-url';
@@ -228,7 +229,6 @@ function AdminBlog() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingId]);
   const openEditor = (id: string) =>
     void navigate({ search: { q: search.q, page: search.page, size: search.size, edit: id } });

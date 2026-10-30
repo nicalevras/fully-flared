@@ -3,6 +3,7 @@ import {
   MAX_PAGE,
   accountSearch,
   catalogSearch,
+  isPageSize,
   orderPagesSearch,
   pageSearch,
   resetSearch,
@@ -45,5 +46,10 @@ describe('route search parsers', () => {
     });
     expect(resetSearch({ token: 'tok' })).toEqual({ token: 'tok', error: undefined });
     expect(resetSearch({ token: 123 })).toEqual({ token: undefined, error: undefined });
+  });
+
+  it('page sizes accept only the offered row counts', () => {
+    for (const size of [10, 20, 25, 50, 100]) expect(isPageSize(size)).toBe(true);
+    for (const size of [undefined, '25', 0, 30, 25.5, 200]) expect(isPageSize(size)).toBe(false);
   });
 });

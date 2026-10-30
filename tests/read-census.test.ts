@@ -308,14 +308,6 @@ describe('full read-path census (audit harness)', () => {
       mkdirSync('.audit', { recursive: true });
       writeFileSync('.audit/full-read-census.tsv', rows.join('\n') + '\n');
       writeFileSync('.audit/index-inventory.tsv', inv.join('\n') + '\n');
-      console.log(
-        JSON.stringify({
-          sites: sites.length,
-          classifiedReads: classified,
-          bareScansUnbounded: bareScans,
-          indexes: idx.results.length,
-        })
-      );
     } finally {
       await dispose();
     }

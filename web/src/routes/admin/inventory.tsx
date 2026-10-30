@@ -39,7 +39,7 @@ import {
   dataTableControlClassName,
 } from '../../components/ui/data-table';
 import type { DataTableFeatures } from '../../components/data-table-features';
-import { isPageSize, pageSizeOptions } from '../../schemas/pagination';
+import { isPageSize, pageSizeOptions } from '../../lib/search-params';
 import {
   Select,
   SelectContent,
@@ -136,10 +136,7 @@ export const Route = createFileRoute('/admin/inventory')({
     sku: typeof search.sku === 'string' && search.sku ? search.sku : undefined,
     size: isPageSize(search.size) ? search.size : undefined,
   }),
-  loaderDeps: ({ search }) => {
-    const { sku: _sku, ...rest } = search;
-    return rest;
-  },
+  loaderDeps: ({ search: { q, page, low, size } }) => ({ q, page, low, size }),
   loader: async ({ deps }) => getList({ data: deps }),
   component: AdminInventory,
 });

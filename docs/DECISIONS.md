@@ -444,3 +444,14 @@ unapplied. Verification is deferred: see
   storefront Size and Color selectors) as its own scoped schema and catalog
   publication change. That work is deliberately not part of the Phase 3
   remediation PR.
+
+## 2026-10-30: webhook payloads of deleted customers (UX-05, D-3)
+
+- **Account deletion scrubs only processed `webhook_inbox` payloads.** Pending
+  and dead rows keep their Stripe payload, because recovery replays it to
+  settle a payment. Scrubbing a dead row would lose that order.
+- **The retention task bounds the exposure.** `pruneRetention` deletes dead rows
+  received more than 90 days ago, so a deleted customer's email lives in a dead
+  payload for at most 90 days. `tests/phase6-data.test.ts` pins both rules.
+- Rejected: scrubbing dead rows (loses recovery), and removing only the PII keys
+  with `json_remove` (changes payloads the recovery code replays).

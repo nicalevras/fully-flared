@@ -49,6 +49,14 @@ export const resetSearch = (search: { token?: unknown; error?: unknown } & Searc
   error: optionalText(search.error),
 });
 
+// Rows-per-page choices for admin Data Tables whose loaders accept a page size.
+export const pageSizeOptions = [10, 20, 25, 50, 100] as const;
+export type PageSize = (typeof pageSizeOptions)[number];
+
+export function isPageSize(value: unknown): value is PageSize {
+  return pageSizeOptions.some((size) => size === value);
+}
+
 const SITE = new URL('https://site.invalid');
 
 /** A path on this site, normalised the way a browser would resolve it; anything that could leave the site is dropped. */

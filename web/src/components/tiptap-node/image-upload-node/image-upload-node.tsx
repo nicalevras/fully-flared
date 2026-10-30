@@ -109,7 +109,9 @@ function useFileUpload(options: UploadOptions) {
     };
 
     setFileItems((prev) =>
-      existingId ? prev.map((item) => (item.id === fileId ? newFileItem : item)) : [...prev, newFileItem]
+      existingId
+        ? prev.map((item) => (item.id === fileId ? newFileItem : item))
+        : [...prev, newFileItem]
     );
 
     try {
@@ -456,7 +458,12 @@ export const ImageUploadNode: React.FC<NodeViewProps> = (props) => {
     const chain = props.editor.chain().focus();
     // Failed files stay in this node for retry; only a clean sweep removes it.
     if (!hasFailures) chain.deleteRange({ from: pos, to: pos + props.node.nodeSize });
-    chain.insertContentAt(pos, successes.map((r) => imageNodeFor(r.file, r.url))).run();
+    chain
+      .insertContentAt(
+        pos,
+        successes.map((r) => imageNodeFor(r.file, r.url))
+      )
+      .run();
     successes.forEach((r) => removeFileItem(r.id));
     if (!hasFailures) focusNextNode(props.editor);
   };
