@@ -1,6 +1,21 @@
 import { expect, vi } from 'vitest';
 import type { JobMessage } from '../../web/src/schemas/queue';
 import { CATALOG_BUDGET_LIMITS } from '../../web/src/server/catalog-exec';
+import { messageBatch, queueMessage } from './queue';
+
+function callMember(target: object, prop: string | symbol, args: unknown[]): unknown {
+  const member: unknown = Reflect.get(target, prop);
+  if (typeof member !== 'function') throw new TypeError(`${String(prop)} is not a method`);
+  return Reflect.apply(member, target, args);
+}
+
+function rowsReturned(method: 'run' | 'all' | 'first' | 'raw', result: unknown): number {
+  if (method === 'raw') return Array.isArray(result) ? result.length : 0;
+  if (method === 'first') return result == null ? 0 : 1;
+  if (method === 'all' && typeof result === 'object' && result !== null && 'results' in result)
+    return Array.isArray(result.results) ? result.results.length : 0;
+  return 0;
+}
 
 /** Real exported Worker handler; counters wrap the physical bindings. */
 export async function catalogQueueHarness(
@@ -32,16 +47,12 @@ export async function catalogQueueHarness(
             native.set(w, bound);
             return w;
           };
-        if (['run', 'all', 'first', 'raw'].includes(String(prop)))
+        if (prop === 'run' || prop === 'all' || prop === 'first' || prop === 'raw')
           return async (...args: unknown[]) => {
             d1++;
             expect(d1).toBeLessThanOrEqual(CATALOG_BUDGET_LIMITS.d1Statements);
-            const result = await (
-              Reflect.get(target, prop) as (...a: unknown[]) => Promise<unknown>
-            ).apply(target, args);
-            if (prop === 'all') rows += (result as { results: unknown[] }).results.length;
-            if (prop === 'raw') rows += (result as unknown[][]).length;
-            if (prop === 'first' && result != null) rows++;
+            const result: unknown = await callMember(target, prop, args);
+            rows += rowsReturned(prop, result);
             expect(rows).toBeLessThanOrEqual(5000);
             return result;
           };
@@ -72,10 +83,7 @@ export async function catalogQueueHarness(
         return async (...args: unknown[]) => {
           kvOps++;
           expect(kvOps).toBeLessThanOrEqual(800);
-          return (Reflect.get(target, prop) as (...a: unknown[]) => Promise<unknown>).apply(
-            target,
-            args
-          );
+          return callMember(target, prop, args);
         };
       return Reflect.get(target, prop);
     },
@@ -96,20 +104,16 @@ export async function catalogQueueHarness(
       let sent = false;
       let sendOptions: { delaySeconds?: number } | undefined;
       await worker.queue(
-        {
-          queue: 'store-catalog',
-          messages: [
-            {
-              body: job,
-              ack() {
-                acked = true;
-              },
-              retry() {
-                retried = true;
-              },
+        messageBatch('store-catalog', [
+          queueMessage(job, {
+            ack() {
+              acked = true;
             },
-          ],
-        } as never,
+            retry() {
+              retried = true;
+            },
+          }),
+        ]),
         {
           QUEUE_NAMES: { CATALOG_JOBS: 'store-catalog', DLQ: 'store-jobs-dlq' },
           DB: counted,

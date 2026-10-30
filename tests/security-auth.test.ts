@@ -1,14 +1,17 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createTestDb } from './helpers/d1';
 import { createAuth } from '../web/src/lib/auth';
-import { ACTION_PERMISSIONS, roles } from '../web/src/lib/permissions';
+import { ACTION_PERMISSIONS, roles, type StaffRole } from '../web/src/lib/permissions';
+import type { AdminActionName } from '../web/src/schemas/admin';
+import { at, present } from './helpers/fixtures';
+import { responseJson, z } from './helpers/json';
 import { resolveAuthBaseUrl } from '../web/src/server/session';
 
 let db: D1Database;
 let dispose: () => Promise<void>;
 let auth: ReturnType<typeof createAuth>;
 
-function base32ToBytes(secret: string): Uint8Array {
+function base32ToBytes(secret: string): Uint8Array<ArrayBuffer> {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
   let bits = '';
   for (const char of secret.replace(/=+$/, '').toUpperCase()) {
@@ -28,18 +31,18 @@ async function totp(secret: string, offsetSteps = 0): Promise<string> {
   view.setUint32(4, counter);
   const key = await crypto.subtle.importKey(
     'raw',
-    base32ToBytes(secret) as BufferSource,
+    base32ToBytes(secret),
     { name: 'HMAC', hash: 'SHA-1' },
     false,
     ['sign']
   );
-  const signature = new Uint8Array(await crypto.subtle.sign('HMAC', key, message as BufferSource));
-  const offset = signature[signature.length - 1]! & 0x0f;
+  const signature = Array.from(new Uint8Array(await crypto.subtle.sign('HMAC', key, message)));
+  const offset = at(signature, signature.length - 1) & 0x0f;
   const code =
-    ((signature[offset]! & 0x7f) << 24) |
-    ((signature[offset + 1]! & 0xff) << 16) |
-    ((signature[offset + 2]! & 0xff) << 8) |
-    (signature[offset + 3]! & 0xff);
+    ((at(signature, offset) & 0x7f) << 24) |
+    ((at(signature, offset + 1) & 0xff) << 16) |
+    ((at(signature, offset + 2) & 0xff) << 8) |
+    (at(signature, offset + 3) & 0xff);
   return String(code % 1_000_000).padStart(6, '0');
 }
 
@@ -47,7 +50,7 @@ function cookieHeader(response: Response): string {
   const raw = response.headers.get('set-cookie') ?? '';
   return raw
     .split(/,(?=\s*[^;,=]+?=)/)
-    .map((part) => part.split(';')[0]!.trim())
+    .map((part) => at(part.split(';'), 0).trim())
     .filter(Boolean)
     .join('; ');
 }
@@ -121,7 +124,7 @@ describe('auth base URL resolution (admin must load locally)', () => {
 
 describe('Better Auth permission matrix', () => {
   it('checks every role through userHasPermission semantics', async () => {
-    const cases: [string, string, boolean][] = [
+    const cases: [StaffRole, AdminActionName, boolean][] = [
       ['support', 'order.refund', false],
       ['support', 'order.ship', true],
       ['manager', 'order.refund', false],
@@ -133,12 +136,12 @@ describe('Better Auth permission matrix', () => {
       ['customer', 'product.create', false],
     ];
     for (const [role, action, expected] of cases) {
-      const permission = ACTION_PERMISSIONS[action]!;
+      const permission = ACTION_PERMISSIONS[action];
       const result = await auth.api.userHasPermission({
         body: { role, permissions: { [permission.resource]: [permission.action] } },
       });
       expect(result.success, `${role} -> ${action}`).toBe(expected);
-      const local = roles[role as keyof typeof roles].authorize({
+      const local = roles[role].authorize({
         [permission.resource]: [permission.action],
       });
       expect(local.success, `local ${role} -> ${action}`).toBe(expected);
@@ -155,7 +158,10 @@ describe('Better Auth permission matrix', () => {
       .bind(now, now)
       .run();
     await expect(
-      auth.api.signInMagicLink({ body: { email: 'staff@example.com', callbackURL: '/account' } })
+      auth.api.signInMagicLink({
+        body: { email: 'staff@example.com', callbackURL: '/account' },
+        headers: new Headers(),
+      })
     ).rejects.toMatchObject({ status: 'FORBIDDEN' });
     const outbox = await db
       .prepare("SELECT COUNT(*) AS c FROM outbox WHERE type = 'email.send'")
@@ -186,7 +192,7 @@ describe('session-level two-factor marker', () => {
     const cookie1 = cookieHeader(signin);
     const enable = await post('/two-factor/enable', { password: 'password123' }, cookie1);
     expect(enable.status).toBe(200);
-    const enableBody = (await enable.json()) as { totpURI: string };
+    const enableBody = await responseJson(enable, z.object({ totpURI: z.string() }));
     const secret = new URL(enableBody.totpURI).searchParams.get('secret');
     if (!secret) throw new Error('missing TOTP secret');
 
@@ -219,7 +225,10 @@ describe('session-level two-factor marker', () => {
       email: 'owner2@example.com',
       password: 'password123',
     });
-    const body2 = (await signin2.clone().json()) as { twoFactorRedirect?: boolean };
+    const body2 = await responseJson(
+      signin2.clone(),
+      z.object({ twoFactorRedirect: z.boolean().optional() })
+    );
     expect(body2.twoFactorRedirect).toBe(true);
     const challengeCookie = cookieHeader(signin2);
     // L1: a pending challenge must not leave a marker for the provisional session.
@@ -235,7 +244,10 @@ describe('session-level two-factor marker', () => {
       if (verify.status === 200) break;
     }
     expect(verify?.status).toBe(200);
-    const verifyBody = (await verify!.clone().json()) as { token: string };
+    const verifyBody = await responseJson(
+      present(verify, 'the TOTP verification').clone(),
+      z.object({ token: z.string() })
+    );
     const marker = await db
       .prepare(
         'SELECT m.user_id FROM staff_two_factor_sessions m JOIN session s ON s.id = m.session_id WHERE s.token = ?'
@@ -261,7 +273,10 @@ async function getSession(cookie: string) {
       headers: { cookie, origin: 'http://localhost:8799', 'cf-connecting-ip': '203.0.113.9' },
     })
   );
-  return (await response.json()) as { user?: { email: string } } | null;
+  return responseJson(
+    response,
+    z.object({ user: z.object({ email: z.string() }).optional() }).nullable()
+  );
 }
 const resetEmails = (email: string) =>
   db

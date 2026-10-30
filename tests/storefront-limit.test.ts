@@ -4,6 +4,7 @@ import { buildCatalogReadModels } from './helpers/catalog-driver';
 import { readProductDocument } from '../web/src/server/catalog-read';
 import { suggestCatalog } from '../web/src/server/catalog-discovery';
 import { storefrontLimited } from '../web/src/server/storefront-limit';
+import { published } from './helpers/fixtures';
 
 class Kv {
   map = new Map<string, string>();
@@ -73,7 +74,7 @@ it('fails open when the binding is absent or failing', async () => {
 
 it('a published product is served from KV without spending the budget', async () => {
   const limited = vi.fn(async () => {});
-  expect((await readProductDocument(noD1, kv, 'tee', limited))?.slug).toBe('tee');
+  expect(published(await readProductDocument(noD1, kv, 'tee', limited)).slug).toBe('tee');
   expect(limited).not.toHaveBeenCalled();
   expect(queries).toBe(0);
 });

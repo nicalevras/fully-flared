@@ -99,6 +99,13 @@ export const homePageInputSchema = z.object({
   page: z.number().int().min(1).max(MAX_STOREFRONT_PAGE).catch(1).default(1),
 });
 
+/** `live` asks a page loader for stock; only client navigation sets it, never SSR. */
+const liveFlag = z.boolean().default(false);
+export const productPageInputSchema = z.object({ slug: slugString, live: liveFlag });
+export const homeInputSchema = z.object({ live: liveFlag });
+export const shopPageInputSchema = homePageInputSchema.extend({ live: liveFlag });
+export const liveCollectionPageInputSchema = collectionPageInputSchema.extend({ live: liveFlag });
+
 export const successOrderInputSchema = z.object({
   orderId: idString,
   token: z.string().max(200).optional().default(''),

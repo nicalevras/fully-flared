@@ -11,31 +11,37 @@ import {
 } from '../web/src/server/checkout-admission';
 import { parseAdmissionConfig } from '../web/src/schemas/limits';
 import { fakeAdmissionNamespace } from './helpers/admission';
+import { responseJson, z } from './helpers/json';
+import type { ProviderCall } from './helpers/payments';
+import type { PaymentProvider } from '../web/src/server/payments';
 import { checkoutCart, reviewSession } from './helpers/checkout-review';
 
 vi.mock('../web/src/server/session', () => ({ getSessionUser: async () => null }));
 vi.mock('../web/src/server/turnstile', () => ({ verifyTurnstile: async () => true }));
 
 const provider = {
-  createCheckout: vi.fn(),
-  createCoupon: vi.fn(),
-  createCheckoutSession: vi.fn(),
-  createCheckoutCustomer: vi.fn(async () => 'cus_fixture'),
+  createCheckout: vi.fn<ProviderCall<'createCheckout'>>(),
+  createCoupon: vi.fn<ProviderCall<'createCoupon'>>(),
+  createCheckoutSession: vi.fn<ProviderCall<'createCheckoutSession'>>(),
+  createCheckoutCustomer: vi.fn<ProviderCall<'createCheckoutCustomer'>>(async () => 'cus_fixture'),
   retrieveCheckoutSession: (id: string) => reviewSession(db, id),
   async verifyWebhook(payload: string) {
     const event = JSON.parse(payload);
     return { ...event, data: event.data.object };
   },
-  refund: vi.fn(async () => ({ id: 're_x', status: 'pending' })),
-};
+  refund: vi.fn<ProviderCall<'refund'>>(async () => ({ id: 're_x', status: 'pending' })),
+} satisfies PaymentProvider;
 vi.mock('../web/src/server/payments', () => ({ getStripeProvider: () => provider }));
 
 // ---------------------------------------------------------------- core
 
 function memoryStorage() {
-  const state = {
-    bucket: null as { tokens: number; updatedAtMs: number } | null,
-    permits: new Map<string, number>(),
+  const state: {
+    bucket: { tokens: number; updatedAtMs: number } | null;
+    permits: Map<string, number>;
+  } = {
+    bucket: null,
+    permits: new Map(),
   };
   const storage: AdmissionStorage = {
     readBucket: () => state.bucket,
@@ -288,7 +294,7 @@ it('replays of an existing intent never consume admission capacity', async () =>
     { DB: db, CHECKOUT_ADMISSION: exhausted.namespace } as never
   );
   expect(replay.status).toBe(200);
-  expect((await replay.json()).state).toBe('review_ready');
+  expect((await responseJson(replay, z.object({ state: z.string() }))).state).toBe('review_ready');
   expect(provider.createCheckoutSession).toHaveBeenCalledTimes(1);
 });
 

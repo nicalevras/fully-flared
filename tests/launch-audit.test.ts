@@ -7,6 +7,9 @@ import { pruneRetention } from '../web/src/server/operations';
 import { restockOrderStatements } from '../web/src/server/inventory';
 import { paidRevenueByCurrency, monetaryReportQueries } from '../web/src/server/reports';
 import { insertReturnRequest } from '../web/src/server/returns';
+import { present } from './helpers/fixtures';
+import { responseJson, z } from './helpers/json';
+import { noNext, routeResponse } from './helpers/route';
 
 const actor = vi.hoisted(() => ({ role: 'owner' }));
 vi.mock('../web/src/server/session', async (original) => ({
@@ -32,10 +35,18 @@ async function order(id: string, payment = 'paid', currency = 'USD', status = 'p
     .run();
 }
 async function report(type: string, format = 'json') {
-  const handler = Route.options.server!.handlers!.GET!;
-  return (handler as (ctx: { request: Request }) => Promise<Response>)({
-    request: new Request(`http://localhost/api/reports?type=${type}&format=${format}`),
-  });
+  const handlers = present(Route.options.server?.handlers, 'the reports handlers');
+  if (typeof handlers === 'function') throw new Error('Expected direct route handlers');
+  const handler = present(handlers.GET, 'the reports GET handler');
+  return routeResponse(
+    await handler({
+      request: new Request(`http://localhost/api/reports?type=${type}&format=${format}`),
+      context: undefined,
+      params: {},
+      pathname: '/api/reports',
+      next: noNext,
+    })
+  );
 }
 it('accepts only the seven supported two-decimal currencies', () => {
   for (const code of ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'NZD', 'CHF'])
@@ -114,7 +125,7 @@ it('uses original gross amounts across currencies and refund states, excluding u
     ['unpaid', 'unpaid', 'USD', 'pending_payment'],
     ['failed', 'failed', 'USD', 'canceled'],
     ['recovery', 'paid', 'USD', 'canceled'],
-  ]) {
+  ] as const) {
     await order(id, payment, currency, status);
     await db
       .prepare(
@@ -135,16 +146,17 @@ it('uses original gross amounts across currencies and refund states, excluding u
   for (const [query, key] of [
     [monetaryReportQueries.products, 'revenue_cents'],
     [monetaryReportQueries.customers, 'spent_cents'],
-  ]) {
+  ] as const) {
     const rows = (await db.prepare(query).all()).results;
     expect(rows.map((r) => [r.currency, r[key]]).sort()).toEqual([
       ['EUR', 1000],
       ['USD', 2000],
     ]);
   }
-  const sales = (await (await report('sales')).json()) as {
-    rows: Array<{ currency: string; total_cents: number }>;
-  };
+  const sales = await responseJson(
+    await report('sales'),
+    z.object({ rows: z.array(z.object({ currency: z.string(), total_cents: z.number() })) })
+  );
   expect(sales.rows.map((r) => [r.currency, r.total_cents]).sort()).toEqual([
     ['EUR', 1000],
     ['USD', 2000],

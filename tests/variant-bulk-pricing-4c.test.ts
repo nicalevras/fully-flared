@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedProduct } from './helpers/d1';
+import { present } from './helpers/fixtures';
 import { runAdminAction } from '../web/src/server/admin-actions';
 
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, env: Env, dispose: () => Promise<void>;
 const owner = { id: 'owner', role: 'owner' };
-const env = {} as Cloudflare.Env;
 
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env, dispose } = await createTestDb());
   await seedProduct(db);
   for (let i = 2; i <= 25; i++) {
     await db
@@ -30,7 +30,7 @@ async function firstVariantId(): Promise<string> {
   const row = await db
     .prepare("SELECT id FROM variants WHERE sku = 'TEE-1'")
     .first<{ id: string }>();
-  return row!.id;
+  return present(row, 'the TEE-1 variant').id;
 }
 
 describe('Phase 4C bulk variant pricing', () => {

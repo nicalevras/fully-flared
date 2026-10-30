@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { isRedirect } from '../web/node_modules/@tanstack/react-router';
 import type { AuthErrorCode } from '../web/src/server/session';
 import { signInSearch } from '../web/src/lib/search-params';
+import type { SearchSchemaInput } from '../web/node_modules/@tanstack/react-router';
 import { Route as AdminRoute } from '../web/src/routes/admin/route';
 
 const failure = vi.hoisted((): { code: AuthErrorCode } => ({ code: 'UNAUTHENTICATED' }));
@@ -25,6 +26,8 @@ vi.mock('../web/node_modules/@tanstack/react-start/dist/esm/server.js', () => ({
   getRequest: () => new Request('http://localhost:8799/admin'),
 }));
 
+const rawSearch: SearchSchemaInput = { __TSearchSchemaInput__: 'TSearchSchemaInput' };
+
 async function adminRedirect(code: AuthErrorCode, href: string) {
   failure.code = code;
   const beforeLoad = AdminRoute.options.beforeLoad;
@@ -40,8 +43,8 @@ async function adminRedirect(code: AuthErrorCode, href: string) {
 
 describe('sign-in return path', () => {
   it('keeps same-origin paths with their query and hash', () => {
-    expect(signInSearch({ redirect: '/admin' })).toEqual({ redirect: '/admin' });
-    expect(signInSearch({ redirect: '/admin/orders?page=2#top' })).toEqual({
+    expect(signInSearch({ ...rawSearch, redirect: '/admin' })).toEqual({ redirect: '/admin' });
+    expect(signInSearch({ ...rawSearch, redirect: '/admin/orders?page=2#top' })).toEqual({
       redirect: '/admin/orders?page=2#top',
     });
   });
@@ -61,7 +64,7 @@ describe('sign-in return path', () => {
       null,
       undefined,
     ])
-      expect(signInSearch({ redirect })).toEqual({ redirect: undefined });
+      expect(signInSearch({ ...rawSearch, redirect })).toEqual({ redirect: undefined });
   });
 });
 

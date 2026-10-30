@@ -2,8 +2,9 @@ import { afterAll, beforeAll, expect, it } from 'vitest';
 import { createTestDb, seedProduct } from './helpers/d1';
 import { createAuth } from '../web/src/lib/auth';
 import { runAdminAction } from '../web/src/server/admin-actions';
+import { present } from './helpers/fixtures';
 
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, env: Env, dispose: () => Promise<void>;
 let auth: ReturnType<typeof createAuth>;
 let ownerCookie: string;
 const base = 'http://localhost:8799';
@@ -17,7 +18,7 @@ async function request(path: string, body?: unknown, cookie = ownerCookie) {
   );
 }
 beforeAll(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env, dispose } = await createTestDb());
   auth = createAuth(db, base, 'round-one-secret-with-at-least-32-characters');
   await auth.api.signUpEmail({
     body: { name: 'Owner', email: 'round1@example.com', password: 'password123' },
@@ -45,7 +46,7 @@ it('disables every admin-plugin HTTP endpoint, including alternate normalized pa
   const plugin = auth.options.plugins?.find((p) => p.id === 'admin');
   expect(plugin?.endpoints).toBeTruthy();
   const paths: string[] = [];
-  for (const endpoint of Object.values(plugin!.endpoints!)) {
+  for (const endpoint of Object.values(present(plugin?.endpoints, 'the admin plugin endpoints'))) {
     if (!endpoint.path) continue;
     paths.push(endpoint.path);
     const methods = [endpoint.options.method].flat();
@@ -84,51 +85,60 @@ it('support cannot use the raw user-list route without two-factor setup', async 
 });
 
 it('retains internal role updates and revokes the target sessions through the store action', async () => {
-  const target = await db
-    .prepare("SELECT id FROM user WHERE email='round1-support@example.com'")
-    .first<{ id: string }>();
-  const actor = await db
-    .prepare("SELECT id FROM user WHERE email='round1@example.com'")
-    .first<{ id: string }>();
+  const target = present(
+    await db
+      .prepare("SELECT id FROM user WHERE email='round1-support@example.com'")
+      .first<{ id: string }>(),
+    'the support user'
+  );
+  const actor = present(
+    await db
+      .prepare("SELECT id FROM user WHERE email='round1@example.com'")
+      .first<{ id: string }>(),
+    'the owner'
+  );
   const headers = new Headers({ cookie: ownerCookie });
   const result = await runAdminAction(
     db,
-    {} as never,
-    { id: actor!.id, role: 'owner' },
+    env,
+    { id: actor.id, role: 'owner' },
     'user.setRole',
-    { userId: target!.id, role: 'manager' },
+    { userId: target.id, role: 'manager' },
     { auth, headers }
   );
   expect(result.ok).toBe(true);
-  expect(await db.prepare('SELECT role FROM user WHERE id=?').bind(target!.id).first()).toEqual({
+  expect(await db.prepare('SELECT role FROM user WHERE id=?').bind(target.id).first()).toEqual({
     role: 'manager',
   });
   expect(
-    await db.prepare('SELECT COUNT(*) AS n FROM session WHERE user_id=?').bind(target!.id).first()
+    await db.prepare('SELECT COUNT(*) AS n FROM session WHERE user_id=?').bind(target.id).first()
   ).toEqual({ n: 0 });
 });
 
 it('rejects protected self-deletion before changing orders, addresses or returns', async () => {
-  const owner = await db
-    .prepare("SELECT id FROM user WHERE email='round1@example.com'")
-    .first<{ id: string }>();
+  const owner = present(
+    await db
+      .prepare("SELECT id FROM user WHERE email='round1@example.com'")
+      .first<{ id: string }>(),
+    'the owner'
+  );
   const timestamp = new Date().toISOString();
   await db.batch([
     db
       .prepare(
         "INSERT INTO orders(id,number,customer_email,user_id,subtotal_cents,total_cents,created_at,updated_at) VALUES('round1-order','ROUND1','round1@example.com',?,100,100,?,?)"
       )
-      .bind(owner!.id, timestamp, timestamp),
+      .bind(owner.id, timestamp, timestamp),
     db
       .prepare(
         "INSERT INTO addresses(id,user_id,name,line1,city,postal_code,country) VALUES('round1-address',?,'Owner','Private street','City','123','US')"
       )
-      .bind(owner!.id),
+      .bind(owner.id),
     db
       .prepare(
         "INSERT INTO returns(id,order_id,user_id,reason,created_at) VALUES('round1-return','round1-order',?,'Keep me',?)"
       )
-      .bind(owner!.id, timestamp),
+      .bind(owner.id, timestamp),
   ]);
   const before = await db.batch([
     db.prepare("SELECT * FROM orders WHERE id='round1-order'"),
@@ -154,7 +164,7 @@ it('requires demotion before an owner can be administratively deleted', async ()
     .run();
   const result = await runAdminAction(
     db,
-    {} as never,
+    env,
     { id: 'another-owner', role: 'owner' },
     'customer.delete',
     { userId: 'protected-other' }
@@ -186,23 +196,26 @@ it.each(['demote', 'ban', 'delete'])(
       );
       if (operation === 'delete')
         await t.db.prepare("UPDATE user SET role='customer' WHERE id='admin'").run();
-      const last = await t.db
-        .prepare("SELECT id FROM user WHERE role IN ('owner','admin') AND banned=0")
-        .first<{ id: string }>();
+      const last = present(
+        await t.db
+          .prepare("SELECT id FROM user WHERE role IN ('owner','admin') AND banned=0")
+          .first<{ id: string }>(),
+        'the last active owner'
+      );
       await expect(
-        t.db.prepare('UPDATE user SET banned=1 WHERE id=?').bind(last!.id).run()
+        t.db.prepare('UPDATE user SET banned=1 WHERE id=?').bind(last.id).run()
       ).rejects.toThrow(/owner/i);
-      await expect(
-        t.db.prepare('DELETE FROM user WHERE id=?').bind(last!.id).run()
-      ).rejects.toThrow(/owner/i);
+      await expect(t.db.prepare('DELETE FROM user WHERE id=?').bind(last.id).run()).rejects.toThrow(
+        /owner/i
+      );
       await t.db
         .prepare(
           "INSERT INTO user(id,name,email,role,banned,created_at,updated_at) VALUES('banned-owner','Banned','banned@test.com','owner',1,0,0)"
         )
         .run();
-      await expect(
-        t.db.prepare('DELETE FROM user WHERE id=?').bind(last!.id).run()
-      ).rejects.toThrow(/owner/i);
+      await expect(t.db.prepare('DELETE FROM user WHERE id=?').bind(last.id).run()).rejects.toThrow(
+        /owner/i
+      );
     } finally {
       await t.dispose();
     }

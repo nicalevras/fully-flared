@@ -7,6 +7,7 @@ import {
 } from '../../web/src/server/catalog-publisher';
 import { vi } from 'vitest';
 import { CatalogBudget } from '../../web/src/server/catalog-exec';
+import { present } from './fixtures';
 
 type KvLike = {
   get(key: string): Promise<string | null>;
@@ -64,7 +65,7 @@ export async function buildCatalogReadModels(
 ): Promise<CatalogBuildResult> {
   for (let guard = 0; guard < 100_000; guard++) {
     const step = await processCatalogBuild(db, kv, { budget: new CatalogBudget() });
-    if (step.done) return step.result!;
+    if (step.done) return present(step.result, 'the finished build result');
     if (step.retryAfterSeconds && vi.isFakeTimers())
       vi.setSystemTime(Date.now() + step.retryAfterSeconds * 1000);
   }

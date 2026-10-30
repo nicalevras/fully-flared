@@ -91,11 +91,11 @@ describe('read-path census', () => {
     const { db, dispose } = await createTestDb();
     try {
       await seedProduct(db, { onHand: 5 });
-      const twoCharTitle = await adminInventoryList(db, { q: 'ee', page: 1, size: 25 });
+      const twoCharTitle = await adminInventoryList(db, { q: 'ee', page: 1, size: 25, low: false });
       expect(twoCharTitle.total).toBe(0);
-      const skuPrefix = await adminInventoryList(db, { q: 'TE', page: 1, size: 25 });
+      const skuPrefix = await adminInventoryList(db, { q: 'TE', page: 1, size: 25, low: false });
       expect(skuPrefix.total).toBeGreaterThanOrEqual(1);
-      const title = await adminInventoryList(db, { q: 'Tee', page: 1, size: 25 });
+      const title = await adminInventoryList(db, { q: 'Tee', page: 1, size: 25, low: false });
       expect(title.total).toBeGreaterThanOrEqual(1);
     } finally {
       await dispose();

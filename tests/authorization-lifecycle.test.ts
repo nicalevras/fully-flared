@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createTestDb, seedProduct, expectLedgerMatchesCounters } from './helpers/d1';
 import { fakeAdmissionNamespace } from './helpers/admission';
+import { fakeProvider } from './helpers/payments';
 import { createPendingOrder, quoteOrder } from '../web/src/server/checkout';
 import { loadIntent } from '../web/src/server/checkout-intents';
 import { runAuthorizedCheckout } from '../web/src/server/authorized-checkout';
@@ -103,9 +104,7 @@ async function attempt(discountCode?: string, cart?: CartRef) {
   });
   const expire = vi.fn(async () => {});
   const refund = vi.fn(async () => ({ id: `re_${id}`, status: 'succeeded' }));
-  const provider = {
-    createCheckout: vi.fn(),
-    verifyWebhook: vi.fn(),
+  const provider = fakeProvider({
     refund,
     retrieveCheckoutSession: async () => ({
       id: `cs_${id}`,
@@ -120,7 +119,7 @@ async function attempt(discountCode?: string, cart?: CartRef) {
     capturePaymentIntent: capture,
     cancelPaymentIntent: cancel,
     expireCheckoutSession: expire,
-  } as unknown as PaymentProvider;
+  });
   return { id, orderId: order.orderId, pi, capture, cancel, expire, refund, provider };
 }
 async function stock() {
