@@ -1,3 +1,4 @@
+import * as z from 'zod';
 import {
   releaseOrderHoldsStmts,
   restockOrderStatements,
@@ -19,11 +20,9 @@ import {
 // Stripe may prune idempotency keys after 24h; never blindly recreate after 23h.
 const REFUND_CREATION_RETRY_CUTOFF_MS = 23 * 60 * 60_000;
 
-type RefundState =
-  'pending' | 'requires_action' | 'uncertain' | 'succeeded' | 'failed' | 'canceled';
 type Purpose = 'staff' | 'return' | 'late_payment' | 'external';
 const at = () => new Date().toISOString();
-const states = new Set<RefundState>([
+const refundStateSchema = z.enum([
   'pending',
   'requires_action',
   'uncertain',
@@ -31,6 +30,10 @@ const states = new Set<RefundState>([
   'failed',
   'canceled',
 ]);
+const refundEventMetadataSchema = z.object({ operation_id: z.string().optional() });
+const chargeRefundsSchema = z.object({
+  data: z.array(z.record(z.string(), z.unknown())).optional(),
+});
 
 export async function settleRefund(
   db: D1Database,
@@ -38,7 +41,8 @@ export async function settleRefund(
   status: string,
   stripeId?: string
 ) {
-  if (!states.has(status as RefundState)) throw new Error('Unknown provider refund state');
+  if (!refundStateSchema.safeParse(status).success)
+    throw new Error('Unknown provider refund state');
   const row = await db
     .prepare(
       `SELECT r.*, o.number, o.customer_email FROM refunds r JOIN orders o ON o.id=r.order_id WHERE r.id=?`
@@ -250,11 +254,12 @@ export async function requestRefund(
     (input.amountCents != null && input.amountCents !== row.amount_cents)
   )
     throw new Error('Refund request identity does not match operation');
+  const operation = row;
   const response = () => ({
     ok: true as const,
-    stripeRefundId: row!.stripe_refund_id,
-    amount: row!.amount_cents,
-    status: row!.status,
+    stripeRefundId: operation.stripe_refund_id,
+    amount: operation.amount_cents,
+    status: operation.status,
   });
   if (['succeeded', 'failed', 'canceled'].includes(row.status)) return response();
   const { limits } = await getSettings(db);
@@ -302,7 +307,7 @@ export async function handleRefundEvent(
   provider?: PaymentProvider
 ) {
   if (typeof data.id !== 'string') throw new Error('Refund event missing identity');
-  const metadata = data.metadata as { operation_id?: string } | undefined;
+  const metadata = refundEventMetadataSchema.safeParse(data.metadata).data;
   let row = await db
     .prepare('SELECT id FROM refunds WHERE stripe_refund_id=? OR request_id=?')
     .bind(data.id, metadata?.operation_id ?? '')
@@ -341,7 +346,7 @@ export async function syncChargeRefund(
   data: Record<string, unknown>,
   provider?: PaymentProvider
 ) {
-  const refunds = data.refunds as { data?: Record<string, unknown>[] } | undefined;
+  const refunds = chargeRefundsSchema.safeParse(data.refunds).data;
   if (refunds?.data?.length) {
     for (const refund of refunds.data)
       await handleRefundEvent(db, 'refund.updated', refund, provider);
@@ -369,8 +374,8 @@ export async function syncChargeRefund(
     .bind(order.id)
     .first<{ s: number }>();
   const delta = Number(data.amount_refunded) - (succeeded?.s ?? 0);
-  if (pending.results.length === 1 && pending.results[0]!.amount_cents === delta)
-    await settleRefund(db, pending.results[0]!.id, 'succeeded');
+  const only = pending.results.length === 1 ? pending.results.at(0) : undefined;
+  if (only?.amount_cents === delta) await settleRefund(db, only.id, 'succeeded');
   else if (delta > 0) throw new Error('Individual provider refunds required for reconciliation');
 }
 
@@ -423,7 +428,7 @@ export async function reconcileRefundOperations(
       db,
       'refund_operations',
       cursors.get('refund_operations') ?? '',
-      rows.results.length === limit ? rows.results.at(-1)!.id : '',
+      rows.results.length === limit ? (rows.results.at(-1)?.id ?? '') : '',
       claim
     );
   const alertDue = refundAlertDue(captured);
