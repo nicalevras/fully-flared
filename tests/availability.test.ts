@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { createTestDb, seedProduct } from './helpers/d1';
-import { getAvailability } from '../web/src/server/availability';
+import { getAvailability, type AvailabilityCacheStorage } from '../web/src/server/availability';
+import { at, withOverrides } from './helpers/fixtures';
 import { availabilityInputSchema, type AvailabilityInput } from '../web/src/schemas/availability';
 import { setCartLine } from '../web/src/server/cart';
 let db: D1Database, dispose: () => Promise<void>;
@@ -16,7 +17,7 @@ afterAll(async () => {
 const read = (
   data: AvailabilityInput = { mode: 'products', ids: ['p1'] },
   database = db,
-  storage?: CacheStorage
+  storage?: AvailabilityCacheStorage
 ) =>
   getAvailability(availabilityInputSchema.parse(data), database, 'https://store.example', storage);
 it('validates the server-function input and reports sold out and zero-stock backorders', async () => {
@@ -79,9 +80,9 @@ it('reuses overlapping per-product cache entries, coalesces concurrent reads, an
       entries.set(r.url, { body: await v.text(), until: time + 5000 });
     },
   };
-  const storage = { open: async () => cache } as never;
+  const storage = { open: async () => cache };
   const prepare = vi.fn(db.prepare.bind(db));
-  const counted = { prepare } as unknown as D1Database;
+  const counted = withOverrides(db, { prepare });
   try {
     await Promise.all([read(undefined, counted, storage), read(undefined, counted, storage)]);
     expect(prepare).toHaveBeenCalledTimes(1);
@@ -111,21 +112,21 @@ it('cache failures and ineffective storage fall back; failed D1 reads use the fu
           open: async () => {
             throw new Error('private');
           },
-        } as never)
+        })
       ).products
     ).toHaveLength(1);
     expect(warn).toHaveBeenCalled();
     expect(warn.mock.calls.flat().join('')).not.toContain('private');
     const put = vi.fn();
-    const broken = {
+    const broken = withOverrides(db, {
       prepare() {
         throw new Error('Availability database unavailable');
       },
-    } as never;
+    });
     await expect(
       read(undefined, broken, {
         open: async () => ({ match: async () => undefined, put }),
-      } as never)
+      })
     ).rejects.toMatchObject({
       status: 503,
       code: 'DEPENDENCY',
@@ -134,10 +135,10 @@ it('cache failures and ineffective storage fall back; failed D1 reads use the fu
     expect(put).not.toHaveBeenCalled();
     expect(error.mock.calls.flat().join('')).toContain('Availability database unavailable');
     const prepare = vi.fn(db.prepare.bind(db));
-    const counted = { prepare } as unknown as D1Database;
+    const counted = withOverrides(db, { prepare });
     const noop = {
       open: async () => ({ match: async () => undefined, put: async () => {} }),
-    } as never;
+    };
     await read(undefined, counted, noop);
     await read(undefined, counted, noop);
     expect(prepare).toHaveBeenCalledTimes(2);
@@ -159,8 +160,8 @@ it('handles fifty distinct IDs, missing stock, multiple variants, archived and a
     .prepare("INSERT INTO stock(sku,on_hand,reserved,updated_at) VALUES('SECOND',0,0,'now')")
     .run();
   const detail = await read({ mode: 'product', ids: ['p1'] });
-  expect(detail.products[0].status).toBe('backorder');
-  expect(detail.products[0].variants).toHaveLength(2);
+  expect(at(detail.products, 0).status).toBe('backorder');
+  expect(at(detail.products, 0).variants).toHaveLength(2);
   await db.prepare("DELETE FROM stock WHERE sku IN('SECOND','TEE-1')").run();
   expect(await read({ mode: 'product', ids: ['p1'] })).toMatchObject({
     products: [{ status: 'unavailable', variants: [{ available: null }, { available: null }] }],

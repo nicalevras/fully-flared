@@ -3,12 +3,11 @@ import { createTestDb } from './helpers/d1';
 import { runAdminAction } from '../web/src/server/admin-actions';
 import { calculateShipping } from '../web/src/server/checkout';
 
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, env: Env, dispose: () => Promise<void>;
 const owner = { id: 'owner', role: 'owner' };
-const env = {} as Cloudflare.Env;
 
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env, dispose } = await createTestDb());
   await db
     .prepare(
       "INSERT INTO shipping_zones (id, name, countries_json, created_at) VALUES ('z1', 'United States', '[\"US\"]', '2026-01-01T00:00:00.000Z')"

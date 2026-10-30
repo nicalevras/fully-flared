@@ -25,6 +25,8 @@ import {
 import { runWithRequestContext } from '../web/src/server/exec-context';
 import { getPublishedCollection } from '../web/src/server/catalog-discovery';
 import { catalogQueueHarness } from './helpers/catalog-queue';
+import { at, present, published, requestContext } from './helpers/fixtures';
+import { parseJson, z } from './helpers/json';
 
 class Kv {
   map = new Map<string, string>();
@@ -69,17 +71,20 @@ it('a missing old page resolves its pinned publication, never the newest one', a
 it('a schema-shaped but corrupted immutable page falls back to its exact mirror', async () => {
   const ref = await readListingRef(db, kv, ALL_LISTING);
   const page = await readListingPage(db, kv, ALL_LISTING, 1, ref);
-  const key = [...kv.map.keys()].find((k) => k.startsWith('catalog:r1:listing:all:page:1:'))!;
+  const key = present(
+    [...kv.map.keys()].find((k) => k.startsWith('catalog:r1:listing:all:page:1:')),
+    'the page 1 key'
+  );
   kv.map.set(
     key,
-    JSON.stringify({ ...page, cards: page!.cards.map((c) => ({ ...c, title: 'CORRUPT' })) })
+    JSON.stringify({ ...page, cards: present(page).cards.map((c) => ({ ...c, title: 'CORRUPT' })) })
   );
   expect(await readListingPage(db, kv, ALL_LISTING, 1, ref)).toEqual(page);
 });
 
 it('a missing product value uses its published mirror rather than current source', async () => {
-  const old = await readProductDocument(db, kv, 'tee');
-  kv.map.delete(productDocKey(old!.id, old!.revision));
+  const old = published(await readProductDocument(db, kv, 'tee'));
+  kv.map.delete(productDocKey(old.id, old.revision));
   await db.prepare("UPDATE products SET title='Draft edit not published' WHERE id='p1'").run();
   expect(await readProductDocument(db, kv, 'tee')).toEqual(old);
 });
@@ -100,7 +105,7 @@ it('healthy home layout, teasers and products need no source database reads', as
       return Reflect.get(target, key);
     },
   });
-  const env = { CATALOG_KV: kv as unknown as KVNamespace };
+  const env = { CATALOG_KV: kv };
   await getShopProductsPage(forbidden, env, 1);
   await getStorefrontLayout(forbidden, env);
   await getHomeCollections(forbidden, env);
@@ -114,9 +119,9 @@ it('request promises pin sequential and concurrent reads without leaking across 
       return kv.get(key);
     },
   };
-  await runWithRequestContext({} as ExecutionContext, async () => {
+  await runWithRequestContext(requestContext(), async () => {
     const first = await readListingRef(db, counting, ALL_LISTING);
-    const replacement = { ...first!, publicationSeq: 100 };
+    const replacement = { ...present(first), publicationSeq: 100 };
     kv.map.set('catalog:r1:listing:all:current', JSON.stringify(replacement));
     const [second, third] = await Promise.all([
       readListingRef(db, counting, ALL_LISTING),
@@ -126,17 +131,17 @@ it('request promises pin sequential and concurrent reads without leaking across 
     expect(third).toBe(first);
     expect(gets).toBe(1);
   });
-  const next = await runWithRequestContext({} as ExecutionContext, () =>
+  const next = await runWithRequestContext(requestContext(), () =>
     readListingRef(db, counting, ALL_LISTING)
   );
-  expect(next!.publicationSeq).toBe(100);
+  expect(present(next).publicationSeq).toBe(100);
   expect(gets).toBe(2);
 });
 
 it('A to B to A reuse and corrupt directory/product/layout values resolve exact durable artifacts', async () => {
-  const a = await readListingRef(db, kv, ALL_LISTING);
-  const original = await readListingPage(db, kv, ALL_LISTING, 1, a);
-  const doc = await readProductDocument(db, kv, 'tee');
+  const a = present(await readListingRef(db, kv, ALL_LISTING));
+  const original = present(await readListingPage(db, kv, ALL_LISTING, 1, a));
+  const doc = published(await readProductDocument(db, kv, 'tee'));
   const layout = await getStorefrontLayout(db, { CATALOG_KV: kv });
   await db.prepare("UPDATE products SET title='B' WHERE id='p1'").run();
   await buildCatalogReadModels(db, kv);
@@ -144,19 +149,21 @@ it('A to B to A reuse and corrupt directory/product/layout values resolve exact 
   await db.prepare("UPDATE products SET title='Tee' WHERE id='p1'").run();
   await buildCatalogReadModels(db, kv);
   expect(await pendingRefCount()).toBe(0);
-  const again = await readListingRef(db, kv, ALL_LISTING);
-  expect(again!.rootHash).toBe(a!.rootHash);
+  const again = present(await readListingRef(db, kv, ALL_LISTING));
+  expect(again.rootHash).toBe(a.rootHash);
   for (const key of kv.map.keys()) if (key.includes(':listing:all:page:')) kv.map.delete(key);
   kv.map.set(
-    directoryKey(a!.rootHash),
+    directoryKey(a.rootHash),
     JSON.stringify({ kind: 'pages', entries: [{ page: 1, revision: 'wrong-but-schema-shaped' }] })
   );
-  kv.map.set(productDocKey(doc!.id, doc!.revision), JSON.stringify({ ...doc, title: 'Corrupt' }));
-  const revision = JSON.parse(kv.map.get(LAYOUT_REF_KEY)!).revision;
-  const raw = JSON.parse(kv.map.get(layoutKey(revision))!);
+  kv.map.set(productDocKey(doc.id, doc.revision), JSON.stringify({ ...doc, title: 'Corrupt' }));
+  const { revision } = parseJson(kv.map.get(LAYOUT_REF_KEY), z.object({ revision: z.string() }));
+  const raw = parseJson(kv.map.get(layoutKey(revision)), z.looseObject({}));
   kv.map.set(layoutKey(revision), JSON.stringify({ ...raw, storeName: 'Corrupt' }));
   expect(await readListingPage(db, kv, ALL_LISTING, 1, a)).toEqual(original);
-  expect((await readListingPage(db, kv, ALL_LISTING, 1, again))!.cards).toEqual(original!.cards);
+  expect(present(await readListingPage(db, kv, ALL_LISTING, 1, again)).cards).toEqual(
+    original.cards
+  );
   expect(await readProductDocument(db, kv, 'tee')).toEqual(doc);
   expect(await getStorefrontLayout(db, { CATALOG_KV: kv })).toEqual(layout);
 });
@@ -186,43 +193,52 @@ it('published collection, editorial, navigation and discovery render with zero D
       return Reflect.get(target, key);
     },
   });
-  const env = { CATALOG_KV: kv as never };
-  await runWithRequestContext({} as ExecutionContext, async () => {
-    expect((await getStorefrontLayout(forbidden, env)).collections[0]!.slug).toBe('tees');
-    expect((await getHomeCollections(forbidden, env))[0]!.description).toBe('Published collection');
-    expect((await getShopProductsPage(forbidden, env, 1)).total).toBe(1);
-    expect((await getPublishedCollection(forbidden, env, 'tees'))!.collection.title).toBe('Tees');
-    expect((await listAllCollections(forbidden, env)).total).toBe(1);
-    expect((await listPublishedPosts(forbidden, env)).posts[0]!.slug).toBe('launch');
-    expect((await readProductDocument(forbidden, kv, 'tee'))!.title).toBe('Tee');
-    expect((await readEditorialDocument(forbidden, kv, 'page', 'returns'))!.contentHtml).toBe(
-      '<p>Published policy</p>'
+  const env = { CATALOG_KV: kv };
+  await runWithRequestContext(requestContext(), async () => {
+    expect(at((await getStorefrontLayout(forbidden, env)).collections, 0).slug).toBe('tees');
+    expect(at(await getHomeCollections(forbidden, env), 0).description).toBe(
+      'Published collection'
     );
-    expect((await readEditorialDocument(forbidden, kv, 'post', 'launch'))!.excerpt).toBe('News');
+    expect((await getShopProductsPage(forbidden, env, 1)).total).toBe(1);
+    expect(present(await getPublishedCollection(forbidden, env, 'tees')).collection.title).toBe(
+      'Tees'
+    );
+    expect((await listAllCollections(forbidden, env)).total).toBe(1);
+    expect(at((await listPublishedPosts(forbidden, env)).posts, 0).slug).toBe('launch');
+    expect(published(await readProductDocument(forbidden, kv, 'tee')).title).toBe('Tee');
+    expect(
+      published(await readEditorialDocument(forbidden, kv, 'page', 'returns')).contentHtml
+    ).toBe('<p>Published policy</p>');
+    expect(published(await readEditorialDocument(forbidden, kv, 'post', 'launch')).excerpt).toBe(
+      'News'
+    );
   });
   expect(calls).toBe(0);
   // Corrupt a schema-shaped document, then lose its pointer: both reads
   // retain the committed content even when source changes unpublished.
-  const key = JSON.parse(kv.map.get(editorialKey('page', 'returns'))!).key;
+  const { key } = parseJson(
+    kv.map.get(editorialKey('page', 'returns')),
+    z.object({ key: z.string() })
+  );
   kv.map.set(
     key,
     JSON.stringify({
-      ...(await readEditorialDocument(db, kv, 'page', 'returns'))!,
+      ...published(await readEditorialDocument(db, kv, 'page', 'returns')),
       title: 'Corrupt',
     })
   );
   await db.prepare("UPDATE pages SET title='Unpublished edit' WHERE id='page'").run();
-  expect((await readEditorialDocument(db, kv, 'page', 'returns'))!.title).toBe('Returns');
+  expect(published(await readEditorialDocument(db, kv, 'page', 'returns')).title).toBe('Returns');
   kv.map.delete(editorialKey('page', 'returns'));
-  expect((await readEditorialDocument(db, kv, 'page', 'returns'))!.title).toBe('Returns');
+  expect(published(await readEditorialDocument(db, kv, 'page', 'returns')).title).toBe('Returns');
   const pinned = await readListingRef(db, kv, 'c');
   await db.prepare("UPDATE collections SET description='New metadata' WHERE id='c'").run();
   await buildCatalogReadModels(db, kv);
-  expect((await getPublishedCollection(db, env, 'tees'))!.collection.description).toBe(
+  expect(present(await getPublishedCollection(db, env, 'tees')).collection.description).toBe(
     'New metadata'
   );
   kv.map.set('catalog:r1:listing:c:current', JSON.stringify(pinned));
-  expect((await getPublishedCollection(db, env, 'tees'))!.collection.description).toBe(
+  expect(present(await getPublishedCollection(db, env, 'tees')).collection.description).toBe(
     'Published collection'
   );
 });
@@ -239,7 +255,7 @@ it('complete title/ID-ordered discovery and pinned collection SEO survive missin
     );
   await db.batch(statements);
   await buildCatalogReadModels(db, kv);
-  const env = { CATALOG_KV: kv as never };
+  const env = { CATALOG_KV: kv };
   const first = await listAllCollections(db, env, 1),
     second = await listAllCollections(db, env, 2);
   expect(first.total).toBe(51);
@@ -267,7 +283,7 @@ async function editCollectionDuringIndexScan() {
     if (
       !scan.edited &&
       key.startsWith('catalog:r1:listing:@collections:page:') &&
-      JSON.parse(value).items.length
+      parseJson(value, z.object({ items: z.array(z.unknown()) })).items.length
     ) {
       scan.edited = true;
       await db
@@ -297,17 +313,17 @@ it(
     expect(complete).toBe(true);
     expect(scan.edited).toBe(true);
     expect(
-      (await db
-        .prepare('SELECT COUNT(*) AS n FROM catalog_ref_state WHERE pending_payload IS NOT NULL')
-        .first<{ n: number }>())!.n
+      present(
+        await db
+          .prepare('SELECT COUNT(*) AS n FROM catalog_ref_state WHERE pending_payload IS NOT NULL')
+          .first<{ n: number }>()
+      ).n
     ).toBe(0);
-    expect((await getHomeCollections(db, { CATALOG_KV: kv as never }))[0]!.title).toBe(
+    expect(at(await getHomeCollections(db, { CATALOG_KV: kv }), 0).title).toBe(
       'Changed during index scan'
     );
-    expect((await listAllCollections(db, { CATALOG_KV: kv as never })).collections[0]!.slug).toBe(
-      'tees'
-    );
-    expect((await listAllCollections(db, { CATALOG_KV: kv as never })).collections[0]!.title).toBe(
+    expect(at((await listAllCollections(db, { CATALOG_KV: kv })).collections, 0).slug).toBe('tees');
+    expect(at((await listAllCollections(db, { CATALOG_KV: kv })).collections, 0).title).toBe(
       'Changed during index scan'
     );
   }
@@ -329,6 +345,8 @@ it(
     }
     expect(scan.edited).toBe(true);
     expect(complete).toBe(true);
-    expect((await readProductDocument(db, kv, 'tee'))?.title).toBe('Edited after index scan');
+    expect(published(await readProductDocument(db, kv, 'tee')).title).toBe(
+      'Edited after index scan'
+    );
   }
 );

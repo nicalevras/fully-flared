@@ -74,6 +74,10 @@ import-restore procedure: importing exported rows into a migrated database
 fails, because migrations already insert seed rows (such as default
 settings) and business triggers and currency locks reject historical rows.
 
+Removing the old `BACKUPS` R2 binding does not delete the existing
+`store-backups` buckets. The account owner deletes those manually in the
+Cloudflare dashboard when they are no longer needed.
+
 ### After a restore
 
 Time Travel restores D1 only. The catalog read models in KV and any cached
@@ -93,27 +97,38 @@ CATALOG_KV KEY` per key, or a bulk delete for the namespace).
    age out on their own; the rebuild also enqueues scoped cache purges.
    Wait out the minute before reopening writes.
 
-For an off-site record copy, use `wrangler d1 export`. Cloudflare does not
-support exporting a database that contains virtual tables, and `products_fts`
-is an FTS5 virtual table: a plain export of this database fails with
-`cannot export databases with Virtual Tables (fts5)` (verified against the
-local database). Export per table instead, skipping every `products_fts*`
-table, for example:
+### Export tables as records
 
-```sh
-cd web
-npx wrangler d1 export store-db --remote --table products --output products.sql
-```
+For an off-site record copy, use `wrangler d1 export` one table at a time.
+Cloudflare does not export a database that contains virtual tables, and this
+database has seven FTS5 virtual tables: `products_fts` (migration 0000) and
+`orders_fts`, `discounts_fts`, `posts_fts`, `pages_fts`, `media_fts` and
+`collections_fts` (migration 0028). A whole-database export fails with
+`cannot export databases with Virtual Tables (fts5)`, and so does an export of
+any `*_fts` table.
 
-Repeat for each application table (list them with
-`npx wrangler d1 execute store-db --remote --command "SELECT name FROM sqlite_master WHERE type='table'"`).
-Skip `d1_migrations`, `_cf_KV`, `_cf_METADATA`, `sqlite_sequence`, and every
-`products_fts*` table. These exports are records for inspection and manual
-recovery work; they are not a restore mechanism.
+1. From `web/`, list the tables to export. The query leaves out the FTS tables
+   with their shadow tables, the D1 and SQLite internal tables, and
+   `d1_migrations`:
 
-Removing the old `BACKUPS` R2 binding does not delete the existing
-`store-backups` buckets. The account owner deletes those manually in the
-Cloudflare dashboard when they are no longer needed.
+   ```sh
+   npx wrangler d1 execute store-db --remote --command "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '%\_fts%' ESCAPE '\' AND name NOT LIKE 'sqlite\_%' ESCAPE '\' AND name NOT LIKE '\_cf\_%' ESCAPE '\' AND name <> 'd1_migrations' ORDER BY name"
+   ```
+
+2. Export each listed table:
+
+   ```sh
+   npx wrangler d1 export store-db --remote --table orders --output orders.sql
+   ```
+
+Each file holds one `CREATE TABLE` and its rows. It has no indexes and no
+triggers, so the stock, status and currency guards and the FTS triggers are
+missing from it. The files are records for inspection and manual recovery
+work. They are not a restore path: Time Travel is the only one, as described
+above.
+
+To try the export without touching the deployed database, run the same
+commands with `--local` against a database migrated by `npm run migrate:local`.
 
 ## Verify
 

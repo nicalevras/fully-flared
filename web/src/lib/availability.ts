@@ -1,4 +1,4 @@
-import { useServerFn } from '@tanstack/react-start';
+import { createIsomorphicFn, useServerFn } from '@tanstack/react-start';
 import { getAvailabilityFn } from './availabilityFns';
 import { useEffect, useState } from 'react';
 import type {
@@ -12,6 +12,7 @@ export type AvailabilityById = Record<string, ProductAvailability>;
 export type AvailabilityReader = (input: {
   data: AvailabilityInput;
 }) => Promise<AvailabilityResponse>;
+export type AvailabilitySeed = { at: number; products: AvailabilityById };
 const pending = new WeakMap<AvailabilityReader, Map<string, Promise<ProductAvailability[]>>>();
 
 async function readBatch(ids: string[], mode: AvailabilityMode, read: AvailabilityReader) {
@@ -64,10 +65,35 @@ export function loadPageAvailability(
   };
 }
 
+/** True only in the browser bundle, so SSR loaders never ask for stock. */
+export const inBrowser = createIsomorphicFn()
+  .server(() => false)
+  .client(() => true);
+
+/** Stamps loader-fetched stock with the client time it arrived. */
+export function seedAvailability<T extends { availability: AvailabilityById | null }>(data: T) {
+  return {
+    ...data,
+    availability: data.availability ? { at: Date.now(), products: data.availability } : null,
+  };
+}
+
+// Matches defaultPreloadStaleTime: older seeds come from reused loader data.
+const SEED_FRESH_MS = 10_000;
+
+function seededReader(seed: AvailabilitySeed | null, read: AvailabilityReader): AvailabilityReader {
+  if (!seed || Date.now() - seed.at >= SEED_FRESH_MS) return read;
+  return async ({ data }) => {
+    const products = data.ids.flatMap((id) => seed.products[id] ?? []);
+    return products.length === data.ids.length ? { products } : read({ data });
+  };
+}
+
 export function useAvailability(
   ids: string[],
   mode: AvailabilityMode = 'products',
-  pageKey = ''
+  pageKey = '',
+  seed: AvailabilitySeed | null = null
 ): AvailabilityById {
   const read = useServerFn(getAvailabilityFn);
   const key = JSON.stringify([...new Set(ids)].sort());
@@ -84,9 +110,9 @@ export function useAvailability(
         JSON.parse(key) as string[],
         mode,
         (value) => setState({ scope, value }),
-        read
+        seededReader(seed, read)
       ),
-    [key, mode, scope, read]
+    [key, mode, scope, read, seed]
   );
   return state.scope === scope ? state.value : {};
 }

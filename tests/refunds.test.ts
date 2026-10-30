@@ -16,13 +16,17 @@ vi.mock('../web/src/server/payments', () => ({
 }));
 import { refundOrder } from '../web/src/server/admin-actions';
 import { pendingIntent } from './helpers/pending-intent';
+import { present } from './helpers/fixtures';
+import type { WorkerEnv } from '../web/src/server/env';
 
 let db: D1Database;
+let env: Env;
 let dispose: () => Promise<void>;
 
 beforeAll(async () => {
   const t = await createTestDb();
   db = t.db;
+  env = t.env;
   dispose = t.dispose;
   await seedProduct(db, { onHand: 4, priceCents: 2000 });
   const now = Date.now();
@@ -77,28 +81,26 @@ describe('failed refund attempts', () => {
       )
       .bind(now, now)
       .run();
-    await expect(
-      refundOrder(
-        db,
-        {
-          STRIPE_SECRET_KEY: 'sk_test_invalid_key',
-          STRIPE_WEBHOOK_SECRET: 'whsec_invalid',
-        } as never,
-        'refund-fail-order',
-        2000
-      )
-    ).rejects.toThrow();
+    const invalidStripeKeys: WorkerEnv = {
+      ...env,
+      STRIPE_SECRET_KEY: 'sk_test_invalid_key',
+      STRIPE_WEBHOOK_SECRET: 'whsec_invalid',
+    };
+    await expect(refundOrder(db, invalidStripeKeys, 'refund-fail-order', 2000)).rejects.toThrow();
     const failed = await db
       .prepare("SELECT status FROM refunds WHERE order_id = 'refund-fail-order'")
       .first<{ status: string }>();
     expect(failed?.status).toBe('uncertain');
-    const pending = await db
-      .prepare("SELECT id FROM refunds WHERE order_id='refund-fail-order'")
-      .first<{ id: string }>();
-    expect((await refundOrder(db, {} as never, 'refund-fail-order', 2000)).ok).toBe(false);
-    await settleRefund(db, pending!.id, 'failed');
+    const pending = present(
+      await db
+        .prepare("SELECT id FROM refunds WHERE order_id='refund-fail-order'")
+        .first<{ id: string }>(),
+      'the uncertain refund'
+    );
+    expect((await refundOrder(db, env, 'refund-fail-order', 2000)).ok).toBe(false);
+    await settleRefund(db, pending.id, 'failed');
     // The full balance is still refundable afterwards.
-    const ok = await refundOrder(db, {} as never, 'refund-fail-order', 2000);
+    const ok = await refundOrder(db, env, 'refund-fail-order', 2000);
     expect(ok.ok).toBe(true);
   }, 60_000);
 });
@@ -123,7 +125,6 @@ describe('cumulative refunds with restock', () => {
     const held = await reserveStock(db, [{ sku: 'TEE-1', qty: 2 }], { orderId: 'refund-order' });
     for (const reservationId of held) await commitReservation(db, reservationId);
 
-    const env = {} as Cloudflare.Env;
     const first = await refundOrder(db, env, 'refund-order', 1000, false);
     expect(first.ok).toBe(true);
     const second = await refundOrder(db, env, 'refund-order', 1000, false);

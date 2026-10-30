@@ -1,6 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import type Stripe from '../web/node_modules/stripe';
 import { StripeProvider, type CheckoutRequest } from '../web/src/server/payments';
+import { at, present } from './helpers/fixtures';
 
 vi.mock('../web/src/server/env', () => ({ workerEnv: {} }));
 
@@ -37,7 +38,7 @@ it('uses Stripe 23 supported card allowlist for manual-capture Checkout Sessions
     },
   };
   await provider.createCheckoutSession(request);
-  const params = create.mock.calls[0]![0]!;
+  const params = present(at(create.mock.calls, 0)[0], 'the session params');
   expect(params.allowed_payment_method_types).toEqual(['card']);
   expect(params).not.toHaveProperty('payment_method_types');
   expect(params.payment_intent_data?.capture_method).toBe('manual');
@@ -68,7 +69,7 @@ it('enables automatic tax without any per-product tax code', async () => {
     expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + 1920,
   };
   await provider.createCheckoutSession(request);
-  const params = create.mock.calls[0]![0]!;
+  const params = present(at(create.mock.calls, 0)[0], 'the session params');
   expect(params.automatic_tax).toEqual({ enabled: true });
   expect(params.line_items?.[0]?.price_data?.product_data).not.toHaveProperty('tax_code');
   create.mockRestore();

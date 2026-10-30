@@ -1,11 +1,12 @@
-import { useAvailability } from '../../lib/availability';
+import { inBrowser, seedAvailability, useAvailability } from '../../lib/availability';
+import { pageAvailability } from '../../server/page-availability';
 import { absoluteUrl, pagedPath, seoMeta } from '../../lib/seo';
 import { withRequestCanonicalBase } from '../../server/canonical-base';
 import { createFileRoute, Link, stripSearchParams } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import { loadCollectionPage } from '../../server/storefront-pages';
 import { validateServerInput } from '../../server/function-boundary';
-import { collectionPageInputSchema } from '../../schemas/checkout';
+import { liveCollectionPageInputSchema } from '../../schemas/checkout';
 import { storefrontPageSearch } from '../../lib/search-params';
 import { ProductCard } from '../../components/ProductCard';
 import { CollectionNotFound } from '../../components/NotFound';
@@ -14,19 +15,31 @@ import { Card } from '@/components/ui/card';
 import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/pagination';
 
 const getCollection = createServerFn({ method: 'GET' })
-  .validator(validateServerInput(collectionPageInputSchema))
+  .validator(validateServerInput(liveCollectionPageInputSchema))
   .handler(async ({ data }) => {
     const { env } = await import('cloudflare:workers');
     const { layout, result } = await loadCollectionPage(env.DB, env, data.slug, data.page);
-    return { ...result, layout: withRequestCanonicalBase(layout) };
+    return {
+      ...result,
+      layout: withRequestCanonicalBase(layout),
+      availability: await pageAvailability(
+        data.live,
+        result.products.map((p) => p.id),
+        'products'
+      ),
+    };
   });
 
 export const Route = createFileRoute('/_shop/collections/$slug')({
   validateSearch: storefrontPageSearch,
   search: { middlewares: [stripSearchParams({ page: 1 })] },
   loaderDeps: ({ search: { page } }) => ({ page }),
-  loader: async ({ params, deps }) =>
-    getCollection({ data: { slug: params.slug, page: deps.page } }),
+  loader: async ({ params, deps, preload }) =>
+    seedAvailability(
+      await getCollection({
+        data: { slug: params.slug, page: deps.page, live: inBrowser() && !preload },
+      })
+    ),
   notFoundComponent: CollectionNotFound,
   head: ({ loaderData }) => {
     if (!loaderData) return { meta: [], links: [] };
@@ -50,11 +63,19 @@ export const Route = createFileRoute('/_shop/collections/$slug')({
 });
 
 function CollectionPage() {
-  const { collection, products, total, page, pageCount } = Route.useLoaderData();
+  const {
+    collection,
+    products,
+    total,
+    page,
+    pageCount,
+    availability: seed,
+  } = Route.useLoaderData();
   const availability = useAvailability(
     products.map((p) => p.id),
     'products',
-    collection.slug
+    collection.slug,
+    seed
   );
   return (
     <main className="py-10 lg:py-14">

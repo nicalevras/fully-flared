@@ -3,6 +3,9 @@ import { env } from './helpers/cloudflare-workers-stub';
 import { createTestDb } from './helpers/d1';
 import { Route, exportReport } from '../web/src/routes/api/reports';
 import { parseCsv } from '../web/src/server/csv';
+import { present, withOverrides } from './helpers/fixtures';
+import { responseJson, z } from './helpers/json';
+import { noNext, routeResponse } from './helpers/route';
 
 const actor = vi.hoisted(() => ({ role: 'owner' }));
 vi.mock('../web/src/server/session', async (original) => ({
@@ -20,13 +23,18 @@ afterAll(async () => {
 });
 async function get(role: string, query: string) {
   actor.role = role;
-  const handlers = Route.options.server!.handlers;
+  const handlers = present(Route.options.server?.handlers, 'the reports handlers');
   if (typeof handlers === 'function') throw new Error('Expected direct route handlers');
-  const handler = handlers!.GET;
-  if (typeof handler !== 'function') throw new Error('Expected GET handler');
-  return handler({
-    request: new Request(`http://localhost:8799/api/reports?${query}`),
-  } as never) as Promise<Response>;
+  const handler = present(handlers.GET, 'the reports GET handler');
+  return routeResponse(
+    await handler({
+      request: new Request(`http://localhost:8799/api/reports?${query}`),
+      context: undefined,
+      params: {},
+      pathname: '/api/reports',
+      next: noNext,
+    })
+  );
 }
 it('gates orders and sales exports behind customer export permission', async () => {
   for (const role of ['warehouse', 'support']) {
@@ -86,10 +94,15 @@ it('orders export is complete over 501 tied orders, with totals per currency', a
   expect(csv.status).toBe(200);
   const parsed = parseCsv(await csv.text());
   expect(parsed).toHaveLength(502);
-  const json = (await (await get('owner', 'type=orders')).json()) as {
-    type: string;
-    rows: Array<{ number: string; total_cents: number; currency: string }>;
-  };
+  const json = await responseJson(
+    await get('owner', 'type=orders'),
+    z.object({
+      type: z.string(),
+      rows: z.array(
+        z.object({ number: z.string(), total_cents: z.number(), currency: z.string() })
+      ),
+    })
+  );
   expect(json.type).toBe('orders');
   expect(json.rows).toHaveLength(501);
   expect(json.rows[0]?.number).toBe('usd-0299');
@@ -107,11 +120,17 @@ it('sales, products and customers exports are not silently capped at 90/100 rows
     await seedOrders(1, { prefix: `sd${d}u`, day, cents: 100, currency: 'USD' });
     await seedOrders(1, { prefix: `sd${d}e`, day, cents: 100, currency: 'EUR' });
   }
-  const sales = (await (await get('owner', 'type=sales')).json()) as { rows: unknown[] };
+  const sales = await responseJson(
+    await get('owner', 'type=sales'),
+    z.object({ rows: z.array(z.unknown()) })
+  );
   expect(sales.rows.length).toBeGreaterThan(90);
   // 120 distinct customers and products.
   await seedOrders(120, { prefix: 'cust', emailPrefix: 'cust' });
-  const customers = (await (await get('owner', 'type=customers')).json()) as { rows: unknown[] };
+  const customers = await responseJson(
+    await get('owner', 'type=customers'),
+    z.object({ rows: z.array(z.unknown()) })
+  );
   expect(customers.rows.length).toBeGreaterThan(100);
   const itemStmts: D1PreparedStatement[] = [];
   for (let i = 0; i < 120; i++)
@@ -123,9 +142,10 @@ it('sales, products and customers exports are not silently capped at 90/100 rows
         .bind(`pi-${i}`, `cust-${String(i).padStart(4, '0')}`, `SKU-${String(i).padStart(3, '0')}`)
     );
   for (let i = 0; i < itemStmts.length; i += 50) await db.batch(itemStmts.slice(i, i + 50));
-  const products = (await (await get('owner', 'type=products')).json()) as {
-    rows: Array<{ sku: string; units: number }>;
-  };
+  const products = await responseJson(
+    await get('owner', 'type=products'),
+    z.object({ rows: z.array(z.object({ sku: z.string(), units: z.number() })) })
+  );
   expect(products.rows.length).toBeGreaterThan(100);
   expect(products.rows.find((r) => r.sku === 'SKU-119')?.units).toBe(1);
 }, 120_000);
@@ -162,30 +182,34 @@ it('a concurrent same-timestamp insert and an update land wholly in one statemen
       return typeof value === 'function' ? value.bind(target) : value;
     },
   });
-  const response = await exportReport(proxied as D1Database, 'orders', 'json');
+  const response = await exportReport(proxied, 'orders', 'json');
   expect(statements).toBe(1);
-  const body = (await response.json()) as {
-    rows: Array<{ number: string; total_cents: number }>;
-  };
+  const body = await responseJson(
+    response,
+    z.object({ rows: z.array(z.object({ number: z.string(), total_cents: z.number() })) })
+  );
   expect(body.rows.some((r) => r.number === 'aaa-new')).toBe(true);
   expect(body.rows.find((r) => r.number === 'usd-0000')?.total_cents).toBe(999);
 }, 120_000);
 
 it('a database failure returns a generic JSON error, never an attachment or raw error', async () => {
-  const failing = {
-    prepare: () => ({
-      bind: () => ({
-        all: async () => {
-          throw new Error('D1_ERROR: internal detail that must not leak');
-        },
+  const statement = db.prepare('SELECT 1');
+  const failing = withOverrides(db, {
+    prepare: () =>
+      withOverrides(statement, {
+        bind: () =>
+          withOverrides(statement, {
+            all: async () => {
+              throw new Error('D1_ERROR: internal detail that must not leak');
+            },
+          }),
       }),
-    }),
-  } as unknown as D1Database;
+  });
   const response = await exportReport(failing, 'orders', 'csv');
   expect(response.status).toBe(500);
   expect(response.headers.get('Content-Disposition')).toBeNull();
   expect(response.headers.get('Content-Type')).toContain('application/json');
-  const body = (await response.json()) as { error: string };
+  const body = await responseJson(response, z.object({ error: z.string() }));
   expect(body.error).toBe('Report export failed');
   expect(JSON.stringify(body)).not.toContain('D1_ERROR');
 });
@@ -205,7 +229,10 @@ it('ceilings fail explicitly with 413 and no attachment, including long field va
   await seedOrders(20, { prefix: 'long', email: longEmail, cents: 100 });
   const wide = await exportReport(db, 'orders', 'json');
   expect(wide.status).toBe(200);
-  const wideBody = (await wide.json()) as { rows: Array<{ customer_email: string }> };
+  const wideBody = await responseJson(
+    wide,
+    z.object({ rows: z.array(z.object({ customer_email: z.string() })) })
+  );
   expect(wideBody.rows.some((r) => r.customer_email === longEmail)).toBe(true);
   const byRows = await exportReport(db, 'orders', 'csv', {
     maxRows: 10,
@@ -240,6 +267,6 @@ it('a 25,000-row export with long field values completes within the default ceil
   expect(text).toContain(longEmail);
   const json = await exportReport(db, 'orders', 'json');
   expect(json.status).toBe(200);
-  const body = (await json.json()) as { rows: unknown[] };
+  const body = await responseJson(json, z.object({ rows: z.array(z.unknown()) }));
   expect(body.rows).toHaveLength(total ?? 0);
 }, 240_000);

@@ -3,12 +3,13 @@ import { createTestDb } from './helpers/d1';
 import { runAdminAction } from '../web/src/server/admin-actions';
 import { suggestCatalog } from '../web/src/server/catalog-discovery';
 import { adminProductDiscovery } from '../web/src/server/admin-product-discovery';
+import { actionData, z } from './helpers/json';
 
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, env: Env, dispose: () => Promise<void>;
 const owner = { id: 'owner', role: 'owner' };
 
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env, dispose } = await createTestDb());
 });
 afterEach(async () => {
   await dispose();
@@ -16,7 +17,7 @@ afterEach(async () => {
 
 describe('product rich text search index', () => {
   it('indexes visible words only, on the storefront and in admin discovery', async () => {
-    const created = await runAdminAction(db, {} as never, owner, 'product.create', {
+    const created = await runAdminAction(db, env, owner, 'product.create', {
       title: 'Searchable Tee',
       slug: 'searchable-tee',
       description:
@@ -35,9 +36,7 @@ describe('product rich text search index', () => {
         },
       ],
     });
-    expect(created.ok).toBe(true);
-    if (!created.ok) return;
-    const productId = (created.data as { productId: string }).productId;
+    const { productId } = actionData(created, z.object({ productId: z.string() }));
     const row = await db
       .prepare('SELECT description_text FROM products WHERE id = ?')
       .bind(productId)
@@ -64,7 +63,7 @@ describe('product rich text search index', () => {
 
     // A plain update stays byte-identical in both columns and indexes literally.
     const plain = 'Plain cotton with <b>literal</b> text';
-    const updated = await runAdminAction(db, {} as never, owner, 'product.update', {
+    const updated = await runAdminAction(db, env, owner, 'product.update', {
       productId,
       title: 'Searchable Tee',
       slug: 'searchable-tee',

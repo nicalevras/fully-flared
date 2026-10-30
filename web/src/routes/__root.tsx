@@ -5,6 +5,7 @@ import {
   Outlet,
   Scripts,
   createRootRouteWithContext,
+  useRouter,
   type ErrorComponentProps,
 } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
@@ -15,6 +16,7 @@ import { BagIcon, MenuIcon, SearchIcon, UserIcon } from '../components/icons';
 import { XIcon } from 'lucide-react';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { reloadOnDeploySkew } from '@/lib/deploy-skew-reload';
 import { Button } from '@/components/ui/button';
 import {
   Drawer,
@@ -70,10 +72,16 @@ export const Route = createRootRouteWithContext<{ staff?: StaffContext }>()({
     ],
   }),
   shellComponent: RootDocument,
-  component: () => <Outlet />,
+  component: RootComponent,
   notFoundComponent: NotFoundPage,
   errorComponent: ErrorPage,
 });
+
+function RootComponent() {
+  const router = useRouter();
+  useEffect(() => reloadOnDeploySkew(router), [router]);
+  return <Outlet />;
+}
 
 function NotFoundPage() {
   return (
