@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { uploadMedia } from '../web/src/lib/upload';
+import { at } from './helpers/fixtures';
 import { readFileSync } from 'node:fs';
 import { describe } from 'vitest';
 
@@ -30,7 +31,9 @@ it.each([
       expect(toBlob).not.toHaveBeenCalled();
     } else {
       expect(requests).toHaveLength(2);
-      expect((requests[1]!.get('file') as File).type).toBe(type);
+      const file = at(requests, 1).get('file');
+      if (!(file instanceof File)) throw new Error('expected the variant upload to carry a file');
+      expect(file.type).toBe(type);
     }
   }
 );

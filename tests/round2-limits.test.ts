@@ -7,6 +7,7 @@ import { requestRefund, reconcileRefundOperations } from '../web/src/server/refu
 import { readFileSync } from 'node:fs';
 import { LIMIT_KEYS, LIMIT_DEFINITIONS } from '../web/src/lib/settings-definitions';
 import { heldOrder, pendingIntent } from './helpers/pending-intent';
+import { present } from './helpers/fixtures';
 
 let db: D1Database, dispose: () => Promise<void>;
 beforeAll(async () => {
@@ -64,16 +65,17 @@ it('uses nondefault limits and retains the legacy hold buffer around the configu
   };
   const order = await heldOrder(db, input);
   await expect(heldOrder(db, input)).rejects.toThrow(/Too many open checkouts/);
-  const hold = await db
-    .prepare('SELECT expires_at,created_at FROM reservations WHERE order_id=?')
-    .bind(order.orderId)
-    .first<{ expires_at: string; created_at: string }>();
-  expect(Date.parse(hold!.expires_at) - Date.parse(hold!.created_at)).toBeGreaterThan(
+  const hold = present(
+    await db
+      .prepare('SELECT expires_at,created_at FROM reservations WHERE order_id=?')
+      .bind(order.orderId)
+      .first<{ expires_at: string; created_at: string }>(),
+    'the checkout hold'
+  );
+  expect(Date.parse(hold.expires_at) - Date.parse(hold.created_at)).toBeGreaterThan(
     70 * 60000 - 1000
   );
-  expect(Date.parse(hold!.expires_at) - Date.parse(hold!.created_at)).toBeLessThanOrEqual(
-    70 * 60000
-  );
+  expect(Date.parse(hold.expires_at) - Date.parse(hold.created_at)).toBeLessThanOrEqual(70 * 60000);
   await cancelOrderById(db, order.orderId);
   await setSetting(db, 'checkout_email_cap', '5');
   await setSetting(db, 'checkout_session_minutes', '32');
