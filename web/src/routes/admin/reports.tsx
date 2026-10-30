@@ -7,7 +7,7 @@ import { createServerFn } from '@tanstack/react-start';
 import { formatMoney } from '../../components/ProductCard';
 import { cardCls, inputCls, pageSub, pageTitle } from '../../components/ui';
 import { paidRevenueByCurrency } from '../../server/reports';
-import { roles, type StaffRole } from '../../lib/permissions';
+import { roleFor } from '../../lib/permissions';
 
 const getData = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
@@ -23,8 +23,7 @@ const getData = createServerFn({ method: 'GET' })
       orders: revenues.reduce((sum, row) => sum + row.orders, 0),
       lowStockSkus: low?.n ?? 0,
       canExportCustomers:
-        roles[context.staff.role as StaffRole]?.authorize({ customer: ['export'] }).success ??
-        false,
+        roleFor(context.staff.role)?.authorize({ customer: ['export'] }).success ?? false,
     };
   });
 
@@ -32,6 +31,8 @@ export const Route = createFileRoute('/admin/reports')({
   loader: async () => getData(),
   component: Page,
 });
+
+type ExportRow = [label: string, description: string, href: string];
 
 function Page() {
   const currency = useStoreCurrency();
@@ -55,21 +56,27 @@ function Page() {
     ['Sales orders', String(r.orders), 'Includes refunded sales; excludes unpaid orders'],
     ['Low-stock SKUs', String(r.lowStockSkus), '5 or fewer available'],
   ];
-  const exportsList: Array<[string, string, string]> = [
-    ...(r.canExportCustomers
-      ? ([
-          [
-            'Sales by day',
-            'Complete daily gross sales and order counts, grouped by day and currency; includes refunded sales.',
-            '/api/reports?type=sales&format=csv',
-          ],
-          [
-            'Orders',
-            'Full order export for accounting, newest first. Pick order dates (UTC) to keep each file under 25,000 orders.',
-            ordersHref,
-          ],
-        ] as Array<[string, string, string]>)
-      : []),
+  const salesExports: ExportRow[] = [
+    [
+      'Sales by day',
+      'Complete daily gross sales and order counts, grouped by day and currency; includes refunded sales.',
+      '/api/reports?type=sales&format=csv',
+    ],
+    [
+      'Orders',
+      'Full order export for accounting, newest first. Pick order dates (UTC) to keep each file under 25,000 orders.',
+      ordersHref,
+    ],
+  ];
+  const customerExports: ExportRow[] = [
+    [
+      'Customers',
+      'Complete orders and gross spending per customer, including refunded sales.',
+      '/api/reports?type=customers&format=csv',
+    ],
+  ];
+  const exportsList: ExportRow[] = [
+    ...(r.canExportCustomers ? salesExports : []),
     [
       'Inventory',
       'Every SKU with on-hand, reserved, and available counts.',
@@ -80,15 +87,7 @@ function Page() {
       'Complete units and gross merchandise value per product before discounts, shipping and tax.',
       '/api/reports?type=products&format=csv',
     ],
-    ...(r.canExportCustomers
-      ? [
-          [
-            'Customers',
-            'Complete orders and gross spending per customer, including refunded sales.',
-            '/api/reports?type=customers&format=csv',
-          ] as [string, string, string],
-        ]
-      : []),
+    ...(r.canExportCustomers ? customerExports : []),
   ];
   return (
     <main>
