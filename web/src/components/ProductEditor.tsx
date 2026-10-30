@@ -23,7 +23,15 @@ import {
   labelCls,
   textareaCls,
 } from './ui';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './ui/sheet';
+import { Button } from './ui/button';
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from './ui/drawer';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { Sortable, SortableItem } from './ui/sortable';
 import { plainTextToRichHtml, richHtmlToPlainText } from '../lib/rich-text';
@@ -126,12 +134,12 @@ export function ProductEditor({
   const [feedback, setFeedback] = useState<AdminActionFeedbackState>(null);
   const [busy, setBusy] = useState(false);
   const [uploadPending, setUploadPending] = useState(false);
-  const [sheetMenuOpen, setSheetMenuOpen] = useState(false);
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const [closeDiscard, setCloseDiscard] = useState(false);
 
   useEffect(() => {
-    if (!sheetMenuOpen) return;
-    const close = () => setSheetMenuOpen(false);
+    if (!actionsMenuOpen) return;
+    const close = () => setActionsMenuOpen(false);
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') close();
     };
@@ -141,7 +149,7 @@ export function ProductEditor({
       document.removeEventListener('click', close);
       document.removeEventListener('keydown', onKey);
     };
-  }, [sheetMenuOpen]);
+  }, [actionsMenuOpen]);
   const adminAction = useAdminAction();
   const currency = useStoreCurrency();
   const initialForm = {
@@ -508,37 +516,52 @@ export function ProductEditor({
 
   return (
     <>
-      <Sheet
+      <Drawer
+        instant
+        swipeDirection="right"
         open={open}
         onOpenChange={(next) => {
           if (!next) requestClose();
         }}
       >
-        <SheetContent
-          className="w-full gap-0 overflow-hidden p-0 sm:max-w-4xl"
-          onOpenAutoFocus={(event) => event.preventDefault()}
+        <DrawerContent
+          className="w-full max-w-[calc(100vw-1rem)] gap-0 overflow-hidden p-0 sm:max-w-2xl"
+          initialFocus={false}
         >
-          <SheetHeader className="p-5 pr-24 pb-0 sm:p-6 sm:pr-24 sm:pb-0">
-            <SheetTitle>{product.title}</SheetTitle>
-            <SheetDescription>
+          <DrawerClose
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="absolute top-3 right-3"
+              >
+                <XIcon />
+                <span className="sr-only">Close</span>
+              </Button>
+            }
+          />
+          <DrawerHeader className="p-5 pr-24 pb-0 sm:p-6 sm:pr-24 sm:pb-0">
+            <DrawerTitle>{product.title}</DrawerTitle>
+            <DrawerDescription>
               /{product.slug} · {product.status}
-            </SheetDescription>
-          </SheetHeader>
+            </DrawerDescription>
+          </DrawerHeader>
           <div className="absolute top-3 right-12 z-20">
             <button
               type="button"
               aria-haspopup="menu"
-              aria-expanded={sheetMenuOpen}
+              aria-expanded={actionsMenuOpen}
               aria-label={`Actions for ${product.title}`}
               onClick={(event) => {
                 event.stopPropagation();
-                setSheetMenuOpen(!sheetMenuOpen);
+                setActionsMenuOpen(!actionsMenuOpen);
               }}
               className="inline-flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-950/5 hover:text-zinc-950"
             >
               <EllipsisIcon className="size-4" />
             </button>
-            {sheetMenuOpen ? (
+            {actionsMenuOpen ? (
               <div
                 role="menu"
                 onClick={(event) => event.stopPropagation()}
@@ -548,7 +571,7 @@ export function ProductEditor({
                   role="menuitem"
                   to="/products/$slug"
                   params={{ slug: product.slug }}
-                  onClick={() => setSheetMenuOpen(false)}
+                  onClick={() => setActionsMenuOpen(false)}
                   className="block rounded-lg px-3 py-2 text-[13px] font-medium text-zinc-950 transition-colors hover:bg-zinc-50"
                 >
                   View in store
@@ -558,7 +581,7 @@ export function ProductEditor({
                   role="menuitem"
                   disabled={busy}
                   onClick={() => {
-                    setSheetMenuOpen(false);
+                    setActionsMenuOpen(false);
                     setForm({ ...form, status: form.status === 'active' ? 'draft' : 'active' });
                   }}
                   className="block w-full rounded-lg px-3 py-2 text-left text-[13px] font-medium text-zinc-950 transition-colors hover:bg-zinc-50 disabled:opacity-40"
@@ -1364,8 +1387,8 @@ export function ProductEditor({
             onCancel={() => setCloseDiscard(false)}
             onConfirm={discardAndClose}
           />
-        </SheetContent>
-      </Sheet>
+        </DrawerContent>
+      </Drawer>
       <AdminActionFeedback value={feedback} />
     </>
   );

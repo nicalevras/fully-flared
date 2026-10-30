@@ -59,11 +59,12 @@ describe('Phase 7 order discovery', () => {
     expect(result.orders.map((o) => o.number)).toEqual(['FF-1002', 'FF-1001']);
   });
 
-  it('finds orders by number prefix and by email prefix', async () => {
+  it('finds orders by number prefix only', async () => {
     const byNumber = await adminOrderDiscovery(db, { view: 'all', q: 'FF-1003' });
     expect(byNumber.orders.map((o) => o.number)).toEqual(['FF-1003']);
-    const byEmail = await adminOrderDiscovery(db, { view: 'all', q: 'ada@' });
-    expect(byEmail.orders.map((o) => o.number)).toEqual(['FF-1002', 'FF-1001']);
+    // A stale email mode falls back to number search, which matches nothing here.
+    const byEmail = await adminOrderDiscovery(db, { view: 'all', mode: 'email', q: 'ada@' });
+    expect(byEmail.orders).toEqual([]);
   });
 
   it('isolates payment issues and applies date filters', async () => {
@@ -99,12 +100,12 @@ describe('Phase 7 order discovery', () => {
         '2026-02-01T00:00:00.000Z'
       );
     }
-    const first = await adminOrderDiscovery(db, { view: 'all', q: 'bulk@' });
+    const first = await adminOrderDiscovery(db, { view: 'all', q: 'FF-20' });
     expect(first.orders).toHaveLength(50);
     expect(first.nextCursor).toBeTruthy();
     const second = await adminOrderDiscovery(db, {
       view: 'all',
-      q: 'bulk@',
+      q: 'FF-20',
       cursor: first.nextCursor,
     });
     expect(second.orders).toHaveLength(10);
@@ -112,7 +113,7 @@ describe('Phase 7 order discovery', () => {
     expect(seen.size).toBe(60);
     const back = await adminOrderDiscovery(db, {
       view: 'all',
-      q: 'bulk@',
+      q: 'FF-20',
       cursor: second.previousCursor,
     });
     expect(back.orders.map((o) => o.id)).toEqual(first.orders.map((o) => o.id));

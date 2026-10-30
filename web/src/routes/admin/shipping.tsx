@@ -166,11 +166,7 @@ function Page() {
   return (
     <main>
       <h1 className={pageTitle}>Shipping</h1>
-      <p className={pageSub}>
-        Zones group countries together; each zone needs at least one rate before customers there can
-        check out. A $0 rate is free shipping, and a free-over threshold makes shipping free above
-        an order total.
-      </p>
+      <p className={pageSub}>Zones group countries, and each zone needs a rate before checkout.</p>
       <AdminActionFeedback value={feedback} />
 
       <div className="mt-6 space-y-4">

@@ -10,7 +10,7 @@ import {
 import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router';
 import { createServerFn, useServerFn } from '@tanstack/react-start';
 import * as z from 'zod';
-import { ChevronDownIcon, ChevronRightIcon, MinusIcon, PlusIcon } from 'lucide-react';
+import { ChevronDownIcon, ChevronRightIcon, MinusIcon, PlusIcon, XIcon } from 'lucide-react';
 import { staffMiddleware } from '../../server/staff-middleware';
 import { validateServerInput } from '../../server/function-boundary';
 import { useAdminAction } from '../../components/AdminNav';
@@ -27,12 +27,17 @@ import {
 import { AdminDataTableShell, AdminRowActions } from '../../components/AdminDataTable';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { pageSub, pageTitle } from '../../components/ui';
 import { StatusBadge } from '../../components/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table';
-import { DataTable, DataTableSearch } from '../../components/ui/data-table';
+import {
+  DataTable,
+  DataTableSearch,
+  dataTableControlClassName,
+} from '../../components/ui/data-table';
 import type { DataTableFeatures } from '../../components/data-table-features';
 import { isPageSize, pageSizeOptions } from '../../schemas/pagination';
 import {
@@ -43,12 +48,13 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from '@/components/ui/drawer';
 import { Switch } from '@/components/ui/switch';
 
 const getList = createServerFn({ method: 'GET' })
@@ -227,7 +233,7 @@ function AdminInventory() {
     [staged, skuRows]
   );
 
-  function stageFromSheet(sku: string, entry: StagedAdjustment | null) {
+  function stageFromDrawer(sku: string, entry: StagedAdjustment | null) {
     setStaged((current) => {
       const next = { ...current };
       if (entry === null) delete next[sku];
@@ -466,18 +472,16 @@ function AdminInventory() {
 
   return (
     <main>
-      <h1 className="text-[28px] leading-tight font-medium tracking-tight text-zinc-950">
-        Inventory
-      </h1>
-      <p className="mt-1 text-sm text-zinc-500">On hand, reserved, and available by product.</p>
+      <h1 className={pageTitle}>Inventory</h1>
+      <p className={pageSub}>On hand, reserved, and available by product.</p>
       <AdminActionFeedback value={feedback} />
 
       {products.length === 0 && !search.q && !search.low ? (
-        <p className="mt-5 rounded-2xl bg-zinc-50 p-5 text-sm text-zinc-500" role="status">
+        <p className="mt-6 rounded-2xl bg-zinc-50 p-5 text-sm text-zinc-500" role="status">
           {search.q || search.low ? 'No products match that search.' : 'No products yet.'}
         </p>
       ) : (
-        <div className="mt-5" tabIndex={0} role="region" aria-label="Inventory">
+        <div className="mt-6" tabIndex={0} role="region" aria-label="Inventory">
           <DataTable
             caption="Inventory by product"
             columns={inventoryColumns}
@@ -495,17 +499,25 @@ function AdminInventory() {
             hideViewOptions
             toolbar={
               <DataTableSearch
-                minCharsHint
                 value={search.q}
                 onSearch={(q) =>
                   void navigate({
-                    search: { q, page: 1, low: search.low, size: search.size, sku: undefined },
+                    search: {
+                      q,
+                      page: 1,
+                      low: search.low,
+                      size: search.size,
+                      sku: undefined,
+                    },
                   })
                 }
-                placeholder="SKU starts with, or part of a product title"
-                ariaLabel="Find a SKU or product"
-              >
-                <label className="flex items-center gap-2 text-sm text-zinc-700">
+                placeholder="Search Products"
+                ariaLabel="Find a product"
+              />
+            }
+            toolbarActions={
+              <>
+                <label className={`flex items-center gap-2 ${dataTableControlClassName}`}>
                   <Switch
                     checked={search.low}
                     onCheckedChange={(checked) =>
@@ -522,7 +534,7 @@ function AdminInventory() {
                   />
                   Low stock only
                 </label>
-              </DataTableSearch>
+              </>
             }
             tableClassName="min-w-[760px]"
           />
@@ -552,11 +564,11 @@ function AdminInventory() {
       ) : null}
 
       {search.sku ? (
-        <SkuSheet
+        <SkuDrawer
           key={search.sku}
           sku={search.sku}
           staged={staged[search.sku] ?? null}
-          onStage={stageFromSheet}
+          onStage={stageFromDrawer}
           onClose={() =>
             void navigate({
               search: {
@@ -574,7 +586,7 @@ function AdminInventory() {
   );
 }
 
-function SkuSheet({
+function SkuDrawer({
   sku,
   staged,
   onStage,
@@ -612,22 +624,32 @@ function SkuSheet({
   };
 
   return (
-    <Sheet
+    <Drawer
+      instant
+      swipeDirection="right"
       open
       onOpenChange={(next) => {
         if (!next) requestClose();
       }}
     >
-      <SheetContent
-        className="w-full gap-0 overflow-hidden p-0 sm:max-w-2xl"
-        onOpenAutoFocus={(event) => event.preventDefault()}
+      <DrawerContent
+        className="w-full max-w-[calc(100vw-1rem)] gap-0 overflow-hidden p-0 sm:max-w-2xl"
+        initialFocus={false}
       >
-        <SheetHeader className="p-5 pr-14 pb-0 sm:p-6 sm:pr-14 sm:pb-0">
-          <SheetTitle>{sku}</SheetTitle>
-          <SheetDescription>
+        <DrawerClose
+          render={
+            <Button type="button" variant="ghost" size="icon-sm" className="absolute top-3 right-3">
+              <XIcon />
+              <span className="sr-only">Close</span>
+            </Button>
+          }
+        />
+        <DrawerHeader className="p-5 pr-14 pb-0 sm:p-6 sm:pr-14 sm:pb-0">
+          <DrawerTitle>{sku}</DrawerTitle>
+          <DrawerDescription>
             {detail ? `${detail.productTitle} · ${detail.variantTitle}` : 'Stock detail'}
-          </SheetDescription>
-        </SheetHeader>
+          </DrawerDescription>
+        </DrawerHeader>
         {!loaded ? (
           <p className="px-5 py-5 text-sm text-zinc-500 sm:px-6" role="status">
             Loading stock…
@@ -637,7 +659,7 @@ function SkuSheet({
             No stock record for {sku}.
           </p>
         ) : (
-          <SkuSheetForm
+          <SkuDrawerForm
             key={detail.sku}
             detail={detail}
             staged={staged}
@@ -663,12 +685,12 @@ function SkuSheet({
             onClose();
           }}
         />
-      </SheetContent>
-    </Sheet>
+      </DrawerContent>
+    </Drawer>
   );
 }
 
-function SkuSheetForm({
+function SkuDrawerForm({
   detail,
   staged,
   onStage,

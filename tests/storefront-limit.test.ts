@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createTestDb, seedProduct } from './helpers/d1';
 import { buildCatalogReadModels } from './helpers/catalog-driver';
 import { readProductDocument } from '../web/src/server/catalog-read';
-import { searchCatalog } from '../web/src/server/catalog-discovery';
+import { suggestCatalog } from '../web/src/server/catalog-discovery';
 import { storefrontLimited } from '../web/src/server/storefront-limit';
 
 class Kv {
@@ -89,17 +89,17 @@ it('an unknown slug is refused before D1 once the budget is spent', async () => 
 
 it('only searches with terms spend the budget, and a refused search reads no D1', async () => {
   const limited = vi.fn(async () => true);
-  expect(await searchCatalog(noD1, {}, '   ', undefined, limited)).toEqual({
+  expect(await suggestCatalog(noD1, {}, '   ', limited)).toEqual({
     cards: [],
-    nextCursor: null,
+    hasMore: false,
   });
   expect(limited).not.toHaveBeenCalled();
-  expect(await searchCatalog(noD1, {}, 'tee', undefined, limited)).toEqual({
+  expect(await suggestCatalog(noD1, {}, 'tee', limited)).toEqual({
     cards: [],
-    nextCursor: null,
+    hasMore: false,
     limited: true,
   });
   expect(queries).toBe(0);
-  const allowed = await searchCatalog(db, {}, 'tee', undefined, async () => false);
+  const allowed = await suggestCatalog(db, {}, 'tee', async () => false);
   expect(allowed.cards.map((card) => card.slug)).toEqual(['tee']);
 });

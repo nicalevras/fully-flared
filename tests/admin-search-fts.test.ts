@@ -110,4 +110,20 @@ describe('admin toolbar search wiring', () => {
     expect(shared).toContain('export function DataTableSearch');
     expect(shared).toContain('}, 300);');
   });
+
+  it('does not search until 3 characters and never echoes over typing', async () => {
+    const { readFileSync } = await import('node:fs');
+    const shared = readFileSync('web/src/components/ui/data-table.tsx', 'utf8');
+    const searchStart = shared.indexOf('export function DataTableSearch');
+    const search = shared.slice(searchStart);
+    // Below 3 chars the effective query is empty, so no search fires.
+    expect(search).toContain("const effective = trimmed.length >= 3 ? trimmed : '';");
+    // The debounced emit reads the latest callback from a ref, so parent
+    // rerenders cannot reset the timer mid-typing.
+    expect(search).toContain('onSearchRef');
+    expect(search).toContain('}, [text]);');
+    // The URL echo of our own emit must not overwrite newer keystrokes.
+    expect(search).toContain('if (value === lastSent.current) return;');
+    expect(search).not.toContain('minCharsHint');
+  });
 });

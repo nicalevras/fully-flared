@@ -40,7 +40,15 @@ import { SeoPreview } from './SeoPreview';
 import { roleCan } from '../lib/permissions';
 import { parseMoneyCents } from '../lib/format';
 import { btnPrimary, btnSmall, hintCls, inputCls, labelCls, textareaCls } from './ui';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './ui/sheet';
+import { Button } from './ui/button';
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from './ui/drawer';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { Sortable, SortableItem } from './ui/sortable';
 import { plainTextToRichHtml, richHtmlToPlainText } from '../lib/rich-text';
@@ -76,7 +84,7 @@ function FieldError({ id, message }: { id: string; message: string | undefined }
   );
 }
 
-export function ProductCreateSheet({
+export function ProductCreateDrawer({
   open,
   onOpenChange,
   onCreated,
@@ -184,19 +192,32 @@ export function ProductCreateSheet({
 
   return (
     <>
-      <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent
-          className="w-full gap-0 overflow-hidden p-0 sm:max-w-4xl"
-          onOpenAutoFocus={(event) => event.preventDefault()}
+      <Drawer instant swipeDirection="right" open={open} onOpenChange={onOpenChange}>
+        <DrawerContent
+          className="w-full max-w-[calc(100vw-1rem)] gap-0 overflow-hidden p-0 sm:max-w-2xl"
+          initialFocus={false}
         >
-          <SheetHeader className="p-5 pr-14 pb-0 sm:p-6 sm:pr-14 sm:pb-0">
-            <SheetTitle>New product</SheetTitle>
-            <SheetDescription>
+          <DrawerClose
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="absolute top-3 right-3"
+              >
+                <XIcon />
+                <span className="sr-only">Close</span>
+              </Button>
+            }
+          />
+          <DrawerHeader className="p-5 pr-14 pb-0 sm:p-6 sm:pr-14 sm:pb-0">
+            <DrawerTitle>New product</DrawerTitle>
+            <DrawerDescription>
               {useOptions
                 ? `Create the product and ${combinationCount} variants in one step.`
                 : 'Create the complete product — details, images, variants, and collections — in one step.'}
-            </SheetDescription>
-          </SheetHeader>
+            </DrawerDescription>
+          </DrawerHeader>
           <ConfirmDialog
             request={confirmRequest}
             busy={busy}
@@ -1076,8 +1097,8 @@ export function ProductCreateSheet({
               </button>
             </div>
           </form>
-        </SheetContent>
-      </Sheet>
+        </DrawerContent>
+      </Drawer>
       <AdminActionFeedback value={feedback} />
     </>
   );

@@ -21,17 +21,18 @@ afterEach(async () => {
 });
 
 describe('Phase 18 global search', () => {
-  it('finds a product by title and by SKU prefix', async () => {
+  it('finds a product by title only, never by SKU', async () => {
     const byTitle = await globalSearch(db, 'tee', { orders: true, customers: true });
     expect(byTitle.products.map((p) => p.id)).toContain('p1');
-    const bySku = await globalSearch(db, 'TEE', { orders: true, customers: true });
-    expect(bySku.products.map((p) => p.id)).toContain('p1');
+    const bySku = await globalSearch(db, 'TEE-1', { orders: true, customers: true });
+    expect(bySku.products).toEqual([]);
   });
 
   it('finds an order by number and a guest contact by email', async () => {
     const byNumber = await globalSearch(db, 'FF-100', { orders: true, customers: true });
     expect(byNumber.orders.map((o) => o.number)).toEqual(['FF-1001']);
     const byEmail = await globalSearch(db, 'tee@example', { orders: true, customers: true });
+    expect(byEmail.orders).toEqual([]);
     expect(byEmail.customers).toEqual([
       { email: 'tee@example.invalid', accountId: null, guestOrderCount: 1, accountOrderCount: 0 },
     ]);

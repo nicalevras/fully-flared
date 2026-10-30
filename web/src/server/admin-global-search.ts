@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { escapeLike, ftsTitleMatch } from '../lib/fts-search';
+import { ftsTitleMatch } from '../lib/fts-search';
 import { adminOrderDiscovery } from './admin-order-discovery';
 import { lookupContact } from './admin-contacts';
 
@@ -27,29 +27,16 @@ export async function globalSearch(
   const query = q.trim();
   if (query.length < 2) return EMPTY;
 
-  // Bounded lookups: global search shows 5 products, so it never runs the
+  // Bounded lookup: global search shows 5 products, so it never runs the
   // full discovery projection (which ranks up to 1001 candidates).
-  const [byTitle, bySku] = await Promise.all([
-    db
-      .prepare(
-        `SELECT p.id, p.title, p.status FROM products_fts f JOIN products p ON p.rowid = f.rowid
+  const byTitle = await db
+    .prepare(
+      `SELECT p.id, p.title, p.status FROM products_fts f JOIN products p ON p.rowid = f.rowid
          WHERE products_fts MATCH ? LIMIT 5`
-      )
-      .bind(ftsTitleMatch('title', query))
-      .all<GlobalSearchResult['products'][number]>(),
-    db
-      .prepare(
-        `SELECT DISTINCT p.id, p.title, p.status FROM variants v JOIN products p ON p.id = v.product_id
-         WHERE v.sku LIKE ? ESCAPE '\\' LIMIT 5`
-      )
-      .bind(`${escapeLike(query)}%`)
-      .all<GlobalSearchResult['products'][number]>(),
-  ]);
-  const productMap = new Map<string, GlobalSearchResult['products'][number]>();
-  for (const p of [...byTitle.results, ...bySku.results]) {
-    if (!productMap.has(p.id)) productMap.set(p.id, p);
-  }
-  const products = [...productMap.values()].slice(0, 5);
+    )
+    .bind(ftsTitleMatch('title', query))
+    .all<GlobalSearchResult['products'][number]>();
+  const products = byTitle.results.slice(0, 5);
 
   let orders: GlobalSearchResult['orders'] = [];
   if (allowed.orders) {

@@ -12,7 +12,15 @@ import type { AdminActionFeedbackState } from './AdminActionFeedback';
 import { ConfirmDialog } from './ConfirmDialog';
 import { SeoPreview } from './SeoPreview';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './ui/sheet';
+import { Button } from './ui/button';
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from './ui/drawer';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { slugify, utcToLocalDateTimeInput, type LoadedSchedule } from '../lib/format';
 import { saveBlogPost } from '../lib/blog-save';
@@ -141,22 +149,32 @@ export function BlogPostEditor({
     onClose();
   };
   return (
-    <Sheet
+    <Drawer
+      instant
+      swipeDirection="right"
       open
       onOpenChange={(next) => {
         if (!next) requestClose();
       }}
     >
-      <SheetContent
-        className="w-full gap-0 overflow-hidden p-0 sm:max-w-4xl"
-        onOpenAutoFocus={(event) => event.preventDefault()}
+      <DrawerContent
+        className="w-full max-w-[calc(100vw-1rem)] gap-0 overflow-hidden p-0 sm:max-w-2xl"
+        initialFocus={false}
       >
-        <SheetHeader className="p-5 pr-24 pb-0 sm:p-6 sm:pr-24 sm:pb-0">
-          <SheetTitle>{post ? post.title : 'New post'}</SheetTitle>
-          <SheetDescription>
+        <DrawerClose
+          render={
+            <Button type="button" variant="ghost" size="icon-sm" className="absolute top-3 right-3">
+              <XIcon />
+              <span className="sr-only">Close</span>
+            </Button>
+          }
+        />
+        <DrawerHeader className="p-5 pr-24 pb-0 sm:p-6 sm:pr-24 sm:pb-0">
+          <DrawerTitle>{post ? post.title : 'New post'}</DrawerTitle>
+          <DrawerDescription>
             {post ? `/articles/${post.slug} · ${post.status}` : 'Write an article for the store.'}
-          </SheetDescription>
-        </SheetHeader>
+          </DrawerDescription>
+        </DrawerHeader>
         {post && post.status === 'published' ? (
           <div className="absolute top-3 right-12 z-20">
             <button
@@ -248,8 +266,8 @@ export function BlogPostEditor({
             onClose();
           }}
         />
-      </SheetContent>
-    </Sheet>
+      </DrawerContent>
+    </Drawer>
   );
 }
 

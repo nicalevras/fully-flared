@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { PlusIcon } from 'lucide-react';
+import { PlusIcon, XIcon } from 'lucide-react';
 import { staffMiddleware } from '../../server/staff-middleware';
 import { formatDate } from '../../lib/format';
 import { createFileRoute, useRouter, type SearchSchemaInput } from '@tanstack/react-router';
@@ -19,12 +19,13 @@ import {
   type AdminActionFeedbackState,
 } from '../../components/AdminActionFeedback';
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '../../components/ui/sheet';
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from '../../components/ui/drawer';
 import type { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table';
 import { DataTable, DataTableSearch } from '../../components/ui/data-table';
 import { ftsPhrase, ftsUsable } from '../../lib/fts-search';
@@ -39,6 +40,8 @@ import {
   hintCls,
   inputCls,
   labelCls,
+  pageSub,
+  pageTitle,
 } from '../../components/ui';
 
 type MediaRow = {
@@ -202,7 +205,7 @@ function usedLabel(usedCount: number): string {
     : 'Not used anywhere yet';
 }
 
-function MediaSheet({
+function MediaDrawer({
   row,
   usedCount,
   busy,
@@ -228,23 +231,37 @@ function MediaSheet({
     onClose();
   };
   return (
-    <Sheet
+    <Drawer
+      instant
+      swipeDirection="right"
       open
       onOpenChange={(next) => {
         if (!next) requestClose();
       }}
     >
-      <SheetContent
-        className="w-full gap-0 overflow-hidden p-0 sm:max-w-2xl"
-        onOpenAutoFocus={(event) => event.preventDefault()}
+      <DrawerContent
+        className="w-full max-w-[calc(100vw-1rem)] gap-0 overflow-hidden p-0 sm:max-w-2xl"
+        initialFocus={false}
       >
-        <SheetHeader className="p-5 pr-14 pb-0 sm:p-6 sm:pr-14 sm:pb-0">
-          <SheetTitle>{row.filename}</SheetTitle>
-          <SheetDescription>
+        <DrawerClose
+          render={
+            <button
+              type="button"
+              aria-label="Close"
+              className="absolute top-3 right-3 flex size-7 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-950/5 hover:text-zinc-950"
+            >
+              <XIcon />
+              <span className="sr-only">Close</span>
+            </button>
+          }
+        />
+        <DrawerHeader className="p-5 pr-14 pb-0 sm:p-6 sm:pr-14 sm:pb-0">
+          <DrawerTitle>{row.filename}</DrawerTitle>
+          <DrawerDescription>
             {row.content_type} · {formatDate(row.created_at)}
             {usedCount !== null ? ` · ${usedLabel(usedCount)}` : ''}
-          </SheetDescription>
-        </SheetHeader>
+          </DrawerDescription>
+        </DrawerHeader>
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
           {row.deletion_pending ? (
             <p className="rounded-xl bg-zinc-50 px-4 py-10 text-center text-sm text-zinc-500">
@@ -332,8 +349,8 @@ function MediaSheet({
             onClose();
           }}
         />
-      </SheetContent>
-    </Sheet>
+      </DrawerContent>
+    </Drawer>
   );
 }
 
@@ -369,7 +386,7 @@ function AdminMedia() {
     return false;
   }
 
-  const closeSheet = () => {
+  const closeDrawer = () => {
     if (search.edit)
       void navigate({
         search: { q: search.q, page: search.page, size: search.size, edit: undefined },
@@ -431,7 +448,7 @@ function AdminMedia() {
       confirmLabel: 'Delete image',
       action: async () => {
         if (await run('media.delete', { mediaId: row.id }, `${row.filename} deleted.`)) {
-          closeSheet();
+          closeDrawer();
         }
       },
     });
@@ -542,10 +559,8 @@ function AdminMedia() {
     <main>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-[28px] leading-tight font-medium tracking-tight text-zinc-950">
-            Media
-          </h1>
-          <p className="mt-1 text-sm text-zinc-500">
+          <h1 className={pageTitle}>Media</h1>
+          <p className={pageSub}>
             {total} file{total === 1 ? '' : 's'} in your library.
           </p>
         </div>
@@ -620,7 +635,7 @@ function AdminMedia() {
       <AdminActionFeedback value={feedback} />
 
       {media.length === 0 && !search.q ? (
-        <div className="mt-8 rounded-xl bg-zinc-50 px-6 py-14 text-center" role="status">
+        <div className="mt-6 rounded-xl bg-zinc-50 px-6 py-14 text-center" role="status">
           <p className="text-sm text-zinc-500">
             {search.q
               ? `No files match "${search.q}".`
@@ -647,14 +662,13 @@ function AdminMedia() {
             emptyMessage={search.q ? `No files match "${search.q}".` : 'No media yet.'}
             toolbar={
               <DataTableSearch
-                minCharsHint
                 value={search.q ?? ''}
                 onSearch={(q) =>
                   void navigate({
                     search: { q: q || undefined, page: 1, size: search.size, edit: undefined },
                   })
                 }
-                placeholder="Filter by file name…"
+                placeholder="Search Files"
                 ariaLabel="Find a file"
               />
             }
@@ -662,12 +676,12 @@ function AdminMedia() {
         </div>
       )}
       {editingRow ? (
-        <MediaSheet
+        <MediaDrawer
           key={editingRow.id}
           row={editingRow}
           usedCount={usedFor === editingRow.id ? usedCount : null}
           busy={busy}
-          onClose={closeSheet}
+          onClose={closeDrawer}
           onSaveAlt={async (altText) =>
             run(
               'media.updateAlt',
@@ -679,27 +693,41 @@ function AdminMedia() {
         />
       ) : null}
       {search.edit && !editingRow ? (
-        <Sheet
+        <Drawer
+          instant
+          swipeDirection="right"
           open
           onOpenChange={(next) => {
-            if (!next) closeSheet();
+            if (!next) closeDrawer();
           }}
         >
-          <SheetContent
-            className="w-full gap-0 overflow-hidden p-0 sm:max-w-2xl"
-            onOpenAutoFocus={(event) => event.preventDefault()}
+          <DrawerContent
+            className="w-full max-w-[calc(100vw-1rem)] gap-0 overflow-hidden p-0 sm:max-w-2xl"
+            initialFocus={false}
           >
-            <SheetHeader className="p-5 pr-14 pb-0 sm:p-6 sm:pr-14 sm:pb-0">
-              <SheetTitle>File not found</SheetTitle>
-              <SheetDescription>This file does not exist.</SheetDescription>
-            </SheetHeader>
+            <DrawerClose
+              render={
+                <button
+                  type="button"
+                  aria-label="Close"
+                  className="absolute top-3 right-3 flex size-7 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-950/5 hover:text-zinc-950"
+                >
+                  <XIcon />
+                  <span className="sr-only">Close</span>
+                </button>
+              }
+            />
+            <DrawerHeader className="p-5 pr-14 pb-0 sm:p-6 sm:pr-14 sm:pb-0">
+              <DrawerTitle>File not found</DrawerTitle>
+              <DrawerDescription>This file does not exist.</DrawerDescription>
+            </DrawerHeader>
             <div className="px-5 py-5 sm:px-6">
-              <Button type="button" onClick={closeSheet}>
+              <Button type="button" onClick={closeDrawer}>
                 Back to media
               </Button>
             </div>
-          </SheetContent>
-        </Sheet>
+          </DrawerContent>
+        </Drawer>
       ) : null}
       <ConfirmDialog
         request={

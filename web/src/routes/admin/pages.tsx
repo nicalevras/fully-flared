@@ -2,19 +2,20 @@ import { useEffect, useState } from 'react';
 import { staffMiddleware } from '../../server/staff-middleware';
 import { createFileRoute, useRouter, type SearchSchemaInput } from '@tanstack/react-router';
 import { createServerFn, useServerFn } from '@tanstack/react-start';
-import { PlusIcon } from 'lucide-react';
+import { PlusIcon, XIcon } from 'lucide-react';
 import {
   AdminActionFeedback,
   type AdminActionFeedbackState,
 } from '../../components/AdminActionFeedback';
 import { PageEditor, getPageDetail, type PageDetail } from '../../components/PageEditor';
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '../../components/ui/sheet';
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from '../../components/ui/drawer';
 import type { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table';
 import { DataTable, DataTableSearch } from '../../components/ui/data-table';
 import { ftsPhrase, ftsUsable } from '../../lib/fts-search';
@@ -24,7 +25,8 @@ import { pageWindow } from '../../lib/catalog-page';
 import { isPageSize, pageSizeOptions, pageSizeSchema } from '../../schemas/pagination';
 import * as z from 'zod';
 import { validateServerInput } from '../../server/function-boundary';
-import { Button } from '../../components/ui';
+import { Button, pageSub, pageTitle } from '../../components/ui';
+import { Button as TableButton } from '@/components/ui/button';
 
 type PageRow = { id: string; slug: string; title: string; updated_at: string };
 
@@ -144,7 +146,7 @@ function AdminPages() {
   }, [editingId]);
   const openEditor = (id: string) =>
     void navigate({ search: { q: search.q, page: search.page, size: search.size, edit: id } });
-  const closeSheet = () => {
+  const closeDrawer = () => {
     setCreateOpen(false);
     if (search.edit)
       void navigate({
@@ -152,7 +154,7 @@ function AdminPages() {
       });
   };
   const handleSaved = () => {
-    closeSheet();
+    closeDrawer();
     router.invalidate();
   };
   const handlePaginationChange: OnChangeFn<PaginationState> = (updater) => {
@@ -172,21 +174,15 @@ function AdminPages() {
     <main>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-[28px] leading-tight font-medium tracking-tight text-zinc-950">
-            Pages
-          </h1>
-          <p className="mt-1 text-sm text-zinc-500">
+          <h1 className={pageTitle}>Pages</h1>
+          <p className={pageSub}>
             Shipping, returns, privacy, and terms pages linked from your store footer.
           </p>
         </div>
-        <Button type="button" onClick={() => setCreateOpen(true)}>
-          <PlusIcon className="size-4" />
-          New
-        </Button>
       </div>
       <AdminActionFeedback value={feedback} />
       {pages.length === 0 && !search.q ? (
-        <div className="mt-8 rounded-xl bg-zinc-50 px-6 py-14 text-center" role="status">
+        <div className="mt-6 rounded-xl bg-zinc-50 px-6 py-14 text-center" role="status">
           <p className="text-sm text-zinc-500">
             {search.q ? `No pages match "${search.q}".` : 'No pages yet. Write your first one.'}
           </p>
@@ -196,7 +192,7 @@ function AdminPages() {
           </Button>
         </div>
       ) : (
-        <div className="mt-8" tabIndex={0} role="region" aria-label="Pages">
+        <div className="mt-6" tabIndex={0} role="region" aria-label="Pages">
           <DataTable
             caption="Pages"
             columns={pagesColumns}
@@ -210,16 +206,25 @@ function AdminPages() {
             emptyMessage={search.q ? `No pages match "${search.q}".` : 'No pages yet.'}
             toolbar={
               <DataTableSearch
-                minCharsHint
                 value={search.q ?? ''}
                 onSearch={(q) =>
                   void navigate({
                     search: { q: q || undefined, page: 1, size: search.size, edit: undefined },
                   })
                 }
-                placeholder="Filter by title…"
+                placeholder="Search Pages"
                 ariaLabel="Find a page"
               />
+            }
+            toolbarEnd={
+              <TableButton
+                type="button"
+                size="sm"
+                onClick={() => setCreateOpen(true)}
+                className="h-8 rounded-md bg-zinc-950 text-white shadow-none hover:bg-zinc-800"
+              >
+                <PlusIcon /> New
+              </TableButton>
             }
           />
         </div>
@@ -228,7 +233,7 @@ function AdminPages() {
         <PageEditor
           key="new"
           page={null}
-          onClose={closeSheet}
+          onClose={closeDrawer}
           onFeedback={setFeedback}
           onSaved={handleSaved}
         />
@@ -237,33 +242,47 @@ function AdminPages() {
         <PageEditor
           key={detail.id}
           page={detail}
-          onClose={closeSheet}
+          onClose={closeDrawer}
           onFeedback={setFeedback}
           onSaved={handleSaved}
         />
       ) : null}
       {editingId && detailFor === editingId && !detail ? (
-        <Sheet
+        <Drawer
+          instant
+          swipeDirection="right"
           open
           onOpenChange={(next) => {
-            if (!next) closeSheet();
+            if (!next) closeDrawer();
           }}
         >
-          <SheetContent
-            className="w-full gap-0 overflow-hidden p-0 sm:max-w-4xl"
-            onOpenAutoFocus={(event) => event.preventDefault()}
+          <DrawerContent
+            className="w-full max-w-[calc(100vw-1rem)] gap-0 overflow-hidden p-0 sm:max-w-2xl"
+            initialFocus={false}
           >
-            <SheetHeader className="p-5 pr-14 pb-0 sm:p-6 sm:pr-14 sm:pb-0">
-              <SheetTitle>Page not found</SheetTitle>
-              <SheetDescription>This page does not exist.</SheetDescription>
-            </SheetHeader>
+            <DrawerClose
+              render={
+                <button
+                  type="button"
+                  aria-label="Close"
+                  className="absolute top-3 right-3 flex size-7 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-950/5 hover:text-zinc-950"
+                >
+                  <XIcon />
+                  <span className="sr-only">Close</span>
+                </button>
+              }
+            />
+            <DrawerHeader className="p-5 pr-14 pb-0 sm:p-6 sm:pr-14 sm:pb-0">
+              <DrawerTitle>Page not found</DrawerTitle>
+              <DrawerDescription>This page does not exist.</DrawerDescription>
+            </DrawerHeader>
             <div className="px-5 py-5 sm:px-6">
-              <Button type="button" onClick={closeSheet}>
+              <Button type="button" onClick={closeDrawer}>
                 Back to pages
               </Button>
             </div>
-          </SheetContent>
-        </Sheet>
+          </DrawerContent>
+        </Drawer>
       ) : null}
     </main>
   );

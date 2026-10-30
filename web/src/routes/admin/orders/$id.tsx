@@ -195,7 +195,7 @@ function OrderPage() {
         <p className={pageSub}>This order does not exist.</p>
         <Link
           to="/admin/orders"
-          search={{ q: '', view: 'queue', payment: 'all', from: '', to: '' }}
+          search={{ q: '', mode: 'number', view: 'queue', payment: 'all', from: '', to: '' }}
           className={`${btnSecondary} mt-5`}
         >
           Back to orders
@@ -287,7 +287,7 @@ function OrderPage() {
     <main>
       <Link
         to="/admin/orders"
-        search={{ q: '', view: 'queue', payment: 'all', from: '', to: '' }}
+        search={{ q: '', mode: 'number', view: 'queue', payment: 'all', from: '', to: '' }}
         className="text-[13px] font-medium text-zinc-500 hover:text-zinc-950"
       >
         ← Orders

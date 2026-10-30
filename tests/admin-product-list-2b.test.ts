@@ -110,7 +110,7 @@ it('sorts by oldest and by recently updated with cursor paging', async () => {
   ]);
 });
 
-it('filters by product status in browse and in every search mode', async () => {
+it('filters by product status in browse and in search', async () => {
   await product('act', 'Red Hat', '2026', '2026', 'active');
   await product('drf', 'Red Hat', '2026', '2026', 'draft');
   await product('arc', 'Red Hat', '2026', '2026', 'archived');
@@ -125,13 +125,9 @@ it('filters by product status in browse and in every search mode', async () => {
       await adminProductDiscovery(db, { q: 'Red Hat', mode: 'title', status: 'draft' })
     ).products.map((r) => r.id)
   ).toEqual(['drf']);
+  // A stale sku mode falls back to title search, and this term hits no title.
   expect(
-    (await adminProductDiscovery(db, { q: 'HAT-', mode: 'sku', status: 'archived' })).products.map(
-      (r) => r.id
-    )
-  ).toEqual(['arc']);
-  expect(
-    (await adminProductDiscovery(db, { q: 'HAT-1', mode: 'sku', status: 'draft' })).products
+    (await adminProductDiscovery(db, { q: 'ZZZ-', mode: 'sku', status: 'archived' })).products
   ).toEqual([]);
   expect(
     (await adminProductDiscovery(db, { q: 'Red Hat', mode: 'title', status: 'all' })).products
@@ -166,25 +162,13 @@ it('rejects version 1 cursors and returns the first page with state preserved', 
   expect(result.products.map((r) => r.id)).toEqual(['one']);
 });
 
-it('derives matched SKUs from candidate rows, sorted by SKU, capped at three', async () => {
+it('returns products by title with no matched SKU fields', async () => {
   await product('p', 'Shoes');
-  await variant('v5', 'p', 'SHOE-05', 100, 'Red');
-  await variant('v2', 'p', 'SHOE-02', 100, 'Blue');
-  await variant('v4', 'p', 'SHOE-04', 100, 'Green');
   await variant('v1', 'p', 'SHOE-01', 100, 'Black');
-  await variant('v3', 'p', 'SHOE-03', 100, 'White');
-  const first = await adminProductDiscovery(db, { q: 'SHOE-', mode: 'sku' });
-  expect(first.products[0]?.matched_skus).toEqual([
-    { sku: 'SHOE-01', title: 'Black' },
-    { sku: 'SHOE-02', title: 'Blue' },
-    { sku: 'SHOE-03', title: 'White' },
-  ]);
-  expect(first.products[0]?.matched_sku_count).toBe(5);
-  const again = await adminProductDiscovery(db, { q: 'SHOE-', mode: 'sku' });
-  expect(again.products[0]?.matched_skus).toEqual(first.products[0]?.matched_skus);
   const titleSearch = await adminProductDiscovery(db, { q: 'Shoes', mode: 'title' });
-  expect(titleSearch.products[0]?.matched_skus).toEqual([]);
-  expect(titleSearch.products[0]?.matched_sku_count).toBe(0);
+  expect(titleSearch.products.map((row) => row.id)).toEqual(['p']);
+  expect(titleSearch.products[0]).not.toHaveProperty('matched_skus');
+  expect(titleSearch.products[0]).not.toHaveProperty('matched_sku_count');
 });
 
 it('projects price range and total variant count in one row', async () => {

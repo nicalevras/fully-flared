@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb } from './helpers/d1';
 import { runAdminAction } from '../web/src/server/admin-actions';
-import { searchCatalog } from '../web/src/server/catalog-discovery';
+import { suggestCatalog } from '../web/src/server/catalog-discovery';
 import { adminProductDiscovery } from '../web/src/server/admin-product-discovery';
 
 let db: D1Database, dispose: () => Promise<void>;
@@ -55,9 +55,9 @@ describe('product rich text search index', () => {
       )
       .run();
 
-    expect((await searchCatalog(db, {}, 'cotton')).cards.map((c) => c.id)).toEqual([productId]);
+    expect((await suggestCatalog(db, {}, 'cotton')).cards.map((c) => c.id)).toEqual([productId]);
     for (const term of ['strong', 'img', 'heroimage']) {
-      expect((await searchCatalog(db, {}, term)).cards).toEqual([]);
+      expect((await suggestCatalog(db, {}, term)).cards).toEqual([]);
       const admin = await adminProductDiscovery(db, { q: term, mode: 'title' });
       expect(admin.products.map((p) => p.id)).not.toContain(productId);
     }
@@ -78,6 +78,6 @@ describe('product rich text search index', () => {
       .first<{ description: string; description_text: string }>();
     expect(after?.description).toBe(plain);
     expect(after?.description_text).toBe(plain);
-    expect((await searchCatalog(db, {}, 'literal')).cards.map((c) => c.id)).toEqual([productId]);
+    expect((await suggestCatalog(db, {}, 'literal')).cards.map((c) => c.id)).toEqual([productId]);
   });
 });

@@ -1,4 +1,4 @@
-export const productSearchModes = ['title', 'sku'] as const;
+export const productSearchModes = ['title'] as const;
 
 export type ProductMode = (typeof productSearchModes)[number];
 
@@ -23,10 +23,6 @@ export type ProductSearchCursor = {
   id: string;
   direction: 'next' | 'previous';
 };
-
-export function isProductMode(value: unknown): value is ProductMode {
-  return typeof value === 'string' && (productSearchModes as readonly string[]).includes(value);
-}
 
 export function isProductStatusFilter(value: unknown): value is ProductStatusFilter {
   return typeof value === 'string' && (productStatusFilters as readonly string[]).includes(value);
@@ -89,13 +85,7 @@ export function normalizeProductSearch(value: unknown): ProductSearch {
   }
   const raw = value as Record<string, unknown>;
   const q = typeof raw.q === 'string' && raw.q.length <= 200 ? raw.q.trim() : '';
-  const mode: ProductMode | null = q
-    ? isProductMode(raw.mode)
-      ? raw.mode
-      : typeof raw.mode === 'string' && raw.mode.startsWith('sku')
-        ? 'sku'
-        : 'title'
-    : null;
+  const mode: ProductMode | null = q ? 'title' : null;
   const status: ProductStatusFilter = isProductStatusFilter(raw.status) ? raw.status : 'all';
   const sort: ProductSort = isProductSort(raw.sort) ? raw.sort : 'newest';
   const cursor =

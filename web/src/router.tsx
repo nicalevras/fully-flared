@@ -5,7 +5,8 @@ export function getRouter() {
   return createRouter({
     routeTree,
     context: {},
-    scrollRestoration: true,
+    scrollRestoration: false,
+    scrollRestorationBehavior: 'instant',
     // Preload a route's data when the user hovers/touches its link, so a click
     // swaps instantly instead of holding the old page on screen while loading.
     defaultPreload: 'intent',

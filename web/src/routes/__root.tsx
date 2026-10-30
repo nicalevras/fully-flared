@@ -12,11 +12,20 @@ import { getStorefrontLayout } from '../server/catalog-read';
 import { cartCountFromCookie } from '../lib/cart-cookie';
 import { mediaUrl } from '../lib/media-url';
 import { BagIcon, MenuIcon, SearchIcon, UserIcon } from '../components/icons';
+import { XIcon } from 'lucide-react';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerTrigger,
+} from '@/components/ui/drawer';
 import { CartDrawer } from '../components/CartDrawer';
+import { SearchPaletteDialog, openSearchPalette } from '../components/SearchPalette';
 import { openCart } from '../lib/cart';
 import appCss from '../styles.css?url';
 import geistRegular from '@fontsource/geist-sans/files/geist-sans-latin-400-normal.woff2?url';
@@ -155,21 +164,36 @@ export function StorefrontLayout() {
               storeName
             )}
           </Link>
-          <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
-            <SheetTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="ml-1 hover:bg-zinc-100 md:hidden"
-                aria-label="Open menu"
-              >
-                <MenuIcon className="size-5" />
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="left" className="w-72 gap-0 p-0" aria-label="Menu">
-              <SheetHeader className="px-4 py-4">
-                <SheetTitle>Menu</SheetTitle>
-              </SheetHeader>
+          <Drawer swipeDirection="left" open={menuOpen} onOpenChange={setMenuOpen}>
+            <DrawerTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="ml-1 hover:bg-zinc-100 md:hidden"
+                  aria-label="Open menu"
+                >
+                  <MenuIcon className="size-5" />
+                </Button>
+              }
+            />
+            <DrawerContent className="w-72 gap-0 p-0" aria-label="Menu">
+              <DrawerClose
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="absolute top-3 right-3"
+                  >
+                    <XIcon />
+                    <span className="sr-only">Close</span>
+                  </Button>
+                }
+              />
+              <DrawerHeader className="px-4 py-4">
+                <DrawerTitle>Menu</DrawerTitle>
+              </DrawerHeader>
               <nav className="px-2 py-2" aria-label="Mobile">
                 <ul className="flex flex-col gap-1 text-[15px]">
                   <li>
@@ -214,14 +238,16 @@ export function StorefrontLayout() {
                     </Link>
                   </li>
                   <li>
-                    <Link
-                      to="/search"
-                      search={{ q: '' }}
-                      onClick={() => setMenuOpen(false)}
-                      className="block rounded-lg px-2 py-2 hover:bg-zinc-50"
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        openSearchPalette();
+                      }}
+                      className="block w-full rounded-lg px-2 py-2 text-left hover:bg-zinc-50"
                     >
                       Search
-                    </Link>
+                    </button>
                   </li>
                   <li>
                     <Link
@@ -234,8 +260,8 @@ export function StorefrontLayout() {
                   </li>
                 </ul>
               </nav>
-            </SheetContent>
-          </Sheet>
+            </DrawerContent>
+          </Drawer>
           <nav className="ml-6 hidden items-center gap-1 md:flex" aria-label="Primary">
             <Link to="/shop" className={navLink}>
               Shop all
@@ -260,10 +286,15 @@ export function StorefrontLayout() {
             </Link>
           </nav>
           <div className="ml-auto flex items-center gap-0.5">
-            <Button asChild variant="ghost" size="icon" className="hover:bg-zinc-100">
-              <Link to="/search" search={{ q: '' }} aria-label="Search">
-                <SearchIcon className="size-5" />
-              </Link>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="hover:bg-zinc-100"
+              aria-label="Search"
+              onClick={openSearchPalette}
+            >
+              <SearchIcon className="size-5" />
             </Button>
             <Button asChild variant="ghost" size="icon" className="hover:bg-zinc-100">
               <Link to="/account" aria-label="Account">
@@ -292,6 +323,7 @@ export function StorefrontLayout() {
       <CartDrawer
         initial={{ cartId: null, cartRevision: null, lines: [], zones: [], count: 0, limits }}
       />
+      <SearchPaletteDialog />
       <footer className="mt-24 border-t border-zinc-100 bg-white">
         <div className="mx-auto grid w-full max-w-7xl gap-10 px-4 py-14 sm:grid-cols-2 sm:px-6 lg:grid-cols-4 lg:px-8">
           <div>
@@ -361,9 +393,9 @@ export function StorefrontLayout() {
                 </Link>
               </li>
               <li>
-                <Link to="/search" search={{ q: '' }} className="hover:text-zinc-950">
+                <button type="button" onClick={openSearchPalette} className="hover:text-zinc-950">
                   Search
-                </Link>
+                </button>
               </li>
             </ul>
           </nav>

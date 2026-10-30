@@ -3,20 +3,21 @@ import { useEffect, useRef, useState } from 'react';
 import type { ComponentType, ReactElement } from 'react';
 import type { z } from 'zod';
 import { Link, linkOptions, useLocation } from '@tanstack/react-router';
-import { MenuIcon } from 'lucide-react';
+import { MenuIcon, XIcon } from 'lucide-react';
 import { GlobalSearchDialog, GlobalSearchMobileTrigger } from './GlobalSearch';
 import { adminActionFn } from '../lib/adminFns';
 import { mediaUrl, type MediaSource } from '../lib/media-url';
 import { roleCan, type statement } from '../lib/permissions';
 import { Button } from './ui/button';
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from './ui/sheet';
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerTrigger,
+} from './ui/drawer';
 import {
   BagIcon,
   BoxIcon,
@@ -232,34 +233,48 @@ export function AdminNav({
         <NavigationLinks sections={visibleSections} settings={settings} />
       </aside>
       <div className="flex h-[62px] items-center gap-2 border-b border-zinc-100 bg-white px-4 sm:hidden">
-        <Sheet open={open} onOpenChange={setOpen}>
-          <SheetTrigger asChild>
-            <Button variant="ghost" size="icon-sm" aria-label="Open admin navigation">
-              <MenuIcon aria-hidden="true" />
-            </Button>
-          </SheetTrigger>
-          <SheetContent
-            side="left"
-            className="data-[side=left]:w-[min(290px,85vw)] gap-0 border-zinc-100 bg-white p-0"
-            onCloseAutoFocus={(event) => {
+        <Drawer instant swipeDirection="left" open={open} onOpenChange={setOpen}>
+          <DrawerTrigger
+            render={
+              <Button variant="ghost" size="icon-sm" aria-label="Open admin navigation">
+                <MenuIcon aria-hidden="true" />
+              </Button>
+            }
+          />
+          <DrawerContent
+            className="w-[min(290px,85vw)] gap-0 border-zinc-100 bg-white p-0"
+            finalFocus={() => {
               if (window.matchMedia('(min-width: 640px)').matches) {
-                event.preventDefault();
-                railRef.current?.focus({ preventScroll: true });
+                return railRef.current ?? true;
               }
+              return true;
             }}
           >
-            <SheetHeader className="sr-only">
-              <SheetTitle>Admin navigation</SheetTitle>
-              <SheetDescription>Store pages and settings</SheetDescription>
-            </SheetHeader>
+            <DrawerClose
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="absolute top-3 right-3"
+                >
+                  <XIcon />
+                  <span className="sr-only">Close</span>
+                </Button>
+              }
+            />
+            <DrawerHeader className="sr-only">
+              <DrawerTitle>Admin navigation</DrawerTitle>
+              <DrawerDescription>Store pages and settings</DrawerDescription>
+            </DrawerHeader>
             {storeIdentity}
             <NavigationLinks
               sections={visibleSections}
               settings={settings}
               onNavigate={() => setOpen(false)}
             />
-          </SheetContent>
-        </Sheet>
+          </DrawerContent>
+        </Drawer>
         {logo ? (
           <img
             src={mediaUrl(logo, 320)}

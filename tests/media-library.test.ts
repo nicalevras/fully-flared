@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 
-describe('media library table and sheet', () => {
-  it('renders files in a shadcn table and edits alt text in a sheet', () => {
+describe('media library table and drawer', () => {
+  it('renders files in a shadcn table and edits alt text in a drawer', () => {
     const page = readFileSync('web/src/routes/admin/media.tsx', 'utf8');
     expect(page).toContain("from '../../components/ui/data-table'");
     expect(page).toContain('<DataTable');
@@ -12,7 +12,7 @@ describe('media library table and sheet', () => {
     expect(page).toContain('mediaUrl(mediaSource(m), 320)');
     expect(page).not.toContain('src={`/media/${m.r2_key}`}');
     expect(page).toContain('edit: m.id');
-    expect(page).toContain('MediaSheet');
+    expect(page).toContain('MediaDrawer');
     expect(page).toContain("'media.updateAlt'");
     expect(page).toContain("'media.delete'");
     expect(page).toContain('LIMIT ? OFFSET ?');

@@ -78,14 +78,14 @@ describe('product creation draft', () => {
 
 describe('product creation confirmation (FF-01)', () => {
   it('uses the shared ConfirmDialog, never window.confirm', () => {
-    const source = readFileSync('web/src/components/ProductCreateSheet.tsx', 'utf8');
+    const source = readFileSync('web/src/components/ProductCreateDrawer.tsx', 'utf8');
     expect(source).not.toContain('window.confirm');
     expect(source).toContain('ConfirmDialog');
     expect(source).toContain('pendingGroups');
   });
 
   it('uses the shared expandable rich editor with no description textarea or mode switcher', () => {
-    const source = readFileSync('web/src/components/ProductCreateSheet.tsx', 'utf8');
+    const source = readFileSync('web/src/components/ProductCreateDrawer.tsx', 'utf8');
     expect(source).toContain('ExpandableEditor');
     expect(source).toContain("await import('./ExpandableEditor')");
     expect(source).toContain('<Suspense');
@@ -95,7 +95,7 @@ describe('product creation confirmation (FF-01)', () => {
   });
 
   it('places images first inside Details with no standalone Images section', () => {
-    const source = readFileSync('web/src/components/ProductCreateSheet.tsx', 'utf8');
+    const source = readFileSync('web/src/components/ProductCreateDrawer.tsx', 'utf8');
     expect(source).not.toContain('value="images"');
     const details = source.indexOf('value="product-details"');
     const images = source.indexOf('>Images</p>');

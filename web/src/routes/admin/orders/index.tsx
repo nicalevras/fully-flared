@@ -48,7 +48,20 @@ import {
 import { AdminDataTableShell } from '../../../components/AdminDataTable';
 import { Checkbox } from '../../../components/ui/checkbox';
 import type { ColumnDef, OnChangeFn, RowSelectionState } from '@tanstack/react-table';
-import { DataTable, DataTableSearch } from '../../../components/ui/data-table';
+import {
+  DataTable,
+  DataTableSearch,
+  dataTableControlClassName,
+  dataTableMenuClassName,
+  dataTableMenuItemClassName,
+} from '../../../components/ui/data-table';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../../components/ui/select';
 import type { DataTableFeatures } from '../../../components/data-table-features';
 
 const getData = createServerFn({ method: 'GET' })
@@ -276,9 +289,7 @@ function AdminOrders() {
     <main>
       <h1 className={pageTitle}>Orders</h1>
       <p className={pageSub}>
-        Find an order by number or customer email, work the paid and unfulfilled queue, and open an
-        order for items, address, shipping, and refunds. Fulfillment is read from the order status.
-        Paid and processing orders are unfulfilled.
+        Find an order by number, work the queue, and open it for items, shipping, and refunds.
       </p>
       <AdminActionFeedback value={msg} />
 
@@ -292,7 +303,9 @@ function AdminOrders() {
               type="button"
               className="underline"
               onClick={() =>
-                void navigate({ search: { q: '', view: 'all', payment: 'all', from: '', to: '' } })
+                void navigate({
+                  search: { q: '', mode: 'number', view: 'all', payment: 'all', from: '', to: '' },
+                })
               }
             >
               Clear the search and filters
@@ -314,54 +327,91 @@ function AdminOrders() {
               <DataTableSearch
                 value={search.q}
                 onSearch={(q) => void navigate({ search: { ...search, q, cursor: undefined } })}
-                placeholder="FF-1001 or ada@example.com"
-                ariaLabel="Order number or customer email"
-              >
-                <select
-                  aria-label="View"
-                  className="h-9 rounded-md border border-zinc-300 bg-white px-2 text-sm text-zinc-950"
+                placeholder="FF-1001"
+                ariaLabel="Order number"
+              />
+            }
+            toolbarActions={
+              <>
+                <Select
                   value={search.view}
-                  onChange={(event) =>
+                  onValueChange={(value) =>
                     void navigate({
-                      search: {
-                        ...search,
-                        view: event.target.value as OrderView,
-                        cursor: undefined,
-                      },
+                      search: { ...search, view: value as OrderView, cursor: undefined },
                     })
                   }
                 >
-                  <option value="queue">Paid and unfulfilled</option>
-                  <option value="all">All orders</option>
-                  <option value="payment-issues">Payment issues</option>
-                  <option value="returns">Return requests</option>
-                </select>
-                <select
-                  aria-label="Payment"
-                  className="h-9 rounded-md border border-zinc-300 bg-white px-2 text-sm text-zinc-950"
+                  <SelectTrigger aria-label="View" className={dataTableControlClassName}>
+                    <SelectValue>View</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent
+                    position="popper"
+                    align="end"
+                    sideOffset={4}
+                    className={dataTableMenuClassName}
+                  >
+                    <SelectItem className={dataTableMenuItemClassName} value="queue">
+                      Paid and unfulfilled
+                    </SelectItem>
+                    <SelectItem className={dataTableMenuItemClassName} value="all">
+                      All orders
+                    </SelectItem>
+                    <SelectItem className={dataTableMenuItemClassName} value="payment-issues">
+                      Payment issues
+                    </SelectItem>
+                    <SelectItem className={dataTableMenuItemClassName} value="returns">
+                      Return requests
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
                   value={search.payment}
-                  onChange={(event) =>
+                  onValueChange={(value) =>
                     void navigate({
                       search: {
                         ...search,
-                        payment: event.target.value as typeof search.payment,
+                        payment: value as typeof search.payment,
                         cursor: undefined,
                       },
                     })
                   }
                 >
-                  <option value="all">Any payment state</option>
-                  <option value="unpaid">Unpaid</option>
-                  <option value="paid">Paid</option>
-                  <option value="failed">Failed</option>
-                  <option value="refunded">Refunded</option>
-                  <option value="partially_refunded">Partially refunded</option>
-                  <option value="disputed">Disputed</option>
-                </select>
+                  <SelectTrigger aria-label="Payment" className={dataTableControlClassName}>
+                    <SelectValue>Payment</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent
+                    position="popper"
+                    align="end"
+                    sideOffset={4}
+                    className={dataTableMenuClassName}
+                  >
+                    <SelectItem className={dataTableMenuItemClassName} value="all">
+                      Any payment state
+                    </SelectItem>
+                    <SelectItem className={dataTableMenuItemClassName} value="unpaid">
+                      Unpaid
+                    </SelectItem>
+                    <SelectItem className={dataTableMenuItemClassName} value="paid">
+                      Paid
+                    </SelectItem>
+                    <SelectItem className={dataTableMenuItemClassName} value="failed">
+                      Failed
+                    </SelectItem>
+                    <SelectItem className={dataTableMenuItemClassName} value="refunded">
+                      Refunded
+                    </SelectItem>
+                    <SelectItem className={dataTableMenuItemClassName} value="partially_refunded">
+                      Partially refunded
+                    </SelectItem>
+                    <SelectItem className={dataTableMenuItemClassName} value="disputed">
+                      Disputed
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
                 <input
                   type="date"
                   aria-label="From"
-                  className="h-9 rounded-md border border-zinc-300 bg-white px-2 text-sm text-zinc-950"
+                  className={dataTableControlClassName}
                   value={search.from}
                   onChange={(event) =>
                     void navigate({
@@ -372,7 +422,7 @@ function AdminOrders() {
                 <input
                   type="date"
                   aria-label="To"
-                  className="h-9 rounded-md border border-zinc-300 bg-white px-2 text-sm text-zinc-950"
+                  className={dataTableControlClassName}
                   value={search.to}
                   onChange={(event) =>
                     void navigate({
@@ -380,7 +430,7 @@ function AdminOrders() {
                     })
                   }
                 />
-              </DataTableSearch>
+              </>
             }
             paginationFooter={
               <div className="flex flex-wrap items-center gap-2 px-2 py-4">

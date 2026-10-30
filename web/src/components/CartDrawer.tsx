@@ -4,8 +4,16 @@ import { Link } from '@tanstack/react-router';
 import { formatMoney } from '../lib/format';
 import { mediaUrl } from '../lib/media-url';
 import { BagIcon } from './icons';
+import { XIcon } from 'lucide-react';
 import { nextQtyOnIncrement, useServerCart, type CartView } from '../lib/cart';
-import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+} from '@/components/ui/drawer';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -28,7 +36,7 @@ export function CartDrawer({ initial }: { initial: CartView }) {
     if (!open) return;
     // Refresh once on open (the loader seed already rendered real lines, so
     // this never flashes an empty cart). Focus, Escape-to-close, focus
-    // return and scroll locking are owned by the Sheet primitive.
+    // return and scroll locking are owned by the Drawer primitive.
     void refresh().finally(() => setLoaded(true));
   }, [open, refresh]);
 
@@ -39,14 +47,25 @@ export function CartDrawer({ initial }: { initial: CartView }) {
   const awayFromFree = freeOver != null ? Math.max(freeOver - subtotal, 0) : null;
 
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
-      <SheetContent side="right" className="w-full gap-0 p-0 sm:max-w-md" aria-label="Cart">
-        <SheetHeader className="px-6 py-5">
-          <SheetTitle className="text-base">
+    <Drawer swipeDirection="right" open={open} onOpenChange={setOpen}>
+      <DrawerContent
+        className="w-full max-w-[calc(100vw-1rem)] gap-0 p-0 sm:max-w-md"
+        aria-label="Cart"
+      >
+        <DrawerClose
+          render={
+            <Button type="button" variant="ghost" size="icon-sm" className="absolute top-3 right-3">
+              <XIcon />
+              <span className="sr-only">Close</span>
+            </Button>
+          }
+        />
+        <DrawerHeader className="px-6 py-5">
+          <DrawerTitle className="text-base">
             Your cart
             {lines.length > 0 ? <span className="text-zinc-400"> ({itemCount})</span> : null}
-          </SheetTitle>
-        </SheetHeader>
+          </DrawerTitle>
+        </DrawerHeader>
 
         {error ? (
           <div className="px-6 pb-2">
@@ -180,7 +199,7 @@ export function CartDrawer({ initial }: { initial: CartView }) {
             </ul>
 
             <Separator />
-            <SheetFooter className="px-6 py-5">
+            <DrawerFooter className="px-6 py-5">
               <div className="flex items-baseline justify-between">
                 <span className="text-sm font-medium text-zinc-950">Subtotal</span>
                 <span className="text-base font-medium text-zinc-950">
@@ -200,10 +219,10 @@ export function CartDrawer({ initial }: { initial: CartView }) {
                   View cart
                 </Link>
               </Button>
-            </SheetFooter>
+            </DrawerFooter>
           </>
         )}
-      </SheetContent>
-    </Sheet>
+      </DrawerContent>
+    </Drawer>
   );
 }

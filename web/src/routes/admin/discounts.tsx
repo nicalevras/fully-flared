@@ -14,7 +14,7 @@ import { useAdminAction, type AdminPayload } from '../../components/AdminNav';
 import { StatusBadge } from '../../components/StatusBadge';
 import type { DiscountStatus } from '../../db/schema';
 import { formatMoney } from '../../components/ProductCard';
-import { hintCls, labelCls } from '../../components/ui';
+import { hintCls, labelCls, pageSub, pageTitle } from '../../components/ui';
 import type { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table';
 import { DataTable, DataTableSearch } from '../../components/ui/data-table';
 import { ftsPhrase, ftsUsable } from '../../lib/fts-search';
@@ -34,13 +34,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
-import { PlusIcon } from 'lucide-react';
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from '@/components/ui/drawer';
+import { PlusIcon, XIcon } from 'lucide-react';
 
 type DiscountRow = {
   id: string;
@@ -308,24 +309,18 @@ function Page() {
     <main>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-[28px] leading-tight font-medium tracking-tight text-zinc-950">
-            Discounts
-          </h1>
-          <p className="mt-1 text-sm text-zinc-500">Codes customers enter at checkout.</p>
+          <h1 className={pageTitle}>Discounts</h1>
+          <p className={pageSub}>Codes customers enter at checkout.</p>
         </div>
-        <Button type="button" onClick={openCreate}>
-          <PlusIcon className="size-4" />
-          New
-        </Button>
       </div>
       <AdminActionFeedback value={feedback} />
 
       {discounts.length === 0 && !search.q ? (
-        <p className="mt-8 rounded-2xl bg-zinc-50 p-5 text-sm text-zinc-500" role="status">
+        <p className="mt-6 rounded-2xl bg-zinc-50 p-5 text-sm text-zinc-500" role="status">
           No discount codes yet. Use New to create your first one.
         </p>
       ) : (
-        <div className="mt-8" tabIndex={0} role="region" aria-label="Discount codes">
+        <div className="mt-6" tabIndex={0} role="region" aria-label="Discount codes">
           <DataTable
             caption="Discount codes"
             columns={discountColumns}
@@ -342,15 +337,27 @@ function Page() {
               <DataTableSearch
                 value={search.q}
                 onSearch={(q) => void navigate({ search: { q, page: 1, size: search.size } })}
-                placeholder="Filter codes…"
+                placeholder="Search Promo Codes"
                 ariaLabel="Find a code"
               />
+            }
+            toolbarEnd={
+              <Button
+                type="button"
+                size="sm"
+                onClick={openCreate}
+                className="h-8 rounded-md bg-zinc-950 text-white shadow-none hover:bg-zinc-800"
+              >
+                <PlusIcon /> New
+              </Button>
             }
           />
         </div>
       )}
 
-      <Sheet
+      <Drawer
+        instant
+        swipeDirection="right"
         open={createOpen || editingId !== ''}
         onOpenChange={(open) => {
           if (open) return;
@@ -365,20 +372,33 @@ function Page() {
           }
         }}
       >
-        <SheetContent
-          className="w-full gap-0 overflow-hidden p-0 sm:max-w-2xl"
-          onOpenAutoFocus={(event) => event.preventDefault()}
+        <DrawerContent
+          className="w-full max-w-[calc(100vw-1rem)] gap-0 overflow-hidden p-0 sm:max-w-2xl"
+          initialFocus={false}
         >
-          <SheetHeader className="p-5 pr-14 pb-0 sm:p-6 sm:pr-14 sm:pb-0">
-            <SheetTitle>{editingId ? (editing?.code ?? form.code) : 'New discount'}</SheetTitle>
-            <SheetDescription>
+          <DrawerClose
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="absolute top-3 right-3"
+              >
+                <XIcon />
+                <span className="sr-only">Close</span>
+              </Button>
+            }
+          />
+          <DrawerHeader className="p-5 pr-14 pb-0 sm:p-6 sm:pr-14 sm:pb-0">
+            <DrawerTitle>{editingId ? (editing?.code ?? form.code) : 'New discount'}</DrawerTitle>
+            <DrawerDescription>
               {editingId
                 ? editing
                   ? describe(editing, currency)
                   : ''
                 : 'Create a code customers can enter at checkout.'}
-            </SheetDescription>
-          </SheetHeader>
+            </DrawerDescription>
+          </DrawerHeader>
           <form
             className="flex min-h-0 flex-1 flex-col"
             onSubmit={(event) => {
@@ -505,8 +525,8 @@ function Page() {
               </div>
             )}
           </form>
-        </SheetContent>
-      </Sheet>
+        </DrawerContent>
+      </Drawer>
 
       <ConfirmDialog
         request={

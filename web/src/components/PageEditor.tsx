@@ -4,14 +4,22 @@ import { createServerFn } from '@tanstack/react-start';
 import { staffMiddleware } from '../server/staff-middleware';
 import { validateServerInput } from '../server/function-boundary';
 import { idString } from '../schemas/common';
-import { Maximize2Icon } from 'lucide-react';
+import { Maximize2Icon, XIcon } from 'lucide-react';
 import { BlogEditor } from './BlogEditor';
 import { useAdminAction } from './AdminNav';
 import type { AdminActionFeedbackState } from './AdminActionFeedback';
 import { ConfirmDialog } from './ConfirmDialog';
 import { SeoPreview } from './SeoPreview';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './ui/sheet';
+import { Button } from './ui/button';
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from './ui/drawer';
 import { btnGhost, btnPrimary, btnSmall, inputCls, labelCls } from './ui';
 
 type PageRow = {
@@ -74,22 +82,32 @@ export function PageEditor({
     onClose();
   };
   return (
-    <Sheet
+    <Drawer
+      instant
+      swipeDirection="right"
       open
       onOpenChange={(next) => {
         if (!next) requestClose();
       }}
     >
-      <SheetContent
-        className="w-full gap-0 overflow-hidden p-0 sm:max-w-4xl"
-        onOpenAutoFocus={(event) => event.preventDefault()}
+      <DrawerContent
+        className="w-full max-w-[calc(100vw-1rem)] gap-0 overflow-hidden p-0 sm:max-w-2xl"
+        initialFocus={false}
       >
-        <SheetHeader className="p-5 pr-24 pb-0 sm:p-6 sm:pr-24 sm:pb-0">
-          <SheetTitle>{page ? page.title : 'New page'}</SheetTitle>
-          <SheetDescription>
+        <DrawerClose
+          render={
+            <Button type="button" variant="ghost" size="icon-sm" className="absolute top-3 right-3">
+              <XIcon />
+              <span className="sr-only">Close</span>
+            </Button>
+          }
+        />
+        <DrawerHeader className="p-5 pr-24 pb-0 sm:p-6 sm:pr-24 sm:pb-0">
+          <DrawerTitle>{page ? page.title : 'New page'}</DrawerTitle>
+          <DrawerDescription>
             {page ? `/pages/${page.slug}` : 'Write a page for the store.'}
-          </SheetDescription>
-        </SheetHeader>
+          </DrawerDescription>
+        </DrawerHeader>
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
           <EditorForm
             key={page?.id ?? 'new'}
@@ -147,8 +165,8 @@ export function PageEditor({
             onClose();
           }}
         />
-      </SheetContent>
-    </Sheet>
+      </DrawerContent>
+    </Drawer>
   );
 }
 

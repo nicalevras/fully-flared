@@ -36,7 +36,7 @@ import {
 import { formatMoney } from '../../components/ProductCard';
 import { StatusBadge } from '../../components/StatusBadge';
 import type { OrderStatus, PaymentStatus } from '../../db/schema';
-import { btnPrimary } from '../../components/ui';
+import { btnPrimary, pageSub, pageTitle } from '../../components/ui';
 import { AdminDataTableShell } from '../../components/AdminDataTable';
 import { roleCan, roles, type StaffRole } from '../../lib/permissions';
 
@@ -141,7 +141,7 @@ export const Route = createFileRoute('/admin/')({
     if (!roleCan(context.staff?.role, 'report', 'view'))
       throw redirect({
         to: '/admin/orders',
-        search: { q: '', view: 'queue', payment: 'all', from: '', to: '' },
+        search: { q: '', mode: 'number', view: 'queue', payment: 'all', from: '', to: '' },
       });
   },
   validateSearch: (search: Record<string, unknown>): { days?: 7 | 30 | 90 } => ({
@@ -185,12 +185,8 @@ function AdminHome() {
     <main>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-[28px] leading-tight font-medium tracking-tight text-zinc-950">
-            Welcome, {s.storeName}
-          </h1>
-          <p className="mt-1 text-sm text-zinc-500">
-            Here is what needs your attention, and how the store is doing.
-          </p>
+          <h1 className={pageTitle}>Welcome, {s.storeName}</h1>
+          <p className={pageSub}>Here is what needs your attention, and how the store is doing.</p>
         </div>
         <Link to="/admin/products" className={btnPrimary}>
           + Add product
@@ -228,7 +224,14 @@ function AdminHome() {
               </div>
               <Link
                 to="/admin/orders"
-                search={{ q: '', view: 'returns', payment: 'all', from: '', to: '' }}
+                search={{
+                  q: '',
+                  mode: 'number',
+                  view: 'returns',
+                  payment: 'all',
+                  from: '',
+                  to: '',
+                }}
                 className={pillWhite}
               >
                 Review
@@ -250,7 +253,13 @@ function AdminHome() {
               </div>
               <Link
                 to="/admin/inventory"
-                search={{ q: '', page: 1, low: false, sku: undefined, size: undefined }}
+                search={{
+                  q: '',
+                  page: 1,
+                  low: false,
+                  sku: undefined,
+                  size: undefined,
+                }}
                 className={pillWhite}
               >
                 Review inventory
@@ -272,7 +281,14 @@ function AdminHome() {
               </div>
               <Link
                 to="/admin/orders"
-                search={{ q: '', view: 'payment-issues', payment: 'all', from: '', to: '' }}
+                search={{
+                  q: '',
+                  mode: 'number',
+                  view: 'payment-issues',
+                  payment: 'all',
+                  from: '',
+                  to: '',
+                }}
                 className={pillWhite}
               >
                 Review
@@ -496,7 +512,7 @@ function AdminHome() {
           </h2>
           <Link
             to="/admin/orders"
-            search={{ q: '', view: 'queue', payment: 'all', from: '', to: '' }}
+            search={{ q: '', mode: 'number', view: 'queue', payment: 'all', from: '', to: '' }}
             className={`${pillWhite} group`}
           >
             View all
@@ -516,11 +532,11 @@ function AdminHome() {
                   <TableRow>
                     <TableHead scope="col">Order</TableHead>
                     <TableHead scope="col">Customer</TableHead>
-                    <TableHead scope="col">Status</TableHead>
                     <TableHead scope="col">Payment</TableHead>
                     <TableHead scope="col" className="text-right">
                       Total
                     </TableHead>
+                    <TableHead scope="col">Status</TableHead>
                     <TableHead scope="col">
                       <span className="sr-only">Open order</span>
                     </TableHead>
@@ -542,13 +558,13 @@ function AdminHome() {
                         {o.customer_email}
                       </TableCell>
                       <TableCell>
-                        <StatusBadge value={o.status} />
-                      </TableCell>
-                      <TableCell>
                         <StatusBadge value={o.payment_status} />
                       </TableCell>
                       <TableCell className="text-right font-medium">
                         {formatMoney(o.total_cents, o.currency)}
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge value={o.status} />
                       </TableCell>
                       <TableCell className="text-right">
                         <ArrowRightIcon className="ml-auto h-4 w-4 text-zinc-300 transition-all group-hover:translate-x-0.5 group-hover:text-zinc-950" />
@@ -569,7 +585,7 @@ function AdminHome() {
         <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Link
             to="/admin/orders"
-            search={{ q: '', view: 'queue', payment: 'all', from: '', to: '' }}
+            search={{ q: '', mode: 'number', view: 'queue', payment: 'all', from: '', to: '' }}
             className={tileCls}
           >
             <span className="flex items-start justify-between">
@@ -583,7 +599,7 @@ function AdminHome() {
           </Link>
           <Link
             to="/admin/orders"
-            search={{ q: '', view: 'returns', payment: 'all', from: '', to: '' }}
+            search={{ q: '', mode: 'number', view: 'returns', payment: 'all', from: '', to: '' }}
             className={tileCls}
           >
             <span className="flex items-start justify-between">
@@ -597,7 +613,14 @@ function AdminHome() {
           </Link>
           <Link
             to="/admin/orders"
-            search={{ q: '', view: 'payment-issues', payment: 'all', from: '', to: '' }}
+            search={{
+              q: '',
+              mode: 'number',
+              view: 'payment-issues',
+              payment: 'all',
+              from: '',
+              to: '',
+            }}
             className={tileCls}
           >
             <span className="flex items-start justify-between">

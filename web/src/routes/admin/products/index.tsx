@@ -14,21 +14,21 @@ import {
   ProductEditor,
   type ProductDetail,
 } from '../../../components/ProductEditor';
-import { ProductCreateSheet } from '../../../components/ProductCreateSheet';
+import { ProductCreateDrawer } from '../../../components/ProductCreateDrawer';
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from '@/components/ui/drawer';
 import {
   adminProductDiscovery,
   productDiscoveryInputSchema,
   type AdminProductRow,
 } from '../../../server/admin-product-discovery';
 import {
-  isProductMode,
   isProductSort,
   isProductStatusFilter,
   normalizeProductSearch,
@@ -42,8 +42,19 @@ import { useAdminAction } from '../../../components/AdminNav';
 import { formatMoney } from '../../../lib/format';
 import { roleCan } from '../../../lib/permissions';
 import { StatusBadge } from '../../../components/StatusBadge';
-import { btnSmall } from '../../../components/ui';
+import { btnSmall, pageSub, pageTitle } from '../../../components/ui';
 import { Button } from '@/components/ui/button';
+import { PlusIcon, XIcon } from 'lucide-react';
+import { AdminRowActions } from '../../../components/AdminDataTable';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import type { ColumnDef } from '@tanstack/react-table';
+import {
+  DataTable,
+  DataTableSearch,
+  dataTableControlClassName,
+  dataTableMenuClassName,
+  dataTableMenuItemClassName,
+} from '../../../components/ui/data-table';
 import {
   Select,
   SelectContent,
@@ -51,10 +62,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { AdminRowActions } from '../../../components/AdminDataTable';
-import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
-import type { ColumnDef } from '@tanstack/react-table';
-import { DataTable, DataTableSearch } from '../../../components/ui/data-table';
 import type { DataTableFeatures } from '../../../components/data-table-features';
 
 const getData = createServerFn({ method: 'GET' })
@@ -194,26 +201,10 @@ function AdminProducts() {
             <span>
               <span className="font-medium text-zinc-950 hover:underline">{p.title}</span>
               <span className="block text-[13px] text-zinc-500">/{p.slug}</span>
-              {p.matched_skus.map((match) => (
-                <span key={match.sku} className="block text-[13px] text-zinc-500">
-                  {match.sku} · {match.title}
-                </span>
-              ))}
-              {p.matched_sku_count > 3 ? (
-                <span className="block text-[13px] text-zinc-500">
-                  +{p.matched_sku_count - 3} more matching SKUs
-                </span>
-              ) : null}
             </span>
           </Link>
         );
       },
-    },
-    {
-      id: 'status',
-      accessorKey: 'status',
-      header: 'Status',
-      cell: ({ row }) => <StatusBadge value={row.original.status} />,
     },
     {
       id: 'price',
@@ -267,6 +258,12 @@ function AdminProducts() {
       },
     },
     {
+      id: 'status',
+      accessorKey: 'status',
+      header: 'Status',
+      cell: ({ row }) => <StatusBadge value={row.original.status} />,
+    },
+    {
       id: 'actions',
       header: () => <span className="sr-only">Actions</span>,
       enableHiding: false,
@@ -306,22 +303,13 @@ function AdminProducts() {
     <main>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-[28px] leading-tight font-medium tracking-tight text-zinc-950">
-            Products
-          </h1>
-          <p className="mt-1 text-sm text-zinc-500">
-            Click a product to edit its variants, stock, and images.
-          </p>
+          <h1 className={pageTitle}>Products</h1>
+          <p className={pageSub}>Click a product to edit its variants, stock, and images.</p>
         </div>
         <span className="flex gap-2">
           <Button variant="outline" asChild>
             <Link to="/admin/products/import">Import CSV</Link>
           </Button>
-          {canCreate ? (
-            <Button type="button" onClick={() => setCreateOpen(true)}>
-              + Add product
-            </Button>
-          ) : null}
         </span>
       </div>
       <AdminActionFeedback value={msg} />
@@ -405,94 +393,102 @@ function AdminProducts() {
                 )
               }
               toolbar={
-                <div>
+                <div className="min-w-0 flex-1">
                   <DataTableSearch
                     value={search.q}
                     onSearch={(q) =>
                       void navigate({
                         search: {
                           q,
-                          mode: q ? (search.mode ?? 'title') : null,
+                          mode: q ? 'title' : null,
                           status: search.status,
                           sort: search.sort,
                           cursor: undefined,
                         },
                       })
                     }
-                    placeholder="Search products"
+                    placeholder="Search Products"
                     ariaLabel="Find products"
-                  >
-                    <Select
-                      value={search.mode ?? 'title'}
-                      onValueChange={(value) => {
-                        if (isProductMode(value))
-                          void navigate({
-                            search: { ...search, mode: value, cursor: undefined },
-                          });
-                      }}
-                    >
-                      <SelectTrigger
-                        size="sm"
-                        aria-label="Search by"
-                        className="rounded-md bg-white"
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="title">Title</SelectItem>
-                        <SelectItem value="sku">SKU</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Select
-                      value={search.status}
-                      onValueChange={(value) => {
-                        if (isProductStatusFilter(value))
-                          void navigate({
-                            search: { ...search, status: value, cursor: undefined },
-                          });
-                      }}
-                    >
-                      <SelectTrigger
-                        size="sm"
-                        aria-label="Filter by status"
-                        className="rounded-md bg-white"
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {statuses.map(([value, label]) => (
-                          <SelectItem key={value} value={value}>
-                            {label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Select
-                      value={search.sort}
-                      onValueChange={(value) => {
-                        if (isProductSort(value))
-                          void navigate({ search: { ...search, sort: value, cursor: undefined } });
-                      }}
-                    >
-                      <SelectTrigger
-                        size="sm"
-                        aria-label="Sort products"
-                        className="rounded-md bg-white"
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="newest">Newest</SelectItem>
-                        <SelectItem value="oldest">Oldest</SelectItem>
-                        <SelectItem value="title">Title A–Z</SelectItem>
-                        <SelectItem value="updated">Recently updated</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </DataTableSearch>
-                  {(search.mode ?? 'title') !== 'title' ? (
-                    <p className="mt-2 text-xs text-zinc-500">SKU search is case-sensitive.</p>
-                  ) : null}
+                  />
                 </div>
+              }
+              toolbarActions={
+                <>
+                  <Select
+                    value={search.status}
+                    onValueChange={(value) => {
+                      if (isProductStatusFilter(value))
+                        void navigate({
+                          search: { ...search, status: value, cursor: undefined },
+                        });
+                    }}
+                  >
+                    <SelectTrigger
+                      aria-label="Filter by status"
+                      className={dataTableControlClassName}
+                    >
+                      <SelectValue>Status</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent
+                      position="popper"
+                      align="end"
+                      sideOffset={4}
+                      className={dataTableMenuClassName}
+                    >
+                      {statuses.map(([value, label]) => (
+                        <SelectItem
+                          className={dataTableMenuItemClassName}
+                          key={value}
+                          value={value}
+                        >
+                          {label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={search.sort}
+                    onValueChange={(value) => {
+                      if (isProductSort(value))
+                        void navigate({ search: { ...search, sort: value, cursor: undefined } });
+                    }}
+                  >
+                    <SelectTrigger aria-label="Sort products" className={dataTableControlClassName}>
+                      <SelectValue>Sort</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent
+                      position="popper"
+                      align="end"
+                      sideOffset={4}
+                      className={dataTableMenuClassName}
+                    >
+                      <SelectItem className={dataTableMenuItemClassName} value="newest">
+                        Newest
+                      </SelectItem>
+                      <SelectItem className={dataTableMenuItemClassName} value="oldest">
+                        Oldest
+                      </SelectItem>
+                      <SelectItem className={dataTableMenuItemClassName} value="title">
+                        Title A–Z
+                      </SelectItem>
+                      <SelectItem className={dataTableMenuItemClassName} value="updated">
+                        Recently updated
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </>
+              }
+              toolbarEnd={
+                canCreate ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => setCreateOpen(true)}
+                    className="h-8 rounded-md bg-zinc-950 text-white shadow-none hover:bg-zinc-800"
+                  >
+                    <PlusIcon /> New
+                  </Button>
+                ) : null
               }
               tableClassName="min-w-[680px]"
             />
@@ -500,7 +496,7 @@ function AdminProducts() {
         )}
       </section>
       {canCreate ? (
-        <ProductCreateSheet
+        <ProductCreateDrawer
           open={createOpen}
           onOpenChange={setCreateOpen}
           onCreated={(id) => {
@@ -511,27 +507,42 @@ function AdminProducts() {
         />
       ) : null}
       {search.edit && detailFor === search.edit && !detail ? (
-        <Sheet
+        <Drawer
+          instant
+          swipeDirection="right"
           open
           onOpenChange={(next) => {
             if (!next) closeEditor();
           }}
         >
-          <SheetContent
-            className="w-full gap-0 overflow-hidden p-0 sm:max-w-4xl"
-            onOpenAutoFocus={(event) => event.preventDefault()}
+          <DrawerContent
+            className="w-full max-w-[calc(100vw-1rem)] gap-0 overflow-hidden p-0 sm:max-w-2xl"
+            initialFocus={false}
           >
-            <SheetHeader className="p-5 pr-14 pb-0 sm:p-6 sm:pr-14 sm:pb-0">
-              <SheetTitle>Product not found</SheetTitle>
-              <SheetDescription>This product does not exist.</SheetDescription>
-            </SheetHeader>
+            <DrawerClose
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="absolute top-3 right-3"
+                >
+                  <XIcon />
+                  <span className="sr-only">Close</span>
+                </Button>
+              }
+            />
+            <DrawerHeader className="p-5 pr-14 pb-0 sm:p-6 sm:pr-14 sm:pb-0">
+              <DrawerTitle>Product not found</DrawerTitle>
+              <DrawerDescription>This product does not exist.</DrawerDescription>
+            </DrawerHeader>
             <div className="px-5 py-5 sm:px-6">
               <Button type="button" onClick={closeEditor}>
                 Back to products
               </Button>
             </div>
-          </SheetContent>
-        </Sheet>
+          </DrawerContent>
+        </Drawer>
       ) : null}
       {search.edit && detail && detailFor === search.edit ? (
         <ProductEditor

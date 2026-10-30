@@ -7,6 +7,7 @@ import { validateServerInput } from '../server/function-boundary';
 import { roleCan } from '../lib/permissions';
 import type { GlobalSearchResult } from '../server/admin-global-search';
 import { createSearchGate, runLatestSearch } from '../lib/global-search';
+import { usePaletteNavigation } from '../lib/use-palette-navigation';
 import { SearchIcon } from './icons';
 import { cardCls, inputCls } from './ui';
 
@@ -56,12 +57,18 @@ export function GlobalSearchDialog() {
   const [q, setQ] = useState('');
   const [result, setResult] = useState<GlobalSearchResult | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [active, setActive] = useState(0);
   const gate = useRef(createSearchGate());
   const queryRef = useRef('');
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const run = useServerFn(searchFn);
+  const {
+    active,
+    reset,
+    onKeyDown: paletteKeyDown,
+  } = usePaletteNavigation((index) => {
+    listRef.current?.querySelectorAll('a')[index]?.click();
+  });
 
   const close = () => {
     gate.current.invalidate();
@@ -126,7 +133,7 @@ export function GlobalSearchDialog() {
         if (outcome.applied) {
           setResult(outcome.value);
           setSearchError(null);
-          setActive(0);
+          reset();
         }
       } catch {
         setResult(null);
@@ -166,18 +173,7 @@ export function GlobalSearchDialog() {
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Escape') close();
-            if (e.key === 'ArrowDown') {
-              e.preventDefault();
-              setActive((a) => Math.min(a + 1, Math.max(linkCount - 1, 0)));
-            }
-            if (e.key === 'ArrowUp') {
-              e.preventDefault();
-              setActive((a) => Math.max(a - 1, 0));
-            }
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              listRef.current?.querySelectorAll('a')[active]?.click();
-            }
+            else paletteKeyDown(e, linkCount);
           }}
         />
         {searchError ? (

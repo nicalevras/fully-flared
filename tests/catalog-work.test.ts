@@ -4,7 +4,13 @@ import { processCatalogBuild, runCatalogUnit } from '../web/src/server/catalog-p
 import { CatalogBudget } from '../web/src/server/catalog-exec';
 import { readListingPage, resolveDirectoryRevision } from '../web/src/server/catalog-read';
 import { getShopProductsPage, getStorefrontLayout } from '../web/src/server/catalog-read';
-import { getPublishedCollection, searchCatalog } from '../web/src/server/catalog-discovery';
+import {
+  getPaletteSuggestions,
+  getPublishedCollection,
+  PALETTE_SUGGESTION_SIZE,
+  searchCatalog,
+  suggestCatalog,
+} from '../web/src/server/catalog-discovery';
 import { ALL_LISTING } from '../web/src/server/catalog-models';
 import { buildCatalogReadModels, catalogWork as drainCatalogWork } from './helpers/catalog-driver';
 
@@ -121,6 +127,23 @@ it('a title edit patches only its containing pages inside the same generation', 
   expect(kv.map.size).toBeLessThanOrEqual(keysBefore + 3);
 });
 
+it('palette suggestions are the newest head of the published listing, capped', async () => {
+  const head = await getPaletteSuggestions(db, env() as never);
+  expect(head.map((c) => c.id)).toEqual(['p1', 'p2', 'p3']);
+  for (let i = 4; i <= 12; i++) {
+    await product(
+      `p${i}`,
+      `extra-${i}`,
+      `Extra ${i}`,
+      `2026-02-${String(i).padStart(2, '0')}T00:00:00.000Z`
+    );
+  }
+  await catalogWork(db, kv);
+  const capped = await getPaletteSuggestions(db, env() as never);
+  expect(capped).toHaveLength(PALETTE_SUGGESTION_SIZE);
+  expect(capped[0]?.id).toBe('p12');
+});
+
 it('a new product advances the listing generation and appears on /shop', async () => {
   await product('p4', 'delta', 'Delta', '2026-01-04T00:00:00.000Z');
   await catalogWork(db, kv);
@@ -177,11 +200,10 @@ it('readers serve identical results from D1 when KV is empty, and layout/search 
   const layout = await getStorefrontLayout(db, env() as never);
   expect(layout.storeName).toBeTruthy();
   expect(layout.limits.checkout_session_minutes).toBeGreaterThan(0);
-  const found = await searchCatalog(db, env() as never, 'alpha');
+  const found = await suggestCatalog(db, env() as never, 'alpha');
   expect(found.cards.map((c) => c.id)).toEqual(['p1']);
-  expect(found.nextCursor).toBeNull();
-  const none = await searchCatalog(db, env() as never, 'zzzz');
-  expect(none).toEqual({ cards: [], nextCursor: null });
+  const none = await suggestCatalog(db, env() as never, 'zzzz');
+  expect(none).toEqual({ cards: [], hasMore: false });
 });
 
 it('search continues past the first page with a cursor, without repeats', async () => {

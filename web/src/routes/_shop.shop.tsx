@@ -7,6 +7,7 @@ import { validateServerInput } from '../server/function-boundary';
 import { homePageInputSchema } from '../schemas/checkout';
 import { storefrontPageSearch } from '../lib/search-params';
 import { ProductCard } from '../components/ProductCard';
+import { openSearchPalette } from '../components/SearchPalette';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card as UiCard } from '@/components/ui/card';
 import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/pagination';
@@ -66,13 +67,13 @@ function ShopPage() {
             {pageCount > 1 ? ` Page ${page} of ${pageCount}.` : ''}
           </p>
         </div>
-        <Link
-          to="/search"
-          search={{ q: '' }}
+        <button
+          type="button"
+          onClick={openSearchPalette}
           className="hidden shrink-0 text-sm font-medium text-zinc-950 underline underline-offset-4 sm:block"
         >
           Search
-        </Link>
+        </button>
       </div>
       {products.length === 0 ? (
         <UiCard className="mt-8 border-dashed px-6 py-16 text-center" role="status">

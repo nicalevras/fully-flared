@@ -13,6 +13,7 @@ import { ftsPhrase, ftsUsable, escapeLike } from '../lib/fts-search';
 
 export const orderDiscoveryInputSchema = z.object({
   q: z.string().max(200).default(''),
+  mode: z.enum(['number', 'email']).default('number'),
   view: z.enum(orderViews).default('queue'),
   payment: z.enum(orderPaymentFilters).default('all'),
   from: z.string().max(10).default(''),
@@ -41,6 +42,7 @@ function encodeReturnCursor(
       v: 1,
       kind: 'returns',
       q: input.q,
+      mode: input.mode,
       view: input.view,
       payment: input.payment,
       from: input.from,
@@ -65,6 +67,7 @@ function encodeCursor(
     JSON.stringify({
       v: 1,
       q: input.q,
+      mode: input.mode,
       view: input.view,
       payment: input.payment,
       from: input.from,
@@ -105,14 +108,10 @@ export async function adminOrderDiscovery(
     binds.push(input.to);
   }
   if (input.q) {
-    const column = input.q.includes('@') ? 'customer_email' : 'number';
     if (ftsUsable(input.q)) {
-      // Trigram FTS: substring match on the routed column, index-served.
+      // Trigram FTS: substring match on the order number, index-served.
       conditions.push('o.rowid IN (SELECT rowid FROM orders_fts WHERE orders_fts MATCH ?)');
-      binds.push(`${column} : ${ftsPhrase(input.q)}`);
-    } else if (column === 'customer_email') {
-      conditions.push("o.customer_email LIKE ? ESCAPE '\\'");
-      binds.push(`${escapeLike(input.q)}%`);
+      binds.push(`number : ${ftsPhrase(input.q)}`);
     } else {
       conditions.push("o.number LIKE ? ESCAPE '\\'");
       binds.push(`${escapeLike(input.q)}%`);

@@ -24,7 +24,7 @@ import * as z from 'zod';
 import { validateServerInput } from '../../server/function-boundary';
 import { adminProductDiscovery } from '../../server/admin-product-discovery';
 import { normalizeProductSearch } from '../../lib/product-search';
-import { labelCls, textareaCls } from '../../components/ui';
+import { labelCls, pageSub, pageTitle, textareaCls } from '../../components/ui';
 import { DataTableSearch } from '../../components/ui/data-table';
 import { ftsPhrase, ftsUsable } from '../../lib/fts-search';
 import {
@@ -39,12 +39,13 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from '@/components/ui/drawer';
 import {
   Accordion,
   AccordionContent,
@@ -752,31 +753,38 @@ function AdminCollections() {
     <main>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-[28px] leading-tight font-medium tracking-tight text-zinc-950">
-            Collections
-          </h1>
-          <p className="mt-1 text-sm text-zinc-500">
+          <h1 className={pageTitle}>Collections</h1>
+          <p className={pageSub}>
             Group products into collections that appear in the store header and on their own pages.
           </p>
         </div>
-        <Button type="button" onClick={() => setCreateOpen(true)}>
-          <PlusIcon className="size-4" />
-          New
-        </Button>
       </div>
       <AdminActionFeedback value={feedback} />
 
-      <Sheet open={createOpen} onOpenChange={setCreateOpen}>
-        <SheetContent
-          className="w-full gap-0 overflow-hidden p-0 sm:max-w-2xl"
-          onOpenAutoFocus={(event) => event.preventDefault()}
+      <Drawer instant swipeDirection="right" open={createOpen} onOpenChange={setCreateOpen}>
+        <DrawerContent
+          className="w-full max-w-[calc(100vw-1rem)] gap-0 overflow-hidden p-0 sm:max-w-2xl"
+          initialFocus={false}
         >
-          <SheetHeader className="p-5 pr-14 pb-0 sm:p-6 sm:pr-14 sm:pb-0">
-            <SheetTitle>New collection</SheetTitle>
-            <SheetDescription>
+          <DrawerClose
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="absolute top-3 right-3"
+              >
+                <XIcon />
+                <span className="sr-only">Close</span>
+              </Button>
+            }
+          />
+          <DrawerHeader className="p-5 pr-14 pb-0 sm:p-6 sm:pr-14 sm:pb-0">
+            <DrawerTitle>New collection</DrawerTitle>
+            <DrawerDescription>
               Group products into a collection that appears in the store.
-            </SheetDescription>
-          </SheetHeader>
+            </DrawerDescription>
+          </DrawerHeader>
           <form
             className="flex min-h-0 flex-1 flex-col"
             onSubmit={async (event) => {
@@ -930,25 +938,26 @@ function AdminCollections() {
               </Button>
             </div>
           </form>
-        </SheetContent>
-      </Sheet>
+        </DrawerContent>
+      </Drawer>
 
       {collections.length === 0 ? (
-        <p className="mt-8 rounded-2xl bg-zinc-50 p-5 text-sm text-zinc-500" role="status">
+        <p className="mt-6 rounded-2xl bg-zinc-50 p-5 text-sm text-zinc-500" role="status">
           No collections yet. Use New to create your first one.
         </p>
       ) : (
-        <div className="mt-8" tabIndex={0} role="region" aria-label="Collections">
+        <div className="mt-6" tabIndex={0} role="region" aria-label="Collections">
           <AdminDataTableShell
             toolbar={
-              <div className="flex flex-wrap items-center gap-2">
-                <DataTableSearch
-                  minCharsHint
-                  value={search.cq}
-                  onSearch={(cq) => void navigate({ search: { ...search, cq } })}
-                  placeholder="Filter collections…"
-                  ariaLabel="Find a collection"
-                />
+              <DataTableSearch
+                value={search.cq}
+                onSearch={(cq) => void navigate({ search: { ...search, cq } })}
+                placeholder="Search Collections"
+                ariaLabel="Find a collection"
+              />
+            }
+            toolbarActions={
+              <>
                 <AdminColumnToggle
                   columns={[
                     { id: 'products', label: 'Products' },
@@ -957,7 +966,15 @@ function AdminCollections() {
                   hidden={hiddenCols}
                   onToggle={toggleCol}
                 />
-              </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => setCreateOpen(true)}
+                  className="h-8 rounded-md bg-zinc-950 text-white shadow-none hover:bg-zinc-800"
+                >
+                  <PlusIcon /> New
+                </Button>
+              </>
             }
           >
             <Table className="min-w-[640px]">
@@ -1028,7 +1045,9 @@ function AdminCollections() {
         </div>
       )}
 
-      <Sheet
+      <Drawer
+        instant
+        swipeDirection="right"
         open={editingCollection !== null}
         onOpenChange={(open) => {
           if (open || !editingCollection) return;
@@ -1051,27 +1070,40 @@ function AdminCollections() {
           setPaletteFor(null);
         }}
       >
-        <SheetContent
-          className="w-full gap-0 overflow-hidden p-0 sm:max-w-2xl"
-          onOpenAutoFocus={(event) => event.preventDefault()}
+        <DrawerContent
+          className="w-full max-w-[calc(100vw-1rem)] gap-0 overflow-hidden p-0 sm:max-w-2xl"
+          initialFocus={false}
         >
+          <DrawerClose
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="absolute top-3 right-3"
+              >
+                <XIcon />
+                <span className="sr-only">Close</span>
+              </Button>
+            }
+          />
           {editingCollection ? (
             paletteFor === editingCollection.id ? (
               <>
-                <SheetHeader className="p-4 pb-0">
-                  <SheetTitle>Add products</SheetTitle>
-                  <SheetDescription>{editingCollection.title}</SheetDescription>
-                </SheetHeader>
+                <DrawerHeader className="p-4 pb-0">
+                  <DrawerTitle>Add products</DrawerTitle>
+                  <DrawerDescription>{editingCollection.title}</DrawerDescription>
+                </DrawerHeader>
                 <div className="flex min-h-0 flex-1 flex-col">
                   {renderSearch(editingCollection)}
                 </div>
               </>
             ) : (
               <>
-                <SheetHeader className="p-5 pr-24 pb-0 sm:p-6 sm:pr-24 sm:pb-0">
-                  <SheetTitle>{editingCollection.title}</SheetTitle>
-                  <SheetDescription>/collections/{editingCollection.slug}</SheetDescription>
-                </SheetHeader>
+                <DrawerHeader className="p-5 pr-24 pb-0 sm:p-6 sm:pr-24 sm:pb-0">
+                  <DrawerTitle>{editingCollection.title}</DrawerTitle>
+                  <DrawerDescription>/collections/{editingCollection.slug}</DrawerDescription>
+                </DrawerHeader>
                 <div className="absolute top-3 right-12 z-20">
                   <AdminRowActions label={`Actions for ${editingCollection.title}`}>
                     <DropdownMenuItem asChild>
@@ -1122,8 +1154,8 @@ function AdminCollections() {
             )
           ) : null}
           {editingCollection ? confirmDialog : null}
-        </SheetContent>
-      </Sheet>
+        </DrawerContent>
+      </Drawer>
       {editingCollection ? null : confirmDialog}
     </main>
   );

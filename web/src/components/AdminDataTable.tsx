@@ -15,11 +15,13 @@ import {
 // storefront pill styling (ui/button, ui/input) is untouched.
 export function AdminDataTableShell({
   toolbar,
+  toolbarActions,
   footer,
   children,
   className,
 }: {
   toolbar?: ReactNode;
+  toolbarActions?: ReactNode;
   footer?: ReactNode;
   children: ReactNode;
   className?: string;
@@ -28,13 +30,18 @@ export function AdminDataTableShell({
     <div
       data-slot="admin-data-table"
       className={cn(
-        'overflow-hidden rounded-md border border-zinc-200 bg-white [&_button]:rounded-md [&_input]:rounded-md [&_[data-slot=select-trigger]]:rounded-md',
+        'overflow-hidden rounded-lg border border-zinc-200 bg-white [&_button]:rounded-md [&_input]:rounded-md [&_[data-slot=select-trigger]]:rounded-md [&_td]:px-3 [&_td]:py-3 [&_th]:px-3 [&_th]:py-3',
         className
       )}
     >
-      {toolbar ? (
-        <div className="flex flex-wrap items-center gap-2 border-b border-zinc-200 px-3 py-2.5">
+      {toolbar || toolbarActions ? (
+        <div className="flex flex-wrap items-center gap-2 border-b border-zinc-200 px-3 py-3">
           {toolbar}
+          {toolbarActions ? (
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+              {toolbarActions}
+            </div>
+          ) : null}
         </div>
       ) : null}
       {children}

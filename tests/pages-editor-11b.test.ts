@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 
 describe('Phase 11B pages list and editor split', () => {
-  it('keeps the list free of the inline editor and opens pages in a sheet', () => {
+  it('keeps the list free of the inline editor and opens pages in a drawer', () => {
     const list = readFileSync('web/src/routes/admin/pages.tsx', 'utf8');
     expect(list).not.toContain('page.save');
     expect(list).not.toContain('content_html');

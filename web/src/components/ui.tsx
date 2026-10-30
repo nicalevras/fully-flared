@@ -22,7 +22,7 @@ export const hintCls = 'mt-1.5 text-[13px] text-zinc-500';
 
 export const cardCls =
   'rounded-xl border border-zinc-200 bg-white shadow-[0_1px_2px_rgb(0_0_0/0.04)]';
-export const pageTitle = 'text-[22px] font-normal tracking-tight text-zinc-950';
+export const pageTitle = 'text-[28px] leading-tight font-medium tracking-tight text-zinc-950';
 export const pageSub = 'mt-1 text-sm text-zinc-500';
 
 export function Button(

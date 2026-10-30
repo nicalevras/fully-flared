@@ -240,28 +240,8 @@ function AdminCustomers() {
     <main>
       <h1 className={pageTitle}>Customers</h1>
       <p className={pageSub}>
-        {total} account{total === 1 ? '' : 's'}
-        {total > customers.length ? `, showing ${customers.length} on this page` : ''}. Shoppers and
-        staff are listed together here for now, and staff rows are marked by their role. Open a
-        customer to see their workspace. Role changes affect admin access, never shopper history.
+        {total} account{total === 1 ? '' : 's'}. Shoppers and staff together, marked by role.
       </p>
-      <section className={`${cardCls} mt-5 p-4`} aria-label="Staff accounts on this page">
-        <h2 className="text-sm font-medium text-zinc-950">Staff on this page</h2>
-        {customers.filter((c) => c.role !== 'customer').length === 0 ? (
-          <p className="mt-1 text-sm text-zinc-500">No staff accounts on this page.</p>
-        ) : (
-          <ul className="mt-1 space-y-1 text-sm text-zinc-600">
-            {customers
-              .filter((c) => c.role !== 'customer')
-              .map((c) => (
-                <li key={c.id}>
-                  {c.email} · {c.role}. Staff access is managed with the role control in the table.
-                  Shopper support never changes a role.
-                </li>
-              ))}
-          </ul>
-        )}
-      </section>
 
       <p className="mt-2 text-[13px] text-zinc-500">
         Guest purchases and account orders are separate records, even when the email matches. Type
@@ -410,6 +390,23 @@ function AdminCustomers() {
               />
             }
           />
+        )}
+      </section>
+      <section className={`${cardCls} mt-6 p-4`} aria-label="Staff accounts on this page">
+        <h2 className="text-sm font-medium text-zinc-950">Staff on this page</h2>
+        {customers.filter((c) => c.role !== 'customer').length === 0 ? (
+          <p className="mt-1 text-sm text-zinc-500">No staff accounts on this page.</p>
+        ) : (
+          <ul className="mt-1 space-y-1 text-sm text-zinc-600">
+            {customers
+              .filter((c) => c.role !== 'customer')
+              .map((c) => (
+                <li key={c.id}>
+                  {c.email} · {c.role}. Staff access is managed with the role control in the table.
+                  Shopper support never changes a role.
+                </li>
+              ))}
+          </ul>
         )}
       </section>
       {!canManageRoles ? (

@@ -14,8 +14,11 @@ export const orderPaymentFilters = [
 
 export type OrderPaymentFilter = (typeof orderPaymentFilters)[number];
 
+export type OrderSearchMode = 'number' | 'email';
+
 export type OrderSearch = {
   q: string;
+  mode: OrderSearchMode;
   view: OrderView;
   payment: OrderPaymentFilter;
   from: string;
@@ -45,6 +48,7 @@ export function decodeReturnSearchCursor(
     if (record.direction !== 'next' && record.direction !== 'previous') return null;
     if (
       record.q !== search.q ||
+      record.mode !== search.mode ||
       record.view !== search.view ||
       record.payment !== search.payment ||
       record.from !== search.from ||
@@ -92,6 +96,7 @@ export function decodeOrderSearchCursor(
     if (record.direction !== 'next' && record.direction !== 'previous') return null;
     if (
       record.q !== search.q ||
+      record.mode !== search.mode ||
       record.view !== search.view ||
       record.payment !== search.payment ||
       record.from !== search.from ||
@@ -107,11 +112,12 @@ export function decodeOrderSearchCursor(
 
 export function normalizeOrderSearch(value: unknown): OrderSearch {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return { q: '', view: 'queue', payment: 'all', from: '', to: '' };
+    return { q: '', mode: 'number', view: 'queue', payment: 'all', from: '', to: '' };
   }
   const raw = value as Record<string, unknown>;
   const base: Omit<OrderSearch, 'cursor'> = {
     q: typeof raw.q === 'string' && raw.q.length <= 200 ? raw.q.trim() : '',
+    mode: 'number',
     view: isOrderView(raw.view) ? raw.view : 'queue',
     payment: isOrderPaymentFilter(raw.payment) ? raw.payment : 'all',
     from: dateValue(raw.from),

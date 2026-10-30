@@ -32,7 +32,6 @@ type Candidate = {
   sku?: string | null;
   variant_title?: string | null;
 };
-export type MatchedSku = { sku: string; title: string };
 export type AdminProductRow = {
   id: string;
   slug: string;
@@ -44,8 +43,6 @@ export type AdminProductRow = {
   variant_count: number;
   available: number;
   image_key: string | null;
-  matched_skus: MatchedSku[];
-  matched_sku_count: number;
 };
 type DiscoveryResult = {
   products: AdminProductRow[];
@@ -109,46 +106,21 @@ function titleMatch(q: string): string {
     .join(' AND ')})`;
 }
 
-function prefixCeiling(prefix: string): string | null {
-  const chars = Array.from(prefix);
-  for (let i = chars.length - 1; i >= 0; i--) {
-    const char = chars[i];
-    if (char === undefined) continue;
-    const code = char.codePointAt(0);
-    if (code === undefined || code >= 0x10ffff) continue;
-    const next = code >= 0xd7ff && code < 0xe000 ? 0xe000 : code + 1;
-    return chars.slice(0, i).join('') + String.fromCodePoint(next);
-  }
-  return null;
-}
-
 async function discover(db: D1Database, input: ProductDiscoveryInput): Promise<Candidate[]> {
   const statusClause = input.status === 'all' ? '' : 'AND p.status=?';
   const binds: string[] = input.status === 'all' ? [] : [input.status];
-  if (input.mode === 'title') {
-    return (
-      await db
-        .prepare(
-          `SELECT p.id,p.created_at,p.updated_at,p.title FROM products_fts f
+  return (
+    await db
+      .prepare(
+        `SELECT p.id,p.created_at,p.updated_at,p.title FROM products_fts f
       JOIN products p ON p.rowid=f.rowid WHERE products_fts MATCH ? ${statusClause} LIMIT 1001`
-        )
-        .bind(titleMatch(input.q), ...binds)
-        .all<Candidate>()
-    ).results;
-  }
-  const ceiling = prefixCeiling(input.q);
-  const query = `SELECT p.id,p.created_at,p.updated_at,p.title,v.sku,v.title AS variant_title FROM variants v JOIN products p ON p.id=v.product_id
-    WHERE v.sku>=? ${ceiling ? 'AND v.sku<?' : ''} ${statusClause} LIMIT 1001`;
-  const statement = db.prepare(query);
-  const skuBinds = ceiling ? [input.q, ceiling, ...binds] : [input.q, ...binds];
-  return (await statement.bind(...skuBinds).all<Candidate>()).results;
+      )
+      .bind(titleMatch(input.q), ...binds)
+      .all<Candidate>()
+  ).results;
 }
 
-async function project(
-  db: D1Database,
-  candidates: Candidate[],
-  matched?: Map<string, MatchedSku[]>
-): Promise<AdminProductRow[]> {
+async function project(db: D1Database, candidates: Candidate[]): Promise<AdminProductRow[]> {
   if (candidates.length === 0) return [];
   const placeholders = candidates.map(() => '?').join(',');
   const result = await db
@@ -165,19 +137,12 @@ async function project(
     FROM products p WHERE p.id IN (${placeholders})`
     )
     .bind(...candidates.map((row) => row.id))
-    .all<Omit<AdminProductRow, 'matched_skus' | 'matched_sku_count'>>();
+    .all<AdminProductRow>();
   const byId = new Map(result.results.map((row) => [row.id, row]));
   return candidates.flatMap((row) => {
     const found = byId.get(row.id);
     if (!found) return [];
-    const matches = matched?.get(row.id) ?? [];
-    return [
-      {
-        ...found,
-        matched_skus: matches.slice(0, 3),
-        matched_sku_count: matches.length,
-      },
-    ];
+    return [found];
   });
 }
 
@@ -247,7 +212,6 @@ export async function adminProductDiscovery(
     input.sort
   );
   let candidates: Candidate[];
-  let matched: Map<string, MatchedSku[]> | undefined;
   if (input.mode === null) {
     candidates = await browse(db, input);
     if (cursor?.direction === 'previous') {
@@ -266,16 +230,6 @@ export async function adminProductDiscovery(
     candidates = await discover(db, input);
     if (candidates.length > 1000)
       return { products: [], nextCursor: null, previousCursor: null, state: 'refine' };
-    if (input.mode !== 'title') {
-      matched = new Map();
-      for (const row of candidates) {
-        if (!row.sku) continue;
-        const list = matched.get(row.id) ?? [];
-        list.push({ sku: row.sku, title: row.variant_title ?? '' });
-        matched.set(row.id, list);
-      }
-      for (const list of matched.values()) list.sort((a, b) => compareBinaryStrings(a.sku, b.sku));
-    }
     candidates = [...new Map(candidates.map((row) => [row.id, row])).values()]
       .sort((a, b) => compareCandidates(input.sort, a, b))
       .filter((row) => {
@@ -288,7 +242,7 @@ export async function adminProductDiscovery(
       const selected = candidates.slice(-50);
       const last = selected.at(-1);
       return {
-        products: await project(db, selected, matched),
+        products: await project(db, selected),
         nextCursor: last ? encodeCursor(input, last, 'next') : null,
         previousCursor:
           hasEarlier && selected[0] ? encodeCursor(input, selected[0], 'previous') : null,
@@ -297,7 +251,7 @@ export async function adminProductDiscovery(
     }
   }
   const selected = candidates.slice(0, 50);
-  const products = await project(db, selected, matched);
+  const products = await project(db, selected);
   const last = selected.at(-1);
   const first = selected[0];
   return {

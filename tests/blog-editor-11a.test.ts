@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 
 describe('Phase 11A blog list and editor split', () => {
-  it('keeps the list free of the inline editor and opens posts in a sheet', () => {
+  it('keeps the list free of the inline editor and opens posts in a drawer', () => {
     const list = readFileSync('web/src/routes/admin/articles.tsx', 'utf8');
     expect(list).not.toContain('<BlogEditor');
     expect(list).toContain('BlogPostEditor');

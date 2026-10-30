@@ -88,12 +88,14 @@ describe('grouped inventory list', () => {
     expect(result.products.map((p) => p.title).sort()).toEqual(['Hat', 'Tee']);
   });
 
-  it('SKU prefix search returns the product with its matched SKUs', async () => {
+  it('title search returns the product with its matched SKUs', async () => {
     const result = await adminInventoryList(db, { q: 'HAT-', page: 1, low: false });
     expect(result.products).toHaveLength(1);
     expect(result.products[0]?.matchedSkus).toEqual(['HAT-1', 'HAT-2']);
     const byTitle = await adminInventoryList(db, { q: 'mug', page: 1, low: false });
     expect(byTitle.products.map((p) => p.title)).toEqual(['Mug']);
     expect(byTitle.products[0]?.matchedSkus).toEqual(['MUG-1']);
+    const skuTerm = await adminInventoryList(db, { q: 'HAT-1', page: 1, low: false });
+    expect(skuTerm.products).toHaveLength(0);
   });
 });

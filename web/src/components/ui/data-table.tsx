@@ -25,6 +25,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   EyeOffIcon,
+  SearchIcon,
 } from 'lucide-react';
 
 import { dataTableFeatures, type DataTableFeatures } from '../data-table-features';
@@ -106,6 +107,17 @@ export function DataTableColumnHeader<TData extends RowData, TValue>({
   );
 }
 
+// Right-side header controls match the Columns button exactly: h-8, rounded-md,
+// zinc-300 outline. Every table reuses this instead of inventing its own select style.
+export const dataTableControlClassName =
+  'h-8 rounded-md border border-zinc-300 bg-background px-3 text-[13px] font-medium shadow-none hover:bg-zinc-50 focus-visible:border-zinc-400';
+
+// Select menus mirror the Columns DropdownMenu: same width, radius, padding,
+// item shape, and the check indicator on the left at the same size.
+export const dataTableMenuClassName = 'w-44 min-w-44 rounded-md p-1';
+export const dataTableMenuItemClassName =
+  'rounded-sm py-1.5 pr-2 pl-8 [&>span:first-child]:left-2 [&>span:first-child]:size-3.5 [&_svg]:size-3.5';
+
 export function DataTableViewOptions<TData extends RowData>({
   table,
 }: {
@@ -120,7 +132,7 @@ export function DataTableViewOptions<TData extends RowData>({
           size="sm"
           className="ml-auto h-8 rounded-md lg:flex"
         >
-          <ChevronDownIcon /> Columns
+          Columns <ChevronDownIcon />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-40">
@@ -153,7 +165,7 @@ export function DataTablePagination<TData extends RowData>({
   pageSizeOptions?: readonly number[];
 }) {
   return (
-    <div className="flex items-center justify-between px-2 py-4">
+    <div className="flex items-center justify-between px-2 py-3">
       <div className="flex-1 text-sm text-muted-foreground" role="status">
         {table.getSelectedRowModel().rows.length} of {table.getRowCount()} row(s) selected.
       </div>
@@ -244,6 +256,8 @@ export type ServerDataTableProps<TData extends RowData> = {
   enableRowSelection?: boolean | ((row: Row<DataTableFeatures, TData>) => boolean);
   getRowId?: (row: TData) => string;
   toolbar?: React.ReactNode;
+  toolbarActions?: React.ReactNode;
+  toolbarEnd?: React.ReactNode;
   hideViewOptions?: boolean;
   onRowClick?: (row: TData) => void;
   getRowClassName?: (row: TData) => string | undefined;
@@ -271,6 +285,8 @@ export function DataTable<TData extends RowData>({
   enableRowSelection,
   getRowId,
   toolbar,
+  toolbarActions,
+  toolbarEnd,
   hideViewOptions,
   onRowClick,
   getRowClassName,
@@ -307,18 +323,20 @@ export function DataTable<TData extends RowData>({
   });
 
   return (
-    <div>
-      {toolbar || !hideViewOptions ? (
-        <div className="flex items-center gap-2 py-4">
+    <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white [&_td]:px-3 [&_td]:py-3 [&_th]:px-3 [&_th]:py-3">
+      {toolbar || toolbarActions || toolbarEnd || !hideViewOptions ? (
+        <div className="flex flex-wrap items-center gap-2 border-b border-zinc-200 px-3 py-3">
           {toolbar}
-          {!hideViewOptions ? (
-            <div className="ml-auto">
-              <DataTableViewOptions table={table} />
+          {toolbarActions || toolbarEnd || !hideViewOptions ? (
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+              {toolbarActions}
+              {!hideViewOptions ? <DataTableViewOptions table={table} /> : null}
+              {toolbarEnd}
             </div>
           ) : null}
         </div>
       ) : null}
-      <div className="overflow-hidden rounded-md border">
+      <div className="overflow-x-auto">
         <Table className={tableClassName}>
           <TableCaption className="sr-only">{caption}</TableCaption>
           <TableHeader>
@@ -370,76 +388,87 @@ export function DataTable<TData extends RowData>({
           </TableBody>
         </Table>
       </div>
-      {paginationFooter ?? (
-        <DataTablePagination table={table} {...(pageSizeOptions ? { pageSizeOptions } : {})} />
-      )}
+      <div className="border-t border-zinc-200">
+        {paginationFooter ?? (
+          <DataTablePagination table={table} {...(pageSizeOptions ? { pageSizeOptions } : {})} />
+        )}
+      </div>
     </div>
   );
 }
 
 // Shared admin toolbar search: debounced live filter, URL stays the source of
-// truth via onSearch. 300ms debounce keeps a typed search to ~1 Worker
-// invocation instead of one per keystroke.
+// truth via onSearch. Searches fire only at 3+ characters. 300ms debounce
+// keeps a typed search to ~1 Worker invocation instead of one per keystroke.
 export function DataTableSearch({
   value,
   onSearch,
   placeholder,
   ariaLabel,
-  minCharsHint = false,
-  children,
 }: {
   value: string;
   onSearch: (q: string) => void;
   placeholder: string;
   ariaLabel: string;
-  minCharsHint?: boolean;
-  children?: React.ReactNode;
 }) {
   const [text, setText] = React.useState(value);
   const lastSent = React.useRef(value);
+  const onSearchRef = React.useRef(onSearch);
   React.useEffect(() => {
-    setText(value);
+    onSearchRef.current = onSearch;
+  }, [onSearch]);
+  // Adopt external changes only (clear, back navigation). Our own emit echoing
+  // back through the URL must not overwrite newer keystrokes.
+  React.useEffect(() => {
+    if (value === lastSent.current) return;
     lastSent.current = value;
+    setText(value);
   }, [value]);
   React.useEffect(() => {
-    if (text === lastSent.current) return;
+    const trimmed = text.trim();
+    const effective = trimmed.length >= 3 ? trimmed : '';
+    if (effective === lastSent.current) return;
     const timer = setTimeout(() => {
-      lastSent.current = text;
-      onSearch(text.trim());
+      lastSent.current = effective;
+      onSearchRef.current(effective);
     }, 300);
     return () => clearTimeout(timer);
-  }, [text, onSearch]);
+  }, [text]);
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <div className="relative min-w-56 flex-1 sm:max-w-sm">
-        <input
-          type="search"
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          placeholder={placeholder}
-          aria-label={ariaLabel}
-          maxLength={200}
-          className="h-9 w-full rounded-md border border-zinc-300 bg-white pr-8 pl-3 text-sm text-zinc-950 shadow-none outline-none placeholder:text-zinc-400 focus-visible:ring-2 focus-visible:ring-zinc-950/70"
-        />
-        {text ? (
-          <button
-            type="button"
-            aria-label="Clear search"
-            onClick={() => {
-              setText('');
-              lastSent.current = '';
-              onSearch('');
-            }}
-            className="absolute top-1/2 right-1 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-zinc-400 hover:text-zinc-950"
-          >
-            <span aria-hidden="true">✕</span>
-          </button>
-        ) : null}
+    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+      <div className="min-w-0 grow basis-64 sm:max-w-sm">
+        <div className="flex h-9 w-full items-stretch overflow-hidden rounded-md border border-zinc-300 bg-white focus-within:border-zinc-400">
+          <div className="flex shrink-0 items-center border-r border-zinc-200 bg-white pr-2 pl-3">
+            <SearchIcon className="size-4 shrink-0 text-zinc-400" />
+          </div>
+          <input
+            type="search"
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            placeholder={placeholder}
+            aria-label={ariaLabel}
+            maxLength={200}
+            className="min-w-0 flex-1 appearance-none bg-transparent pr-3 pl-2 text-sm text-zinc-950 shadow-none outline-none placeholder:text-zinc-400 [&::-webkit-search-cancel-button]:hidden"
+          />
+          {text ? (
+            <button
+              type="button"
+              aria-label="Clear search"
+              onClick={() => {
+                setText('');
+                lastSent.current = '';
+                onSearch('');
+              }}
+              className="flex w-7 shrink-0 items-center justify-center text-zinc-400 hover:text-zinc-950"
+            >
+              <span aria-hidden="true">✕</span>
+            </button>
+          ) : null}
+        </div>
       </div>
-      {minCharsHint && text.trim().length > 0 && text.trim().length < 3 ? (
+      {text.trim().length > 0 && text.trim().length < 3 ? (
         <span className="text-xs text-zinc-500">Type 3 or more characters to search</span>
       ) : null}
-      {children}
     </div>
   );
 }
