@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { createServerFn } from '@tanstack/react-start';
 import { Link } from '@tanstack/react-router';
 import { EllipsisIcon, PlusIcon, XIcon } from 'lucide-react';
@@ -322,16 +322,16 @@ function EditorForm({
       if (stagedCover) URL.revokeObjectURL(stagedCover.url);
     };
   }, [stagedCover]);
-  const initialRef = useRef(form);
+  const [initial] = useState(form);
   const dirty =
-    JSON.stringify(form) !== JSON.stringify(initialRef.current) ||
-    contentHtml !== initialRef.current.contentHtml ||
+    JSON.stringify(form) !== JSON.stringify(initial) ||
+    contentHtml !== initial.contentHtml ||
     contentJson !== (post?.content_json ?? '') ||
     stagedCover !== null;
   useEffect(() => {
     onDirtyChange(dirty);
   });
-  saveRef.current = async () => {
+  const save = async () => {
     let coverMediaId = form.coverMediaId;
     if (stagedCover) {
       try {
@@ -366,6 +366,7 @@ function EditorForm({
       onSaved();
     } else onFeedback({ kind: 'error', message: result.error });
   };
+  useImperativeHandle(saveRef, () => save);
 
   return (
     <>

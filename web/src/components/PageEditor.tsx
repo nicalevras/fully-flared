@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { createServerFn } from '@tanstack/react-start';
 import { staffMiddleware } from '../server/staff-middleware';
 import { requireStaffPermission } from '../server/session';
@@ -202,14 +202,13 @@ function EditorForm({
   );
   const [openSections, setOpenSections] = useState<string[]>(['details']);
   const [contentHtml, setContentHtml] = useState(form.contentHtml);
-  const initialRef = useRef(form);
+  const [initial] = useState(form);
   const dirty =
-    JSON.stringify(form) !== JSON.stringify(initialRef.current) ||
-    contentHtml !== initialRef.current.contentHtml;
+    JSON.stringify(form) !== JSON.stringify(initial) || contentHtml !== initial.contentHtml;
   useEffect(() => {
     onDirtyChange(dirty);
   });
-  saveRef.current = async () => {
+  const save = async () => {
     const result = await adminAction('page.save', {
       id: form.id,
       slug: form.slug,
@@ -224,6 +223,7 @@ function EditorForm({
       onSaved();
     } else onFeedback({ kind: 'error', message: result.error ?? 'Failed' });
   };
+  useImperativeHandle(saveRef, () => save);
 
   return (
     <>
