@@ -40,6 +40,7 @@ export const line = (sku: string, overrides: Partial<PricedLine> = {}): PricedLi
   continueSelling: false,
   priceCents: 1000,
   productTitle: `${sku} product`,
+  variantTitle: 'Default',
   available: 10,
   cover: null,
   ...overrides,

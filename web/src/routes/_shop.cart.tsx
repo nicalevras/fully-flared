@@ -111,8 +111,13 @@ function CartPage() {
                     <div>
                       <p className="text-sm font-medium text-zinc-950">{l.productTitle}</p>
                       <p className="mt-0.5 text-[13px] text-zinc-500">
-                        {l.sku} · {l.available} available
+                        {l.variantTitle} · {l.available} available
                       </p>
+                      {l.qty > l.available && !l.continueSelling ? (
+                        <p role="alert" className="mt-1 text-[13px] text-red-600">
+                          Only {l.available} left. Lower the quantity to check out.
+                        </p>
+                      ) : null}
                     </div>
                     <p className="text-sm font-medium whitespace-nowrap text-zinc-950">
                       {formatMoney(l.priceCents * l.qty, currency)}
