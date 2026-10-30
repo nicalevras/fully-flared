@@ -6,6 +6,8 @@ import { cacheTagsForPath, drainCatalogInvalidations } from '../web/src/server/p
 import { getStorefrontLayout } from '../web/src/server/catalog-read';
 import { buildCatalogReadModels } from './helpers/catalog-driver';
 import { catalogQueueHarness } from './helpers/catalog-queue';
+import { present } from './helpers/fixtures';
+import { parseJson, z } from './helpers/json';
 import {
   contentRevision,
   directoryKey,
@@ -79,7 +81,10 @@ it(
           break;
         }
         if (build?.phase === 'pages') {
-          const state = JSON.parse(build.state_json) as { li: number; nextPage: number };
+          const state = parseJson(
+            build.state_json,
+            z.object({ li: z.number(), nextPage: z.number() })
+          );
           const cursor = `${state.li}:${state.nextPage}`;
           stagnant = cursor === previous ? stagnant + 1 : 0;
           expect(stagnant, `listing page checkpoint stuck at ${cursor}`).toBeLessThan(6);
@@ -95,7 +100,7 @@ it(
       expect(listing).toEqual({ total: 400, page_count: 9 });
       // Give this small fixture the same two-level directory path as
       // the 100k catalog, without rebuilding 100k products to diagnose it.
-      const ref = JSON.parse(kv.map.get(listingRefKey('all'))!) as { rootHash: string };
+      const ref = parseJson(kv.map.get(listingRefKey('all')), z.object({ rootHash: z.string() }));
       const payload = JSON.stringify({
         kind: 'index',
         entries: [{ from: 1, to: 17, hash: ref.rootHash }],
@@ -179,7 +184,7 @@ it('repairs a large accepted editorial artifact without materializing its old KV
     kv.map.set('large-editorial', 'x'.repeat(1200000));
     await drive(db, kv, 70, 'replica');
     expect(kv.map.has('large-editorial')).toBe(true);
-    expect(contentRevision(kv.map.get('large-editorial')!)).toBe(contentRevision(payload));
+    expect(contentRevision(present(kv.map.get('large-editorial')))).toBe(contentRevision(payload));
   } finally {
     await dispose();
   }
@@ -270,7 +275,10 @@ it('KV loss repair must preserve committed publication identity despite changed 
 });
 async function drive(db: D1Database, kv: Kv, n = 70, maintenance?: 'replica') {
   for (let i = 0; i < n; i++) {
-    const r = await runCatalogUnit(db, kv, { budget: new CatalogBudget(), maintenance });
+    const r = await runCatalogUnit(db, kv, {
+      budget: new CatalogBudget(),
+      ...(maintenance ? { maintenance } : {}),
+    });
     if (r.done) return i + 1;
   }
   throw Error(
@@ -324,13 +332,13 @@ it('partial KV loss repairs a missing product document while listing ref survive
     await seedProduct(db);
     await db.prepare('UPDATE catalog_work SET processed_revision=target_revision').run();
     await drive(db, kv);
-    const k = [...kv.map.keys()].find(
-      (k) => k.startsWith('catalog:r1:product:') && !k.includes('slug')
+    const k = present(
+      [...kv.map.keys()].find((k) => k.startsWith('catalog:r1:product:') && !k.includes('slug')),
+      'a product document key'
     );
-    expect(k).toBeTruthy();
-    kv.map.delete(k!);
+    kv.map.delete(k);
     await drive(db, kv, 70, 'replica');
-    expect(kv.map.has(k!)).toBe(true);
+    expect(kv.map.has(k)).toBe(true);
   } finally {
     await dispose();
   }
@@ -342,12 +350,14 @@ it('delivered mutable reference is verified after a stale overwrite', async () =
     await seedProduct(db);
     await db.prepare('UPDATE catalog_work SET processed_revision=target_revision').run();
     await drive(db, kv);
-    const k = [...kv.map.keys()].find((k) => k.includes('listing') && k.endsWith(':current'));
-    expect(k).toBeTruthy();
-    const exact = kv.map.get(k!)!;
-    kv.map.set(k!, exact.replace('"total":1', '"total":999'));
+    const k = present(
+      [...kv.map.keys()].find((k) => k.includes('listing') && k.endsWith(':current')),
+      'the current listing reference key'
+    );
+    const exact = present(kv.map.get(k));
+    kv.map.set(k, exact.replace('"total":1', '"total":999'));
     await drive(db, kv, 70, 'replica');
-    expect(kv.map.get(k!)).toBe(exact);
+    expect(kv.map.get(k)).toBe(exact);
   } finally {
     await dispose();
   }

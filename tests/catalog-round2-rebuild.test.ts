@@ -4,6 +4,8 @@ import { runCatalogUnit, requestCatalogSourceRebuild } from '../web/src/server/c
 import { readListingPage } from '../web/src/server/catalog-read';
 import { CatalogBudget } from '../web/src/server/catalog-exec';
 import { ALL_LISTING } from '../web/src/server/catalog-models';
+import { present } from './helpers/fixtures';
+import { parseJson, z } from './helpers/json';
 
 // Historical 0008 page-copy verification is unproven (the migration
 // was amended after local application and the table repaired by
@@ -83,11 +85,13 @@ it(
         .prepare(
           'SELECT payload_json FROM catalog_listing_page_revisions WHERE listing_id = ? AND generation = ? AND page = 1 ORDER BY created_at DESC LIMIT 1'
         )
-        .bind(ALL_LISTING, after!.generation)
+        .bind(ALL_LISTING, present(after).generation)
         .first<{ payload_json: string }>();
-      expect(JSON.parse(row!.payload_json).cards.map((c: { title: string }) => c.title)).toEqual(
-        before?.cards.map((c) => c.title)
+      const payload = parseJson(
+        present(row).payload_json,
+        z.object({ cards: z.array(z.object({ title: z.string() })) })
       );
+      expect(payload.cards.map((c) => c.title)).toEqual(before?.cards.map((c) => c.title));
     } finally {
       await dispose();
     }

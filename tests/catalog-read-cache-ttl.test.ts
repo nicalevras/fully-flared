@@ -9,6 +9,7 @@ import {
   readProductDocument,
 } from '../web/src/server/catalog-read';
 import { getPublishedCollection } from '../web/src/server/catalog-discovery';
+import { published } from './helpers/fixtures';
 import {
   ALL_LISTING,
   COLLECTION_INDEX,
@@ -59,10 +60,10 @@ it('edge-caches content-addressed KV reads for a day and leaves pointers at the 
   const env = { CATALOG_KV: kv };
   expect((await getStorefrontLayout(db, env)).storeName).toBeTruthy();
   expect((await getShopProductsPage(db, env, 1)).total).toBe(1);
-  expect((await readProductDocument(db, kv, 'tee'))?.title).toBe('Tee');
+  expect(published(await readProductDocument(db, kv, 'tee')).title).toBe('Tee');
   expect((await getPublishedCollection(db, env, 'tees'))?.collection.title).toBe('Tees');
   expect((await listPublishedPosts(db, env)).posts[0]?.slug).toBe('launch');
-  expect((await readEditorialDocument(db, kv, 'post', 'launch'))?.title).toBe('Launch');
+  expect(published(await readEditorialDocument(db, kv, 'post', 'launch')).title).toBe('Launch');
 
   const pointers = new Set([
     LAYOUT_REF_KEY,

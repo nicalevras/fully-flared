@@ -5,14 +5,25 @@ import { Route } from '../web/src/routes/api/webhooks/stripe';
 import { reprocessStaleInbox } from '../web/src/server/checkout';
 import { WebhookSignatureError, type PaymentProvider } from '../web/src/server/payments';
 import { deliverStripeEvent } from './helpers/webhook';
+import { present } from './helpers/fixtures';
+import type { ProviderCall } from './helpers/payments';
+import { noNext, routeResponse } from './helpers/route';
 
 // Phase 6 durable webhook delivery. Replaces webhook-inline.test.ts:
 // the queue-unavailable inline fallback is gone by design — the inbox
 // row is the durable record and cron recovery owns processing.
-const provider = vi.hoisted(() => ({
-  verifyWebhook: vi.fn(async (payload: string) => JSON.parse(payload)),
-  retrieveRefund: vi.fn(async (id: string) => ({ id, status: 'succeeded' })),
-}));
+const provider = vi.hoisted(
+  () =>
+    ({
+      createCheckout: vi.fn<ProviderCall<'createCheckout'>>(),
+      verifyWebhook: vi.fn<ProviderCall<'verifyWebhook'>>(async (payload) => JSON.parse(payload)),
+      refund: vi.fn<ProviderCall<'refund'>>(),
+      retrieveRefund: vi.fn<ProviderCall<'retrieveRefund'>>(async (id) => ({
+        id,
+        status: 'succeeded',
+      })),
+    }) satisfies PaymentProvider
+);
 vi.mock('../web/src/server/payments', async (original) => ({
   ...(await original<typeof import('../web/src/server/payments')>()),
   getStripeProvider: () => provider,
@@ -52,15 +63,7 @@ it('queue failure defers to durable recovery: acked, not processed inline, compl
       object: { id: 're_1', payment_intent: 'pi_1', amount: 100, status: 'pending' },
     },
   });
-  const handler = Route.options.server!.handlers!.POST!;
-  const post = () =>
-    (handler as (ctx: { request: Request }) => Promise<Response>)({
-      request: new Request('http://localhost/api/webhooks/stripe', {
-        method: 'POST',
-        headers: { 'stripe-signature': 'sig_fixture' },
-        body: payload,
-      }),
-    });
+  const post = () => postWebhook(payload);
 
   const response = await post();
   expect(response.status).toBe(200);
@@ -89,25 +92,34 @@ it('queue failure defers to durable recovery: acked, not processed inline, compl
       "UPDATE webhook_inbox SET received_at = '2020-01-01T00:00:00.000Z' WHERE event_id='evt_durable_refund'"
     )
     .run();
-  expect(await reprocessStaleInbox(db, provider as never, 10)).toBe(1);
+  expect(await reprocessStaleInbox(db, provider, 10)).toBe(1);
   expect(provider.retrieveRefund).toHaveBeenCalledWith('re_1');
   expect((await db.prepare("SELECT status FROM refunds WHERE id='rf'").first())?.status).toBe(
     'succeeded'
   );
   expect(await inboxStatus()).toBe('processed');
   // A second sweep has nothing left to do.
-  expect(await reprocessStaleInbox(db, provider as never, 10)).toBe(0);
+  expect(await reprocessStaleInbox(db, provider, 10)).toBe(0);
 });
 
-function postWebhook(body: string) {
-  const handler = Route.options.server!.handlers!.POST!;
-  return (handler as (ctx: { request: Request }) => Promise<Response>)({
-    request: new Request('http://localhost/api/webhooks/stripe', {
-      method: 'POST',
-      headers: { 'stripe-signature': 'sig_fixture' },
-      body,
-    }),
-  });
+async function postWebhook(body: string) {
+  const handlers = present(Route.options.server?.handlers, 'the webhook handlers');
+  if (typeof handlers === 'function')
+    throw new Error('the webhook route builds its handlers lazily');
+  const post = present(handlers.POST, 'the webhook POST handler');
+  return routeResponse(
+    await post({
+      request: new Request('http://localhost/api/webhooks/stripe', {
+        method: 'POST',
+        headers: { 'stripe-signature': 'sig_fixture' },
+        body,
+      }),
+      context: undefined,
+      params: {},
+      pathname: '/api/webhooks/stripe',
+      next: noNext,
+    })
+  );
 }
 
 it('a bad signature is a 400; a failed inbox write is a 500 so Stripe retries', async () => {

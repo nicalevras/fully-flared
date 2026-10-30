@@ -64,14 +64,17 @@ async function readProducts(db: D1Database, ids: string[], mode: AvailabilityMod
   });
 }
 
+type AvailabilityCache = Pick<Cache, 'match' | 'put'>;
+export type AvailabilityCacheStorage = { open(cacheName: string): Promise<AvailabilityCache> };
+
 export async function getAvailability(
   query: AvailabilityInput,
   db: D1Database,
   origin: string,
-  storage?: CacheStorage
+  storage?: AvailabilityCacheStorage
 ) {
   try {
-    let cache: Cache | undefined;
+    let cache: AvailabilityCache | undefined;
     try {
       cache = await storage?.open('availability-v1');
     } catch {

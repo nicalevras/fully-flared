@@ -4,7 +4,7 @@ import { readListingPage } from '../web/src/server/catalog-read';
 import { ALL_LISTING } from '../web/src/server/catalog-models';
 import { processOutboxRow, queueAbandonedReminder } from '../web/src/server/email';
 import { reconcileStripe } from '../web/src/server/reconcile';
-import type { PaymentProvider } from '../web/src/server/payments';
+import { fakeProvider } from './helpers/payments';
 
 class FakeKv {
   map = new Map<string, string>();
@@ -177,7 +177,7 @@ describe('Stripe reconciliation', () => {
       )
       .bind(now, now)
       .run();
-    const provider = {
+    const provider = fakeProvider({
       async listCheckoutSessionsPage() {
         return {
           hasMore: false,
@@ -201,7 +201,7 @@ describe('Stripe reconciliation', () => {
           payment_intent: null,
         };
       },
-    } as unknown as PaymentProvider;
+    });
     const report = await reconcileStripe(db, provider);
     expect(report.checkedStripeSessions).toBe(1);
     expect(report.checkedOrders).toBe(1);

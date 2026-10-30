@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestDb, seedProduct, expectLedgerMatchesCounters } from './helpers/d1';
+import { at } from './helpers/fixtures';
 import {
   adjustStock,
   commitReservation,
@@ -80,7 +81,7 @@ describe('database-level reserve guards (B9)', () => {
       const skus = ['TEE-1', 'TEE-2'];
       const active = new Map<string, { id: string; sku: string }>();
       for (let step = 0; step < 200; step++) {
-        const sku = skus[Math.floor(rand() * skus.length)]!;
+        const sku = at(skus, Math.floor(rand() * skus.length));
         const op = rand();
         try {
           if (op < 0.4) {

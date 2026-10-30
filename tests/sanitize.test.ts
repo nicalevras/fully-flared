@@ -47,10 +47,10 @@ describe('allowlist HTML sanitizer', () => {
 });
 
 describe('editorial content is sanitized when saved', () => {
-  let db: D1Database, dispose: () => Promise<void>;
+  let db: D1Database, env: Env, dispose: () => Promise<void>;
   const owner = { id: 'owner', role: 'owner' };
   beforeEach(async () => {
-    ({ db, dispose } = await createTestDb());
+    ({ db, env, dispose } = await createTestDb());
     await db
       .prepare(
         "INSERT INTO user(id,name,email,role,created_at,updated_at) VALUES('owner','Owner','owner@example.invalid','owner',0,0)"
@@ -68,7 +68,7 @@ describe('editorial content is sanitized when saved', () => {
     const contentHtml = attacks.map(([payload]) => payload).join('') + '<p>kept</p>';
     const saved = await runAdminAction(
       db,
-      {} as never,
+      env,
       owner,
       action,
       { id: 'x', slug: 'x', title: 'x', contentHtml, ...extra },
