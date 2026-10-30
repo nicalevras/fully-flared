@@ -4,39 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { createRootRoute, createRoute, Outlet } from '@tanstack/react-router';
 import { expect, it } from 'vitest';
 import { Route as ProductRoute } from '@/routes/_shop.products/$slug';
-import { limits } from './fixtures';
+import { product } from './fixtures';
 import { renderTree } from './render-route';
-
-const product = (slug: string, imageCount: number) => ({
-  limits,
-  id: slug,
-  slug,
-  title: `${slug} product`,
-  description: '',
-  seoTitle: null,
-  seoDescription: null,
-  variants: [
-    {
-      id: `${slug}-v`,
-      sku: `${slug.toUpperCase()}-1`,
-      title: 'Default',
-      priceCents: 1000,
-      compareAtCents: null,
-      status: 'active',
-      continueSelling: false,
-      weightGrams: null,
-    },
-  ],
-  images: Array.from({ length: imageCount }, (_, i) => ({
-    key: `${slug}-${i}`,
-    publicUrl: `/img/${slug}-${i}.jpg`,
-    alt: `${slug} image ${i}`,
-  })),
-  storeName: 'Store',
-  seoTitleTemplate: '{product}',
-  canonicalBaseUrl: 'https://store.test',
-  currency: 'USD',
-});
 
 const catalogue = { five: product('five', 5), two: product('two', 2) };
 

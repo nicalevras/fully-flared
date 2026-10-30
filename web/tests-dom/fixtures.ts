@@ -54,3 +54,34 @@ export const cartView = (lines: PricedLine[], zones: ShippingZoneView[]): CartVi
   zones,
   count: lines.reduce((n, l) => n + l.qty, 0),
 });
+
+export const product = (slug: string, imageCount: number) => ({
+  limits,
+  id: slug,
+  slug,
+  title: `${slug} product`,
+  description: '',
+  seoTitle: null,
+  seoDescription: null,
+  variants: [
+    {
+      id: `${slug}-v`,
+      sku: `${slug.toUpperCase()}-1`,
+      title: 'Default',
+      priceCents: 1000,
+      compareAtCents: null,
+      status: 'active',
+      continueSelling: false,
+      weightGrams: null,
+    },
+  ],
+  images: Array.from({ length: imageCount }, (_, i) => ({
+    key: `${slug}-${i}`,
+    publicUrl: `/img/${slug}-${i}.jpg`,
+    alt: `${slug} image ${i}`,
+  })),
+  storeName: 'Store',
+  seoTitleTemplate: '{product}',
+  canonicalBaseUrl: 'https://store.test',
+  currency: 'USD',
+});
