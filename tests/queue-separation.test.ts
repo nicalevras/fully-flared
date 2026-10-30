@@ -34,8 +34,7 @@ it('routes each message type to its separated queue', async () => {
 
 it('reports a missing queue binding instead of throwing', async () => {
   const saved = workerEnv.NOTIFICATIONS;
-  // @ts-expect-error simulate an unconfigured binding
-  workerEnv.NOTIFICATIONS = undefined;
+  Reflect.deleteProperty(workerEnv, 'NOTIFICATIONS');
   try {
     expect(await enqueueJob({ type: 'email.send', outboxId: 'o3' })).toBe(false);
   } finally {
