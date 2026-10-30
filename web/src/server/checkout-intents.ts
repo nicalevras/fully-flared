@@ -122,6 +122,13 @@ export async function loadIntent(
     .first<CheckoutIntentRow>();
 }
 
+/** Reloads an intent the caller has just read or written in this request. */
+export async function requireIntent(db: D1Database, intentId: string): Promise<CheckoutIntentRow> {
+  const intent = await loadIntent(db, intentId);
+  if (!intent) throw new Error(`Checkout intent ${intentId} disappeared`);
+  return intent;
+}
+
 /** Unsettled intents the given intent replaced, oldest first, for recovery. */
 export async function supersededIntentIds(db: D1Database, intentId: string): Promise<string[]> {
   const { results } = await db

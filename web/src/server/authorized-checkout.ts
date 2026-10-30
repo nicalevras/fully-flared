@@ -1,7 +1,7 @@
 import * as z from 'zod';
 import { sha256Hex } from '../lib/hash';
 import { shippingAddressSchema } from '../schemas/checkout';
-import { loadIntent, type CheckoutIntentRow } from './checkout-intents';
+import { loadIntent, requireIntent, type CheckoutIntentRow } from './checkout-intents';
 import { acquireCheckoutPermit, type AdmissionStub } from './checkout-admission';
 import {
   CheckoutError,
@@ -26,6 +26,11 @@ const later = () => new Date(Date.now() + 60_000).toISOString();
 // Stripe may prune idempotency keys after 24 hours. Never replay a creation
 // operation after 23 hours; retrieval and manual reconciliation remain available.
 const OPERATION_HORIZON = 23 * 60 * 60_000;
+const eventMetadataSchema = z.object({
+  attempt_id: z.string().optional(),
+  order_id: z.string().optional(),
+});
+const providerPayloadSchema = z.object({ automaticTax: z.boolean().optional() });
 const reviewQuoteSchema = z.object({
   subtotalCents: z.number().int(),
   discountCents: z.number().int(),
@@ -55,7 +60,7 @@ export async function recordAuthorizedEvent(
   data: Record<string, unknown>
 ): Promise<boolean> {
   if (!type.startsWith('checkout.session.') && !type.startsWith('payment_intent.')) return false;
-  const metadata = data.metadata as { attempt_id?: string; order_id?: string } | undefined;
+  const metadata = eventMetadataSchema.safeParse(data.metadata).data;
   const row = await db
     .prepare(
       `SELECT id,payment_state FROM checkout_intents WHERE ((id=? AND order_id=?) OR stripe_session_id=? OR payment_intent_id=?) LIMIT 1`
@@ -128,7 +133,7 @@ export async function prepareReview(
   const session = await provider.retrieveCheckoutSession(intent.stripe_session_id, {
     timeoutMs: Math.min(10_000, remaining),
   });
-  const payload = JSON.parse(intent.provider_payload_json) as { automaticTax?: boolean };
+  const payload = providerPayloadSchema.parse(JSON.parse(intent.provider_payload_json));
   if (
     !session ||
     !identity(intent, session) ||
@@ -189,7 +194,7 @@ export async function prepareReview(
       .bind(
         quote.taxCents,
         quote.totalCents,
-        shippingAddressSchema.parse(JSON.parse(intent.shipping_address_json!)).name,
+        intentAddress(intent).name,
         intent.shipping_address_json,
         now(),
         intent.order_id
@@ -215,7 +220,9 @@ export async function confirmReview(
       409,
       'CONFLICT'
     );
-  return (await loadIntent(db, intentId))!.checkout_url!;
+  const { checkout_url } = await requireIntent(db, intentId);
+  if (!checkout_url) throw new Error(`Checkout intent ${intentId} has no checkout URL`);
+  return checkout_url;
 }
 
 type PaymentClaim = { id: string; token: string; fence: number };
@@ -347,10 +354,17 @@ async function allocate(db: D1Database, intent: CheckoutIntentRow, claim: Paymen
   ]);
 }
 
+function intentAddress(intent: CheckoutIntentRow) {
+  if (!intent.shipping_address_json)
+    throw new Error(`Checkout intent ${intent.id} has no shipping address`);
+  return shippingAddressSchema.parse(JSON.parse(intent.shipping_address_json));
+}
+
 function paidSession(intent: CheckoutIntentRow, quote: ReviewQuote) {
-  const a = shippingAddressSchema.parse(JSON.parse(intent.shipping_address_json!));
+  const a = intentAddress(intent);
+  if (!intent.stripe_session_id) throw new Error(`Checkout intent ${intent.id} has no session`);
   return {
-    id: intent.stripe_session_id!,
+    id: intent.stripe_session_id,
     mode: 'payment',
     payment_status: quote.totalCents === 0 ? 'no_payment_required' : 'paid',
     amount_total: quote.totalCents,
@@ -409,7 +423,7 @@ export async function runAuthorizedCheckout(
       .bind(token, new Date(Date.now() + 120_000).toISOString(), intentId, now())
       .run();
     if (!(claimed.meta.changes ?? 0)) return;
-    intent = (await loadIntent(db, intentId))!;
+    intent = await requireIntent(db, intentId);
     claim = { id: intentId, token, fence: intent.payment_fencing };
     const options = () => {
       const remaining = deadline - Date.now();
@@ -453,7 +467,7 @@ export async function runAuthorizedCheckout(
           .prepare('UPDATE orders SET stripe_payment_intent_id=? WHERE id=?')
           .bind(session.payment_intent, intent.order_id),
       ]);
-      intent = (await loadIntent(db, intentId))!;
+      intent = await requireIntent(db, intentId);
     }
     let cancel = Boolean(
       intent.cancel_requested ||
@@ -560,7 +574,7 @@ export async function runAuthorizedCheckout(
           console.warn(JSON.stringify({ event: 'authorized_allocation_rejected', intentId }));
           cancel = true;
         }
-        intent = (await loadIntent(db, intentId))!;
+        intent = await requireIntent(db, intentId);
       }
       if (intent.cancel_requested || intent.superseded_by) cancel = true;
       if (cancel) {
@@ -611,7 +625,7 @@ export async function runAuthorizedCheckout(
           )
           .bind(now(), intentId),
       ]);
-      intent = (await loadIntent(db, intentId))!;
+      intent = await requireIntent(db, intentId);
       if (quote) assertPayment(intent, pi, quote);
       if (!quote || pi.amountReceived !== quote.totalCents)
         throw Error('Captured amount mismatch requires reconciliation');
@@ -723,7 +737,8 @@ export async function recoverAuthorizedCheckouts(
     )
     .bind(...alertDue.values)
     .all<{ id: string; authorized_at: string }>();
-  if (old.results.length) {
+  const oldest = old.results.at(0);
+  if (oldest) {
     const recipients = captured.recipients;
     const alertId = (row: { id: string; authorized_at: string }, to: string) =>
       authorizationAlertId(captured, row.id, row.authorized_at, to);
@@ -731,9 +746,7 @@ export async function recoverAuthorizedCheckouts(
       JSON.stringify({
         event: 'authorization_recovery_overdue',
         count: old.results.length,
-        oldestAgeSeconds: Math.floor(
-          (Date.now() - Date.parse(old.results[0]!.authorized_at)) / 1000
-        ),
+        oldestAgeSeconds: Math.floor((Date.now() - Date.parse(oldest.authorized_at)) / 1000),
       })
     );
     await commitWithEmails(
