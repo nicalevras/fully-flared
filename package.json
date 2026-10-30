@@ -9,6 +9,7 @@
     "deploy": "npm --prefix web run deploy",
     "typecheck": "npm --prefix web run typecheck && npm run typecheck:dom",
     "typecheck:dom": "web/node_modules/.bin/tsc --noEmit -p web/tsconfig.tests-dom.json",
+    "typecheck:tests": "tsc -p tests --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:scale": "CATALOG_SCALE=1 vitest run tests/catalog-scale-100k.test.ts",

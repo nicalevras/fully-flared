@@ -23,6 +23,7 @@ export const CATALOG_BUDGET_LIMITS = {
   payloadBytes: 8 * 1024 * 1024,
   maxBinds: 90,
 } as const;
+export type CatalogBudgetLimits = { readonly [K in keyof typeof CATALOG_BUDGET_LIMITS]: number };
 
 /** Statements a further unit needs before an invocation starts it. */
 export const CATALOG_UNIT_FLOOR_STATEMENTS = 20;
@@ -43,7 +44,7 @@ export class CatalogBudget {
   other = 0;
   rows = 0;
   bytes = 0;
-  constructor(private readonly limits = CATALOG_BUDGET_LIMITS) {}
+  constructor(private readonly limits: CatalogBudgetLimits = CATALOG_BUDGET_LIMITS) {}
   get combined(): number {
     return this.d1 + this.kv + this.other;
   }

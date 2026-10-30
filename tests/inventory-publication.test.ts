@@ -13,6 +13,7 @@ import { enqueueCatalogRebuild } from '../web/src/server/catalog-publisher';
 import { readListingPage } from '../web/src/server/catalog-read';
 import { getStorefrontLayout } from '../web/src/server/catalog-read';
 import { ALL_LISTING, layoutModelSchema } from '../web/src/server/catalog-models';
+import { present } from './helpers/fixtures';
 let db: D1Database, dispose: () => Promise<void>;
 beforeAll(async () => {
   const t = await createTestDb();
@@ -24,9 +25,11 @@ afterAll(async () => {
   await dispose();
 });
 const revision = async () =>
-  (await db
-    .prepare('SELECT COALESCE(SUM(target_revision),0) AS n FROM catalog_work')
-    .first<{ n: number }>())!.n;
+  present(
+    await db
+      .prepare('SELECT COALESCE(SUM(target_revision),0) AS n FROM catalog_work')
+      .first<{ n: number }>()
+  ).n;
 it('stock changes and currency locks do not dirty publication; actual layout edits do', async () => {
   const before = await revision();
   for (const sql of [
@@ -53,7 +56,7 @@ it('stock changes and currency locks do not dirty publication; actual layout edi
 });
 it('enqueue does not invent edits; a clean pass publishes nothing and layout recovers from D1', async () => {
   const values = new Map<string, string>();
-  const send = vi.fn();
+  const send = vi.fn(async () => {});
   const kv = {
     get: async (k: string) => values.get(k) ?? null,
     put: async (k: string, v: string) => {
@@ -63,7 +66,7 @@ it('enqueue does not invent edits; a clean pass publishes nothing and layout rec
       values.delete(k);
     },
   };
-  const env = { DB: db, CATALOG_JOBS: { send } as never, CATALOG_KV: kv as never };
+  const env = { DB: db, CATALOG_JOBS: { send }, CATALOG_KV: kv };
   const before = await revision();
   await enqueueCatalogRebuild(env);
   // The wake-up invents no edits: durable capture is the triggers' job.
@@ -107,11 +110,7 @@ it('reserve, cancel, payment, refund/restock and adjustments preserve publicatio
     const put = vi.fn(async (k: string, v: string) => {
       data.set(k, v);
     });
-    const send = vi.fn();
-    const env = {
-      CATALOG_JOBS: { send } as never,
-      CATALOG_KV: { get: async (k: string) => data.get(k) ?? null, put } as never,
-    };
+    const env = { CATALOG_KV: { get: async (k: string) => data.get(k) ?? null, put } };
     await buildCatalogReadModels(db, env.CATALOG_KV);
     await catalogWork(db, env.CATALOG_KV);
     const before = await db
@@ -184,9 +183,11 @@ it('every published setting dirties only on change; unrelated settings never dir
   const fixture = await createTestDb();
   const db = fixture.db;
   const revision = async () =>
-    (await db
-      .prepare('SELECT COALESCE(SUM(target_revision),0) AS n FROM catalog_work')
-      .first<{ n: number }>())!.n;
+    present(
+      await db
+        .prepare('SELECT COALESCE(SUM(target_revision),0) AS n FROM catalog_work')
+        .first<{ n: number }>()
+    ).n;
   try {
     for (const key of PUBLISHED_SETTING_KEYS) {
       const existing = await db
@@ -310,9 +311,9 @@ it('brand image settings republish the layout with resolved images', async () =>
       values.delete(k);
     },
   };
-  const env = { DB: db, CATALOG_JOBS: { send: vi.fn() } as never, CATALOG_KV: kv as never };
-  await buildCatalogReadModels(db, kv as never);
-  await catalogWork(db, kv as never);
+  const env = { DB: db, CATALOG_KV: kv };
+  await buildCatalogReadModels(db, kv);
+  await catalogWork(db, kv);
   const layout = await getStorefrontLayout(db, env);
   expect(layout.logo?.key).toBe('logo.jpg');
   expect(layout.logo?.variants).toContainEqual({ width: 320, url: '/media/logo.jpg?w=320' });

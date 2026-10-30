@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { at } from './helpers/fixtures';
 import {
   countCombinations,
   droppedEditedCombinations,
@@ -33,7 +34,7 @@ describe('variant option combinations', () => {
 
   it('preserves entered values for combinations that survive an option change', () => {
     const first = generateVariantCombinations(groups, 'tote', { price: '29.99', stock: '5' });
-    first[0] = { ...first[0], sku: 'CUSTOM-1', price: '31.00' };
+    first[0] = { ...at(first, 0), sku: 'CUSTOM-1', price: '31.00' };
     const next = generateVariantCombinations(
       [
         { name: 'Size', valuesText: 'Small, Medium' },
@@ -51,7 +52,7 @@ describe('variant option combinations', () => {
 
   it('rejects duplicate SKUs before submission', () => {
     const combos = generateVariantCombinations(groups, 'tote', { price: '10', stock: '1' });
-    combos[1] = { ...combos[1], sku: combos[0].sku };
+    combos[1] = { ...at(combos, 1), sku: at(combos, 0).sku };
     expect(validateVariantCombinations(combos).join(' ')).toContain('used more than once');
   });
 
@@ -102,6 +103,7 @@ describe('variant option combinations', () => {
         values: ['T'],
         sku: 'SKU-1',
         price: '1',
+        compareAt: '',
         stock: '0',
       },
     ];
@@ -111,7 +113,7 @@ describe('variant option combinations', () => {
   it('rejects inexact and over-limit combination prices', () => {
     const combos = generateVariantCombinations(groups, 'tote', { price: '29.999', stock: '1' });
     expect(validateVariantCombinations(combos).join(' ')).toContain('at most two decimal places');
-    combos[0] = { ...combos[0], price: '1000000.01' };
+    combos[0] = { ...at(combos, 0), price: '1000000.01' };
     expect(validateVariantCombinations(combos).join(' ')).toContain('Small / Black');
   });
 
@@ -126,7 +128,7 @@ describe('variant option combinations', () => {
       { price: '10', stock: '1' },
       first
     );
-    const edited = new Set([first[0].key, first[5].key]);
+    const edited = new Set([at(first, 0).key, at(first, 5).key]);
     expect(droppedEditedCombinations(first, edited, next).map((combo) => combo.title)).toEqual([
       'Large / White',
     ]);

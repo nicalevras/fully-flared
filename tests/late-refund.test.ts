@@ -5,6 +5,7 @@ import { cancelOrderById, createPendingOrder, processInboxEvent } from '../web/s
 import { adjustStock } from '../web/src/server/inventory';
 import type { PaymentProvider } from '../web/src/server/payments';
 import { pendingIntent } from './helpers/pending-intent';
+import { stripeEventSchema } from '../web/src/schemas/webhook';
 
 // P0 item 2: a payment that arrives after holds expired (stock gone) is
 // refunded deterministically, and the refund settles only when Stripe
@@ -19,10 +20,10 @@ const pendingRefundProvider: PaymentProvider = {
     return { sessionId: 'cs_x', url: 'https://stripe.test/x' };
   },
   async verifyWebhook(payload: string) {
-    const e = JSON.parse(payload) as { id: string; type: string; data: { object: unknown } };
+    const e = stripeEventSchema.parse(JSON.parse(payload));
     return { id: e.id, type: e.type, data: e.data.object };
   },
-  async refund(pi: string, _amount: number | undefined, rowId: string) {
+  async refund(_pi: string, _amount: number | undefined, rowId: string) {
     refundCalls.push(rowId);
     return { id: `re_${rowId}`, status: 'pending' };
   },
@@ -218,13 +219,12 @@ describe('late payment refund settlement', () => {
         lines: [{ sku: 'TEE-1', qty: 1 }],
       },
       pendingIntent()
-    ).catch(() => null);
-    expect(order).not.toBeNull();
+    );
     await db
       .prepare('UPDATE orders SET stripe_checkout_session_id = ? WHERE id = ?')
-      .bind('cs_cap', order!.orderId)
+      .bind('cs_cap', order.orderId)
       .run();
-    const payload = completed('evt_cap', 'cs_cap', order!.orderId, 1, 'pi_cap'); // amount below total -> handler throws
+    const payload = completed('evt_cap', 'cs_cap', order.orderId, 1, 'pi_cap'); // amount below total -> handler throws
     await db
       .prepare(
         `INSERT INTO webhook_inbox (id, provider, event_id, type, payload_json, status, attempts, received_at)
@@ -244,6 +244,6 @@ describe('late payment refund settlement', () => {
       )
       .first<{ c: number }>();
     expect(alert?.c).toBe(1);
-    await cancelOrderById(db, order!.orderId).catch(() => undefined);
+    await cancelOrderById(db, order.orderId).catch(() => undefined);
   }, 60_000);
 });

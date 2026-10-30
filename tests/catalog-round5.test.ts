@@ -5,6 +5,7 @@ import { getShopProductsPage, listAllCollections } from '../web/src/server/catal
 import { getPublishedCollection } from '../web/src/server/catalog-discovery';
 import { ALL_LISTING } from '../web/src/server/catalog-models';
 import { runWithRequestContext } from '../web/src/server/exec-context';
+import { published, requestContext } from './helpers/fixtures';
 
 class FakeKv {
   map = new Map<string, string>();
@@ -89,7 +90,7 @@ it('a response pins one publication for count and page', async () => {
       kv.map.set(key, value);
     },
   };
-  const result = await getShopProductsPage(db, { CATALOG_KV: flipping as never, DB: db }, 2);
+  const result = await getShopProductsPage(db, { CATALOG_KV: flipping }, 2);
   expect(result.total).toBe(30);
   expect(result.pageCount).toBe(2);
   expect(result.products).toHaveLength(6);
@@ -105,14 +106,14 @@ it('single-product fallback reads its published document, never live source', as
         return (sql: string) => {
           statements++;
           if (/FROM products WHERE status = 'active'\s*$/i.test(sql.trim())) unboundedScans++;
-          return (target as D1Database).prepare(sql);
+          return target.prepare(sql);
         };
       const value = Reflect.get(target, key);
       return typeof value === 'function' ? value.bind(target) : value;
     },
   });
-  const doc = await readProductDocument(counting as never, kv, 'prod-7');
-  expect(doc?.slug).toBe('prod-7');
+  const doc = published(await readProductDocument(counting, kv, 'prod-7'));
+  expect(doc.slug).toBe('prod-7');
   expect(unboundedScans).toBe(0);
   expect(statements).toBeLessThanOrEqual(8);
 });
@@ -122,7 +123,7 @@ it('collection metadata serves from its published document', async () => {
   // Remove the D1 row: the published metadata document still serves.
   await db.prepare("DELETE FROM product_collections WHERE collection_id='c1'").run();
   await db.prepare("DELETE FROM collections WHERE id='c1'").run();
-  const result = await getPublishedCollection(db, { CATALOG_KV: kv as never }, 'manual-one', 1);
+  const result = await getPublishedCollection(db, { CATALOG_KV: kv }, 'manual-one', 1);
   expect(result?.collection.title).toBe('Manual One');
   expect(result?.total).toBe(30);
 });
@@ -136,7 +137,7 @@ it('collections index paginates with an accurate total', async () => {
       .bind(`cx${i}`, `col-${String(i).padStart(2, '0')}`, `Col ${i}`)
       .run();
   await buildCatalogReadModels(db, kv);
-  const env = { CATALOG_KV: kv as never };
+  const env = { CATALOG_KV: kv };
   const page1 = await listAllCollections(db, env, 1);
   expect(page1.total).toBe(50);
   expect(page1.pageCount).toBe(2);
@@ -162,11 +163,11 @@ it('concurrent identical reference reads share one in-flight KV get', async () =
       kv.map.set(key, value);
     },
   };
-  const pages = await runWithRequestContext({} as ExecutionContext, () =>
+  const pages = await runWithRequestContext(requestContext(), () =>
     Promise.all([
-      readListingPage(db, counting as never, ALL_LISTING, 1),
-      readListingPage(db, counting as never, ALL_LISTING, 1),
-      readListingPage(db, counting as never, ALL_LISTING, 2),
+      readListingPage(db, counting, ALL_LISTING, 1),
+      readListingPage(db, counting, ALL_LISTING, 1),
+      readListingPage(db, counting, ALL_LISTING, 2),
     ])
   );
   expect(pages[0]?.total).toBe(30);
