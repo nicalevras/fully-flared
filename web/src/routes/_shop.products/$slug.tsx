@@ -18,6 +18,7 @@ import { storefrontLimited } from '../../server/storefront-limit';
 import { productPageInputSchema } from '../../schemas/checkout';
 import { formatMoney } from '../../components/ProductCard';
 import { absoluteUrl, jsonLd, seoMeta } from '../../lib/seo';
+import { productJsonLd } from '../../lib/product-jsonld';
 import { CheckIcon, ReturnIcon, ShieldIcon, TruckIcon } from '../../components/icons';
 import { ProductNotFound } from '../../components/NotFound';
 import { Badge } from '@/components/ui/badge';
@@ -89,7 +90,6 @@ export const Route = createFileRoute('/_shop/products/$slug')({
     if (!loaderData) return { meta: [{ title: 'Store' }] };
     const url = absoluteUrl(loaderData.canonicalBaseUrl, `/products/${loaderData.slug}`);
     const firstImage = loaderData.images[0];
-    const firstVariant = loaderData.variants.find((v) => v.status === 'active');
     return {
       meta: seoMeta({
         title:
@@ -106,28 +106,10 @@ export const Route = createFileRoute('/_shop/products/$slug')({
           : undefined,
       }),
       links: [{ rel: 'canonical', href: url }],
-      ...jsonLd({
-        '@context': 'https://schema.org',
-        '@type': 'Product',
-        name: loaderData.title,
-        description: loaderData.seoDescription ?? richHtmlToPlainText(loaderData.description),
-        url,
-        ...(firstImage
-          ? { image: absoluteUrl(loaderData.canonicalBaseUrl, mediaUrl(firstImage)) }
-          : {}),
-        ...(firstVariant
-          ? {
-              offers: {
-                '@type': 'Offer',
-                url,
-                priceCurrency: loaderData.currency,
-                price: (firstVariant.priceCents / 100).toFixed(2),
-              },
-            }
-          : {}),
-      }),
+      ...jsonLd(productJsonLd(loaderData)),
     };
   },
+  remountDeps: ({ params }) => params,
   component: ProductPage,
 });
 
@@ -359,12 +341,32 @@ function ProductPage() {
           ) : null}
           <ul className="mt-8 space-y-3.5 border-t border-zinc-200 pt-6 text-sm leading-6 text-zinc-500">
             <li className="flex gap-2.5">
-              <TruckIcon className="h-5 w-5 shrink-0 text-zinc-950" /> Ships within 1–2 business
-              days. Rates and delivery options are calculated at checkout by your shipping zone.
+              <TruckIcon className="h-5 w-5 shrink-0 text-zinc-950" />
+              <span>
+                Rates and delivery options are calculated at checkout by your shipping zone. See our{' '}
+                <Link
+                  to="/pages/$slug"
+                  params={{ slug: 'shipping' }}
+                  className="text-zinc-950 underline underline-offset-2"
+                >
+                  shipping policy
+                </Link>
+                .
+              </span>
             </li>
             <li className="flex gap-2.5">
-              <ReturnIcon className="h-5 w-5 shrink-0 text-zinc-950" /> 30-day returns. Start a
-              return from your account page after delivery.
+              <ReturnIcon className="h-5 w-5 shrink-0 text-zinc-950" />
+              <span>
+                Start a return from your account page after delivery. See our{' '}
+                <Link
+                  to="/pages/$slug"
+                  params={{ slug: 'returns' }}
+                  className="text-zinc-950 underline underline-offset-2"
+                >
+                  returns policy
+                </Link>
+                .
+              </span>
             </li>
             <li className="flex gap-2.5">
               <ShieldIcon className="h-5 w-5 shrink-0 text-zinc-950" /> Secure checkout via Stripe.

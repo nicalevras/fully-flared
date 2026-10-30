@@ -11,6 +11,7 @@ import {
   zoneForCountry,
 } from '../lib/cart';
 import { getCart } from '../lib/cartFns';
+import { countryName, useCartDestination } from '../lib/cart-destination';
 import { BagIcon, ShieldIcon } from '../components/icons';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -37,7 +38,7 @@ function CartPage() {
   const currency = useStoreCurrency();
   const initial = Route.useLoaderData();
   const { lines, zones, view, setQty, pending, error } = useServerCart(initial);
-  const [country, setCountry] = useState('US');
+  const { countries, country, setCountry } = useCartDestination(zones);
   const [rateId, setRateId] = useState('');
 
   const zone = useMemo(() => zoneForCountry(zones, country), [zones, country]);
@@ -110,8 +111,13 @@ function CartPage() {
                     <div>
                       <p className="text-sm font-medium text-zinc-950">{l.productTitle}</p>
                       <p className="mt-0.5 text-[13px] text-zinc-500">
-                        {l.sku} · {l.available} available
+                        {l.variantTitle} · {l.available} available
                       </p>
+                      {l.qty > l.available && !l.continueSelling ? (
+                        <p role="alert" className="mt-1 text-[13px] text-red-600">
+                          Only {l.available} left. Lower the quantity to check out.
+                        </p>
+                      ) : null}
                     </div>
                     <p className="text-sm font-medium whitespace-nowrap text-zinc-950">
                       {formatMoney(l.priceCents * l.qty, currency)}
@@ -208,9 +214,9 @@ function CartPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {[...new Set(zones.flatMap((z) => z.countries))].concat(['US']).map((c) => (
+                  {countries.map((c) => (
                     <SelectItem key={c} value={c}>
-                      {c}
+                      {countryName(c)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -247,13 +253,13 @@ function CartPage() {
             </fieldset>
           ) : zones.length === 0 ? (
             <p className="mt-5 text-[13px] leading-5 text-zinc-500">
-              Shipping is not configured. Checkout requires an explicit rate, including a $0 rate
-              for free shipping. The store owner can add zones in Admin → Shipping.
+              Delivery is not available yet, so orders cannot be placed right now. Please check back
+              soon.
             </p>
           ) : (
             <p className="mt-5 text-[13px] leading-5 text-zinc-500">
-              Delivery is not available to {country}. Choose a supported destination to see delivery
-              options and totals.
+              Delivery is not available to {countryName(country)}. Choose a supported destination to
+              see delivery options and totals.
             </p>
           )}
 

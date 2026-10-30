@@ -34,10 +34,17 @@ export const storefrontPageSearch = (search: { page?: unknown } & SearchSchemaIn
   page: numericPage(search.page, MAX_STOREFRONT_PAGE),
 });
 
-export const catalogSearch = (search: { q?: unknown; cursor?: unknown } & SearchSchemaInput) => ({
-  q: text(search.q, 200),
-  cursor: optionalText(search.cursor, 500),
-});
+/** Search pages by cursor; `page` only labels it, and is 1 exactly when there is no cursor. */
+export const catalogSearch = (
+  search: { q?: unknown; cursor?: unknown; page?: unknown } & SearchSchemaInput
+) => {
+  const cursor = optionalText(search.cursor, 500);
+  return {
+    q: text(search.q, 200),
+    cursor,
+    page: cursor ? Math.max(numericPage(search.page, MAX_STOREFRONT_PAGE), 2) : 1,
+  };
+};
 
 export const successSearch = (search: { order?: unknown; t?: unknown } & SearchSchemaInput) => ({
   order: text(search.order, 100),
