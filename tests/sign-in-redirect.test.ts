@@ -3,7 +3,7 @@ import { isRedirect } from '../web/node_modules/@tanstack/react-router';
 import type { AuthErrorCode } from '../web/src/server/session';
 import { signInSearch } from '../web/src/lib/search-params';
 import type { SearchSchemaInput } from '../web/node_modules/@tanstack/react-router';
-import { Route as AdminRoute } from '../web/src/routes/admin/route';
+import { Route as AdminRoute, enterAdmin } from '../web/src/routes/admin/route';
 
 const failure = vi.hoisted((): { code: AuthErrorCode } => ({ code: 'UNAUTHENTICATED' }));
 vi.mock('../web/src/server/session', async (original) => {
@@ -30,10 +30,9 @@ const rawSearch: SearchSchemaInput = { __TSearchSchemaInput__: 'TSearchSchemaInp
 
 async function adminRedirect(code: AuthErrorCode, href: string) {
   failure.code = code;
-  const beforeLoad = AdminRoute.options.beforeLoad;
-  if (typeof beforeLoad !== 'function') throw new Error('Expected /admin beforeLoad');
+  expect(AdminRoute.options.beforeLoad).toBe(enterAdmin);
   try {
-    await beforeLoad({ location: { href } } as never);
+    await enterAdmin({ location: { href } });
     return null;
   } catch (error) {
     if (isRedirect(error)) return error.options;

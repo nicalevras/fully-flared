@@ -1,12 +1,11 @@
 import { expect, it } from 'vitest';
 import { isRedirect } from '../web/node_modules/@tanstack/react-router';
-import { Route } from '../web/src/routes/admin/index';
+import { Route, guardAdminHome } from '../web/src/routes/admin/index';
 
 function enterAdminHome(role: string) {
-  const beforeLoad = Route.options.beforeLoad;
-  if (typeof beforeLoad !== 'function') throw new Error('Expected /admin beforeLoad');
+  expect(Route.options.beforeLoad).toBe(guardAdminHome);
   try {
-    beforeLoad({ context: { staff: { role } } } as never);
+    guardAdminHome({ context: { staff: { role } } });
     return 'stays';
   } catch (error) {
     if (isRedirect(error)) return error.options.to;
