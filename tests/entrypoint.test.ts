@@ -1,23 +1,22 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { createTestDb } from './helpers/d1';
 import { present } from './helpers/fixtures';
-import { messageBatch, queueMessage } from './helpers/queue';
+import { fakeQueue, messageBatch, queueMessage } from './helpers/queue';
+import { withOverrides } from './helpers/fixtures';
+import { realtimeWithBroadcast } from './helpers/realtime';
+import { gatewayContext } from './helpers/gateway';
 
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, env: Cloudflare.Env, dispose: () => Promise<void>;
 
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env, dispose } = await createTestDb());
 });
 afterEach(async () => {
   await dispose();
 });
 
-function fakeCtx(storefront: unknown) {
-  return {
-    waitUntil: () => {},
-    exports: { PublicStorefront: storefront },
-  };
-}
+/** The fetch path's bindings with no rate limiter bound. */
+const withoutLimiters = () => ({ DB: db, REALTIME: env.REALTIME });
 
 it('gateway forwards only classified public HTML to the storefront with props and a sanitized request', async () => {
   const { default: worker } = await import('../web/src/server');
@@ -40,8 +39,8 @@ it('gateway forwards only classified public HTML to the storefront with props an
     new Request('https://Shop.Test/products/tee?utm_source=news&page=2', {
       headers: { accept: 'text/html', cookie: 'cart=secret' },
     }),
-    { DB: db } as never,
-    fakeCtx(storefront) as never
+    withoutLimiters(),
+    gatewayContext(storefront)
   );
   expect(response.status).toBe(200);
   expect(await response.text()).toContain('public');
@@ -63,8 +62,8 @@ it('gateway forwards only classified public HTML to the storefront with props an
       headers: { 'content-type': 'application/json' },
       body: '{}',
     }),
-    { DB: db } as never,
-    fakeCtx(storefront) as never
+    withoutLimiters(),
+    gatewayContext(storefront)
   );
   expect(limited.status).toBe(503); // fail-closed without a limiter binding
 });
@@ -86,8 +85,8 @@ it('gateway falls back to direct rendering when the storefront throws', async ()
   try {
     const response = await worker.fetch(
       new Request('https://shop.test/products/tee', { headers: { accept: 'text/html' } }),
-      { DB: db } as never,
-      fakeCtx(storefront) as never
+      withoutLimiters(),
+      gatewayContext(storefront)
     );
     // The gateway caught the storefront failure and rendered directly
     // (the real TanStack entry returns its harness 500 here; in
@@ -111,17 +110,13 @@ async function runCatalogQueueToIdle(purged: string[][]) {
     let continued = false;
     await worker.queue(
       messageBatch('store-catalog', [queueMessage({ type: 'catalog.rebuild' })]),
-      {
-        QUEUE_NAMES: { CATALOG_JOBS: 'store-catalog', DLQ: 'store-jobs-dlq' },
-        DB: db,
-        CATALOG_JOBS: {
-          send: async () => {
-            continued = true;
-          },
-        },
-        REALTIME: { getByName: () => ({ broadcast: async () => {} }) },
-      } as never,
-      fakeCtx(storefront) as never
+      withOverrides(env, {
+        CATALOG_JOBS: fakeQueue(() => {
+          continued = true;
+        }),
+        REALTIME: realtimeWithBroadcast(env.REALTIME, async () => {}),
+      }),
+      gatewayContext(storefront)
     );
     if (!continued) return;
   }
@@ -165,20 +160,18 @@ it('PublicStorefront purges through its own cache handle and refuses without one
   // Fetch tagging policy itself is covered through publicCacheResponse
   // in tests/public-cache.test.ts; the TanStack entry cannot render
   // under this harness, so this pins the purge RPC surface instead.
-  const { PublicStorefront } = await import('../web/src/server/public-storefront');
-  const purge = vi.fn(async () => ({ success: true }));
-  const ep = new PublicStorefront({ cache: { purge } } as never, {} as never);
-  await ep.purgeInvalidations(['layout']);
+  const { purgePublicCache } = await import('../web/src/server/public-storefront');
+  const purge = vi.fn<CacheContext['purge']>(async () => ({ success: true, errors: [] }));
+  await purgePublicCache({ purge }, ['layout']);
   expect(purge).toHaveBeenCalledWith({ tags: ['layout'] });
-  await ep.purgeInvalidations([]);
+  await purgePublicCache({ purge }, []);
   expect(purge).toHaveBeenCalledTimes(1); // empty tag list is a no-op
-  purge.mockResolvedValueOnce({ success: false });
-  await expect(ep.purgeInvalidations(['layout'])).rejects.toThrow(
+  purge.mockResolvedValueOnce({ success: false, errors: [] });
+  await expect(purgePublicCache({ purge }, ['layout'])).rejects.toThrow(
     'Public cache purge was rejected'
   );
 
-  const noCache = new PublicStorefront({} as never, {} as never);
-  await expect(noCache.purgeInvalidations(['layout'])).rejects.toThrow(
+  await expect(purgePublicCache(undefined, ['layout'])).rejects.toThrow(
     'Workers Cache API unavailable'
   );
 });

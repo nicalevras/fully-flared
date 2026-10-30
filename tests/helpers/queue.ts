@@ -28,11 +28,13 @@ export function messageBatch<Body>(
 const noBacklog = { backlogCount: 0, backlogBytes: 0 };
 
 /** A producer binding that hands every sent body, batched or not, to `deliver`. */
-export function fakeQueue(deliver: (body: unknown) => unknown = () => {}): Queue {
+export function fakeQueue(
+  deliver: (body: unknown, options?: QueueSendOptions) => unknown = () => {}
+): Queue {
   return {
     metrics: async () => noBacklog,
-    send: async (body) => {
-      await deliver(body);
+    send: async (body, options) => {
+      await deliver(body, options);
       return { metadata: { metrics: noBacklog } };
     },
     sendBatch: async (messages) => {

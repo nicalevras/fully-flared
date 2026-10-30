@@ -6,10 +6,11 @@ import { roles, type statement } from '../web/src/lib/permissions';
 import { requireStaffPermission } from '../web/src/server/session';
 import { present } from './helpers/fixtures';
 import { noNext, routeResponse } from './helpers/route';
+import { gatewayContext } from './helpers/gateway';
 
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, bindings: Cloudflare.Env, dispose: () => Promise<void>;
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env: bindings, dispose } = await createTestDb());
   env.DB = db;
 });
 afterEach(async () => {
@@ -84,23 +85,20 @@ describe('M1: media is cacheable for signed-in shoppers', () => {
 });
 
 describe('L3: HSTS', () => {
-  function fakeCtx() {
-    const storefront = Object.assign(
-      () => ({
-        fetch: async () =>
-          new Response('<html>ok</html>', { headers: { 'content-type': 'text/html' } }),
-      }),
-      { purgeInvalidations: async () => {} }
-    );
-    return { waitUntil: () => {}, exports: { PublicStorefront: storefront } };
-  }
+  const storefront = Object.assign(
+    () => ({
+      fetch: async () =>
+        new Response('<html>ok</html>', { headers: { 'content-type': 'text/html' } }),
+    }),
+    { purgeInvalidations: async () => {} }
+  );
   it('HTTPS responses carry Strict-Transport-Security, plain HTTP does not', async () => {
     const { default: worker } = await import('../web/src/server');
     const get = (url: string) =>
       worker.fetch(
         new Request(url, { headers: { accept: 'text/html' } }),
-        { DB: db } as never,
-        fakeCtx() as never
+        { DB: db, REALTIME: bindings.REALTIME },
+        gatewayContext(storefront)
       );
     expect(
       (await get('https://shop.test/products/tee')).headers.get('strict-transport-security')
@@ -112,11 +110,21 @@ describe('L3: HSTS', () => {
 });
 
 describe('L4: CSRF covers /api', () => {
+  class Continued extends Error {}
+  const next = (): never => {
+    throw new Continued();
+  };
   async function run(request: Request, handlerType: 'router' | 'serverFn' = 'router') {
     const { csrfMiddleware } = await import('../web/src/start');
-    const server = csrfMiddleware.options.server as (ctx: unknown) => Promise<unknown> | unknown;
-    const result = await server({ request, handlerType, next: () => 'next' });
-    return result instanceof Response ? result.status : result;
+    const server = present(csrfMiddleware.options.server);
+    const pathname = new URL(request.url).pathname;
+    try {
+      const result = await server({ request, pathname, context: undefined, handlerType, next });
+      return result instanceof Response ? result.status : result.response.status;
+    } catch (error) {
+      if (error instanceof Continued) return 'next';
+      throw error;
+    }
   }
   it('rejects an unsafe /api request with no Origin, Sec-Fetch-Site or Referer', async () => {
     expect(await run(new Request('https://shop.test/api/checkout', { method: 'POST' }))).toBe(403);

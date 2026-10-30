@@ -14,10 +14,25 @@ import { requireStaffSession } from './server/session';
 import { STAFF_SESSION_HEADER } from './do/staff-session-header';
 import { runWithRequestContext } from './server/exec-context';
 import { jobMessageSchema } from './schemas/queue';
+import type { WorkerEnv } from './server/env';
 
 export { RealtimeDO } from './do/realtime';
 export { CheckoutAdmissionDO } from './do/checkout-admission';
 export { PublicStorefront } from './server/public-storefront';
+
+/** The PublicStorefront loopback as the gateway uses it: render with props, purge by tag. */
+type StorefrontLoopback = ((opts: { props: { store: string } }) => {
+  fetch(request: Request): Promise<Response>;
+}) & { purgeInvalidations(tags: string[]): Promise<void> };
+
+/** What the gateway reads from its ExecutionContext. */
+export type GatewayContext = Pick<ExecutionContext, 'waitUntil'> & {
+  readonly exports: { readonly PublicStorefront: StorefrontLoopback };
+};
+
+/** The bindings the fetch path reads. Without a limiter, checkout and auth fail closed. */
+export type GatewayEnv = Pick<Cloudflare.Env, 'DB' | 'REALTIME'> &
+  Partial<Pick<Cloudflare.Env, 'CHECKOUT_LIMITER' | 'AUTH_LIMITER'>>;
 
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
@@ -62,11 +77,7 @@ function withSecurityHeaders(response: Response, request?: Request): Response {
 // is worse than no limiter. Keys prefer the session cookie (per-visitor)
 // over the client IP, per Cloudflare's guidance that IP keys are not
 // recommended on their own; Turnstile gates checkout/auth on top.
-async function rateLimit(
-  request: Request,
-  env: Cloudflare.Env,
-  url: URL
-): Promise<Response | null> {
+async function rateLimit(request: Request, env: GatewayEnv, url: URL): Promise<Response | null> {
   const isCheckout = url.pathname === '/api/checkout' && request.method === 'POST';
   const isAuth = url.pathname.startsWith('/api/auth/') && request.method === 'POST';
   // Discount validation moved to a server function (validateDiscountFn),
@@ -124,24 +135,20 @@ async function rateLimit(
 }
 
 export default {
-  async fetch(request: Request, env: Cloudflare.Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: GatewayEnv, ctx: GatewayContext): Promise<Response> {
     // Better Auth background tasks reach ctx.waitUntil through this storage
     // (advanced.backgroundTasks.handler in lib/auth.ts).
     return runWithRequestContext(ctx, () => handleFetch(request, env, ctx));
   },
 
-  async queue(
-    batch: MessageBatch<unknown>,
-    env: Cloudflare.Env,
-    ctx: ExecutionContext
-  ): Promise<void> {
+  async queue(batch: MessageBatch<unknown>, env: WorkerEnv, ctx: GatewayContext): Promise<void> {
     return handleQueue(batch, env, ctx);
   },
 
   async scheduled(
     controller: ScheduledController,
-    env: Cloudflare.Env,
-    ctx: ExecutionContext
+    env: WorkerEnv,
+    ctx: GatewayContext
   ): Promise<void> {
     return handleScheduled(controller, env, ctx);
   },
@@ -155,8 +162,8 @@ const CRON_DRAIN_PASSES = 3;
  *  queue drain takes one pass; the cron drain continues while a full
  *  page was purged, bounded to stay within one invocation's statements. */
 async function drainPublicCacheInvalidations(
-  env: Cloudflare.Env,
-  ctx: ExecutionContext,
+  env: Pick<WorkerEnv, 'DB'>,
+  ctx: GatewayContext,
   budget?: CatalogBudget
 ): Promise<void> {
   const db = budget ? countedDb(env.DB, budget) : env.DB;
@@ -170,8 +177,8 @@ async function drainPublicCacheInvalidations(
 
 async function handleFetch(
   request: Request,
-  env: Cloudflare.Env,
-  ctx: ExecutionContext
+  env: GatewayEnv,
+  ctx: GatewayContext
 ): Promise<Response> {
   const url = new URL(request.url);
   if (url.pathname === '/ws') {
@@ -233,8 +240,8 @@ async function handleFetch(
 
 async function handleQueue(
   batch: MessageBatch<unknown>,
-  env: Cloudflare.Env,
-  ctx: ExecutionContext
+  env: WorkerEnv,
+  ctx: GatewayContext
 ): Promise<void> {
   const isDlq = batch.queue === env.QUEUE_NAMES.DLQ;
   for (const message of batch.messages) {
@@ -378,8 +385,8 @@ async function handleQueue(
 
 async function handleScheduled(
   event: ScheduledController,
-  env: Cloudflare.Env,
-  ctx: ExecutionContext
+  env: WorkerEnv,
+  ctx: GatewayContext
 ): Promise<void> {
   ctx.waitUntil(
     (async () => {
