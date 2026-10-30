@@ -1,4 +1,7 @@
+import * as z from 'zod';
 import type { MediaSource } from '../lib/media-url';
+
+const variantSchema = z.object({ width: z.number(), url: z.string() });
 
 /** Resolve media ids to renderable sources in one query: ready media only,
  * variants carrying the public URL or the /media fallback the publisher uses. */
@@ -29,13 +32,10 @@ export async function resolveMediaSources(
     try {
       const parsed: unknown = row.variants_json ? JSON.parse(row.variants_json) : [];
       if (Array.isArray(parsed))
-        variants = parsed.filter(
-          (v): v is { width: number; url: string } =>
-            typeof v === 'object' &&
-            v !== null &&
-            typeof (v as { width?: unknown }).width === 'number' &&
-            typeof (v as { url?: unknown }).url === 'string'
-        );
+        variants = parsed.flatMap((v: unknown) => {
+          const variant = variantSchema.safeParse(v);
+          return variant.success ? [variant.data] : [];
+        });
     } catch {
       variants = [];
     }
