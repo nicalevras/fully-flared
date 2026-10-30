@@ -1,3 +1,4 @@
+import * as z from 'zod';
 import type { WorkerEnv } from './env';
 
 // Cloudflare Turnstile server-side validation (Siteverify). Enforced only
@@ -10,12 +11,11 @@ export type TurnstileCheck = {
   remoteIp?: string | undefined;
 };
 
-type SiteverifyResponse = {
-  success?: boolean;
-  action?: string;
-  hostname?: string;
-  'error-codes'?: string[];
-};
+const siteverifyResponseSchema = z.object({
+  success: z.boolean().optional(),
+  action: z.string().optional(),
+  hostname: z.string().optional(),
+});
 
 export async function verifyTurnstile(
   env: WorkerEnv,
@@ -39,7 +39,9 @@ export async function verifyTurnstile(
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) return false;
-    const result = (await response.json()) as SiteverifyResponse;
+    const parsed = siteverifyResponseSchema.safeParse(await response.json());
+    if (!parsed.success) return false;
+    const result = parsed.data;
     return (
       result.success === true &&
       result.action === check.expectedAction &&
