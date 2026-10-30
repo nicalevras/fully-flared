@@ -14,7 +14,12 @@ A missing reference resolves committed D1 history once per request. A missing
 known artifact in both stores fails visibly rather than inventing a 404 or
 silently exposing a draft. Search runs
 against the D1 `products_fts` index and fetches only matching cards; it
-never walks listing pages.
+never walks listing pages. Results are ordered newest rowid first and paged
+with a rowid cursor, so a page reads about one page of matches (101 FTS rows
+for a 50-card page of 2,500 matches at 20k products, previously 7,500). Rowid
+order follows insert order, which tracks `created_at`; a product re-created by
+an import gets a new rowid and sorts as new. Cursors from the older
+`created_at` format restart at the first page.
 
 Change capture is transactional: D1 triggers (migration 0004) write
 `catalog_work` rows with each catalog edit, and the publisher drains
