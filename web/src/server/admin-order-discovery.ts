@@ -60,7 +60,7 @@ const PAGE_SIZE = 50;
 
 function encodeCursor(
   input: OrderDiscoveryInput,
-  row: { created_at: string; id: string },
+  row: { key: string; id: string },
   direction: OrderSearchCursor['direction']
 ): string {
   const bytes = new TextEncoder().encode(
@@ -72,12 +72,20 @@ function encodeCursor(
       payment: input.payment,
       from: input.from,
       to: input.to,
-      key: row.created_at,
+      key: row.key,
       id: row.id,
       direction,
     })
   );
   return btoa(String.fromCharCode(...bytes));
+}
+
+/** Order numbers are `ORD-YYMMDD-XXXXXX`, so a query shaped like their start
+ *  is a prefix range on `orders_number_unique` instead of a trigram match. */
+const ORDER_NUMBER_PREFIX = /^ORD-?[0-9-]*$/;
+
+function prefixEnd(prefix: string): string {
+  return prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1);
 }
 
 export async function adminOrderDiscovery(
@@ -87,6 +95,14 @@ export async function adminOrderDiscovery(
   const normalized = normalizeOrderSearch(rawInput);
   const input = orderDiscoveryInputSchema.parse(normalized);
   const cursor = decodeOrderSearchCursor(input.cursor, input);
+  // A number-prefix page walks the number index in order and stops after one
+  // page; sorting its matches by created_at would read every one of them.
+  const byNumber = ORDER_NUMBER_PREFIX.test(input.q);
+  const sortKey = byNumber ? 'o.number' : 'o.created_at';
+  const keyOf = (row: AdminOrderRow) => ({
+    key: byNumber ? row.number : row.created_at,
+    id: row.id,
+  });
 
   const conditions: string[] = [];
   const binds: unknown[] = [];
@@ -107,7 +123,10 @@ export async function adminOrderDiscovery(
     conditions.push("o.created_at < date(?, '+1 day')");
     binds.push(input.to);
   }
-  if (input.q) {
+  if (byNumber) {
+    conditions.push('o.number >= ? AND o.number < ?');
+    binds.push(input.q, prefixEnd(input.q));
+  } else if (input.q) {
     if (ftsUsable(input.q)) {
       // Trigram FTS: substring match on the order number, index-served.
       conditions.push('o.rowid IN (SELECT rowid FROM orders_fts WHERE orders_fts MATCH ?)');
@@ -121,9 +140,9 @@ export async function adminOrderDiscovery(
   const previous = cursor?.direction === 'previous';
   if (cursor) {
     if (previous) {
-      conditions.push('(o.created_at > ? OR (o.created_at = ? AND o.id > ?))');
+      conditions.push(`(${sortKey} > ? OR (${sortKey} = ? AND o.id > ?))`);
     } else {
-      conditions.push('(o.created_at < ? OR (o.created_at = ? AND o.id < ?))');
+      conditions.push(`(${sortKey} < ? OR (${sortKey} = ? AND o.id < ?))`);
     }
     binds.push(cursor.key, cursor.key, cursor.id);
   }
@@ -132,7 +151,7 @@ export async function adminOrderDiscovery(
   const rows = (
     await db
       .prepare(
-        `SELECT o.id,o.number,o.status,o.payment_status,o.customer_email,o.total_cents,o.currency,o.created_at,${refundable} AS refundable_cents,EXISTS(SELECT 1 FROM returns r WHERE r.order_id=o.id AND r.status IN ('requested','approved','refund_failed')) AS has_open_return FROM orders o ${where} ORDER BY o.created_at ${previous ? 'ASC' : 'DESC'}, o.id ${previous ? 'ASC' : 'DESC'} LIMIT ${PAGE_SIZE + 1}`
+        `SELECT o.id,o.number,o.status,o.payment_status,o.customer_email,o.total_cents,o.currency,o.created_at,${refundable} AS refundable_cents,EXISTS(SELECT 1 FROM returns r WHERE r.order_id=o.id AND r.status IN ('requested','approved','refund_failed')) AS has_open_return FROM orders o ${byNumber ? 'INDEXED BY orders_number_unique' : ''} ${where} ORDER BY ${sortKey} ${previous ? 'ASC' : 'DESC'}, o.id ${previous ? 'ASC' : 'DESC'} LIMIT ${PAGE_SIZE + 1}`
       )
       .bind(...binds)
       .all<AdminOrderRow>()
@@ -142,9 +161,12 @@ export async function adminOrderDiscovery(
   const page = hasMore ? (previous ? ordered.slice(1) : ordered.slice(0, PAGE_SIZE)) : ordered;
   const first = page[0];
   const last = page[page.length - 1];
-  const nextCursor = last && (previous || hasMore) ? encodeCursor(input, last, 'next') : null;
+  const nextCursor =
+    last && (previous || hasMore) ? encodeCursor(input, keyOf(last), 'next') : null;
   const previousCursor =
-    first && (previous ? hasMore : Boolean(cursor)) ? encodeCursor(input, first, 'previous') : null;
+    first && (previous ? hasMore : Boolean(cursor))
+      ? encodeCursor(input, keyOf(first), 'previous')
+      : null;
 
   // FF-03: the returns view paginates on its own keyset cursor, ordered
   // failed-first then oldest first, so every open return is reachable.

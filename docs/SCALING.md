@@ -21,6 +21,12 @@ order follows insert order, which tracks `created_at`; a product re-created by
 an import gets a new rowid and sorts as new. Cursors from the older
 `created_at` format restart at the first page.
 
+Admin order search treats a query shaped like an order number's start
+(`^ORD-?[0-9-]*$`) as a range on `orders_number_unique` and sorts those
+results by number, newest date first: one 50-order page reads 51 rows at 50k
+orders ("ORD-26" previously read 98,902 through the trigram index). Other
+queries keep the trigram match and `created_at` order.
+
 Change capture is transactional: D1 triggers (migration 0004) write
 `catalog_work` rows with each catalog edit, and the publisher drains
 that queue incrementally. A single product edit republishes only the
