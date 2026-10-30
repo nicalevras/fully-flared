@@ -23,7 +23,7 @@ export async function catalogWorkDue(db: D1Database) {
       .prepare(
         `SELECT 1 WHERE
     NOT EXISTS(SELECT 1 FROM catalog_listings WHERE listing_id='all' AND active=1)
-    OR EXISTS(SELECT 1 FROM catalog_work WHERE processed_revision<target_revision AND (next_attempt_at IS NULL OR next_attempt_at<=?))
+    OR EXISTS(SELECT 1 FROM catalog_work INDEXED BY catalog_work_pending_idx WHERE processed_revision<target_revision AND (next_attempt_at IS NULL OR next_attempt_at<=?))
     OR EXISTS(SELECT 1 FROM catalog_builds WHERE state IN ('building','pending_delivery'))
     OR EXISTS(SELECT 1 FROM catalog_ref_state WHERE (pending_payload IS NOT NULL AND (delivery_retry_at IS NULL OR delivery_retry_at<=?)) OR verify_after<=?)
     OR EXISTS(SELECT 1 FROM posts WHERE status='scheduled' AND published_at<=?)`
