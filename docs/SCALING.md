@@ -22,10 +22,16 @@ an import gets a new rowid and sorts as new. Cursors from the older
 `created_at` format restart at the first page.
 
 Admin order search treats a query shaped like an order number's start
-(`^ORD-?[0-9-]*$`) as a range on `orders_number_unique` and sorts those
-results by number, newest date first: one 50-order page reads 51 rows at 50k
-orders ("ORD-26" previously read 98,902 through the trigram index). Other
-queries keep the trigram match and `created_at` order.
+(`ORD-`, up to six date digits, then the suffix) as a number range and keeps
+`created_at` order, newest first. Numbers carry their UTC order date, and
+checkout stamps `created_at` just before drawing the number, so the date digits
+bound `created_at` to a window that starts one day early. The page walks
+`orders_created_id_idx` newest first inside that window. A query that reaches into
+the suffix sorts its few matches from `orders_number_unique` instead. At 50k
+orders, one 50-order page reads 51–52 rows and a full number reads 3 ("ORD-26"
+previously read 98,893 through the trigram index; a number range sorted by
+`created_at` without the window reads 48,890). Other queries keep the trigram
+match.
 
 Change capture is transactional: D1 triggers (migration 0004) write
 `catalog_work` rows with each catalog edit, and the publisher drains

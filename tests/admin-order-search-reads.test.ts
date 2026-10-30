@@ -62,17 +62,17 @@ it('an ORD- prefix search returns the newest orders first', async () => {
   );
 });
 
-it('a full order number reads at most two days of orders', async () => {
+it('a full order number reads ≤ one page', async () => {
   const one = await db
     .prepare("SELECT number FROM orders WHERE number LIKE 'ORD-261030-%' LIMIT 1")
     .first<{ number: string }>();
   const meter = meterRowsRead(db);
   const found = await adminOrderDiscovery(meter.db, { q: one?.number ?? '', view: 'all' });
   expect(found.orders.map((order) => order.number)).toEqual([one?.number]);
-  expect(meter.rowsRead(orderReads)).toBeLessThanOrEqual(2 * 71 + 1);
+  expect(meter.rowsRead(orderReads)).toBeLessThanOrEqual(PAGE + 1);
 });
 
-it.each(['ORD-2610', 'ORD-2611'])(
+it.each(['ORD-2610', 'ORD-2611', 'ORD-261101'])(
   'an ORD- prefix (%s) pages through every match exactly once, newest first',
   async (q) => {
     const seen: string[] = [];

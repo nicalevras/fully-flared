@@ -60,7 +60,7 @@ const PAGE_SIZE = 50;
 
 function encodeCursor(
   input: OrderDiscoveryInput,
-  row: { key: string; id: string },
+  row: { created_at: string; id: string },
   direction: OrderSearchCursor['direction']
 ): string {
   const bytes = new TextEncoder().encode(
@@ -72,7 +72,7 @@ function encodeCursor(
       payment: input.payment,
       from: input.from,
       to: input.to,
-      key: row.key,
+      key: row.created_at,
       id: row.id,
       direction,
     })
@@ -80,12 +80,25 @@ function encodeCursor(
   return btoa(String.fromCharCode(...bytes));
 }
 
-/** Order numbers are `ORD-YYMMDD-XXXXXX`, so a query shaped like their start
- *  is a prefix range on `orders_number_unique` instead of a trigram match. */
-const ORDER_NUMBER_PREFIX = /^ORD-?[0-9-]*$/;
+/** Order numbers are `ORD-YYMMDD-XXXXXX` with YYMMDD the UTC order date, so a query
+ *  shaped like their start is a number range inside a created_at window. */
+const ORDER_NUMBER_PREFIX = /^ORD(?:-(\d{6}-[0-9]*|\d{0,6}))?$/;
 
 function prefixEnd(prefix: string): string {
   return prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1);
+}
+
+/** created_at bounds for numbers starting `ORD-<digits>`. checkout.ts stamps created_at
+ *  before it draws the number, so created_at can fall a day before the number's date. */
+function createdAtWindow(digits: string) {
+  if (!digits) return null;
+  const yy = digits.slice(0, 2);
+  const mm = digits.slice(2, 4);
+  const dd = digits.slice(4, 6);
+  const isoPrefix = `20${yy}${mm ? `-${mm}` : ''}${dd ? `-${dd}` : ''}`;
+  const pad = (part: string) => Number(part.padEnd(2, '0'));
+  const lowest = Date.UTC(2000 + pad(yy), pad(mm) - 1, pad(dd) - 1);
+  return { from: new Date(lowest).toISOString(), to: prefixEnd(isoPrefix) };
 }
 
 export async function adminOrderDiscovery(
@@ -95,14 +108,17 @@ export async function adminOrderDiscovery(
   const normalized = normalizeOrderSearch(rawInput);
   const input = orderDiscoveryInputSchema.parse(normalized);
   const cursor = decodeOrderSearchCursor(input.cursor, input);
-  // A number-prefix page walks the number index in order and stops after one
-  // page; sorting its matches by created_at would read every one of them.
-  const byNumber = ORDER_NUMBER_PREFIX.test(input.q);
-  const sortKey = byNumber ? 'o.number' : 'o.created_at';
-  const keyOf = (row: AdminOrderRow) => ({
-    key: byNumber ? row.number : row.created_at,
-    id: row.id,
-  });
+  // A prefix into a day's suffixes sorts its few matches from the number index. Any
+  // other walks the created_at index newest first inside the window its date
+  // digits allow, and stops after one page.
+  const numberPrefix = ORDER_NUMBER_PREFIX.exec(input.q);
+  const dateDigits = numberPrefix?.[1]?.slice(0, 6) ?? '';
+  const bySuffix = (numberPrefix?.[1]?.length ?? 0) > 7;
+  const orderIndex = !numberPrefix
+    ? ''
+    : bySuffix
+      ? 'INDEXED BY orders_number_unique'
+      : 'INDEXED BY orders_created_id_idx';
 
   const conditions: string[] = [];
   const binds: unknown[] = [];
@@ -123,9 +139,14 @@ export async function adminOrderDiscovery(
     conditions.push("o.created_at < date(?, '+1 day')");
     binds.push(input.to);
   }
-  if (byNumber) {
+  if (numberPrefix) {
     conditions.push('o.number >= ? AND o.number < ?');
     binds.push(input.q, prefixEnd(input.q));
+    const window = bySuffix ? null : createdAtWindow(dateDigits);
+    if (window) {
+      conditions.push('o.created_at >= ? AND o.created_at < ?');
+      binds.push(window.from, window.to);
+    }
   } else if (input.q) {
     if (ftsUsable(input.q)) {
       // Trigram FTS: substring match on the order number, index-served.
@@ -140,9 +161,9 @@ export async function adminOrderDiscovery(
   const previous = cursor?.direction === 'previous';
   if (cursor) {
     if (previous) {
-      conditions.push(`(${sortKey} > ? OR (${sortKey} = ? AND o.id > ?))`);
+      conditions.push('(o.created_at > ? OR (o.created_at = ? AND o.id > ?))');
     } else {
-      conditions.push(`(${sortKey} < ? OR (${sortKey} = ? AND o.id < ?))`);
+      conditions.push('(o.created_at < ? OR (o.created_at = ? AND o.id < ?))');
     }
     binds.push(cursor.key, cursor.key, cursor.id);
   }
@@ -151,7 +172,7 @@ export async function adminOrderDiscovery(
   const rows = (
     await db
       .prepare(
-        `SELECT o.id,o.number,o.status,o.payment_status,o.customer_email,o.total_cents,o.currency,o.created_at,${refundable} AS refundable_cents,EXISTS(SELECT 1 FROM returns r WHERE r.order_id=o.id AND r.status IN ('requested','approved','refund_failed')) AS has_open_return FROM orders o ${byNumber ? 'INDEXED BY orders_number_unique' : ''} ${where} ORDER BY ${sortKey} ${previous ? 'ASC' : 'DESC'}, o.id ${previous ? 'ASC' : 'DESC'} LIMIT ${PAGE_SIZE + 1}`
+        `SELECT o.id,o.number,o.status,o.payment_status,o.customer_email,o.total_cents,o.currency,o.created_at,${refundable} AS refundable_cents,EXISTS(SELECT 1 FROM returns r WHERE r.order_id=o.id AND r.status IN ('requested','approved','refund_failed')) AS has_open_return FROM orders o ${orderIndex} ${where} ORDER BY o.created_at ${previous ? 'ASC' : 'DESC'}, o.id ${previous ? 'ASC' : 'DESC'} LIMIT ${PAGE_SIZE + 1}`
       )
       .bind(...binds)
       .all<AdminOrderRow>()
@@ -161,12 +182,9 @@ export async function adminOrderDiscovery(
   const page = hasMore ? (previous ? ordered.slice(1) : ordered.slice(0, PAGE_SIZE)) : ordered;
   const first = page[0];
   const last = page[page.length - 1];
-  const nextCursor =
-    last && (previous || hasMore) ? encodeCursor(input, keyOf(last), 'next') : null;
+  const nextCursor = last && (previous || hasMore) ? encodeCursor(input, last, 'next') : null;
   const previousCursor =
-    first && (previous ? hasMore : Boolean(cursor))
-      ? encodeCursor(input, keyOf(first), 'previous')
-      : null;
+    first && (previous ? hasMore : Boolean(cursor)) ? encodeCursor(input, first, 'previous') : null;
 
   // FF-03: the returns view paginates on its own keyset cursor, ordered
   // failed-first then oldest first, so every open return is reachable.
