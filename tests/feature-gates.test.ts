@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createTestDb, seedProduct, expectLedgerMatchesCounters } from './helpers/d1';
+import { at } from './helpers/fixtures';
 import { runAdminAction } from '../web/src/server/admin-actions';
 import { calculateShipping } from '../web/src/server/checkout';
 import { reserveStock, commitReservation, releaseReservation } from '../web/src/server/inventory';
@@ -40,10 +41,10 @@ async function seedVariants(db: D1Database, count: number) {
 
 describe('50-variant bulk edit is atomic', () => {
   it('applies price + stock to all 50 in one edit, ledger intact', async () => {
-    const { db, dispose } = await createTestDb();
+    const { db, env, dispose } = await createTestDb();
     try {
       const ids = await seedVariants(db, 50);
-      const result = await runAdminAction(db, {} as never, owner, 'variant.bulkUpdate', {
+      const result = await runAdminAction(db, env, owner, 'variant.bulkUpdate', {
         variantIds: ids,
         priceCents: 2500,
         stockDelta: 3,
@@ -61,10 +62,10 @@ describe('50-variant bulk edit is atomic', () => {
   }, 60_000);
 
   it('one unknown variant aborts the whole edit with no changes', async () => {
-    const { db, dispose } = await createTestDb();
+    const { db, env, dispose } = await createTestDb();
     try {
       const ids = await seedVariants(db, 3);
-      const result = await runAdminAction(db, {} as never, owner, 'variant.bulkUpdate', {
+      const result = await runAdminAction(db, env, owner, 'variant.bulkUpdate', {
         variantIds: [...ids, 'missing'],
         priceCents: 9999,
       });
@@ -79,7 +80,7 @@ describe('50-variant bulk edit is atomic', () => {
   }, 60_000);
 
   it('a variant deleted between validation and batch aborts with no ledger writes', async () => {
-    const { db, dispose } = await createTestDb();
+    const { db, env, dispose } = await createTestDb();
     try {
       const ids = await seedVariants(db, 2);
       let injected = false;
@@ -101,17 +102,11 @@ describe('50-variant bulk edit is atomic', () => {
           return typeof value === 'function' ? value.bind(target) : value;
         },
       });
-      const result = await runAdminAction(
-        racing as D1Database,
-        {} as never,
-        owner,
-        'variant.bulkUpdate',
-        {
-          variantIds: ids,
-          priceCents: 2500,
-          stockDelta: 2,
-        }
-      ).catch((e: Error) => ({ ok: false, error: e.message }));
+      const result = await runAdminAction(racing, env, owner, 'variant.bulkUpdate', {
+        variantIds: ids,
+        priceCents: 2500,
+        stockDelta: 2,
+      }).catch((e: Error) => ({ ok: false, error: e.message }));
       expect(result.ok).toBe(false);
       // Nothing landed: no price change, no correction ledger entries.
       const priced = await db
@@ -132,11 +127,11 @@ describe('50-variant bulk edit is atomic', () => {
   }, 60_000);
 
   it('a missing stock row aborts a bulk stock adjustment instead of reporting success', async () => {
-    const { db, dispose } = await createTestDb();
+    const { db, env, dispose } = await createTestDb();
     try {
       const ids = await seedVariants(db, 2);
       await db.prepare("DELETE FROM stock WHERE sku='BULK-2'").run();
-      const result = await runAdminAction(db, {} as never, owner, 'variant.bulkUpdate', {
+      const result = await runAdminAction(db, env, owner, 'variant.bulkUpdate', {
         variantIds: ids,
         stockDelta: 2,
       }).catch((e: Error) => ({ ok: false, error: e.message }));
@@ -151,11 +146,11 @@ describe('50-variant bulk edit is atomic', () => {
   }, 60_000);
 
   it('a stock guard failure rolls back the price change too', async () => {
-    const { db, dispose } = await createTestDb();
+    const { db, env, dispose } = await createTestDb();
     try {
       const ids = await seedVariants(db, 2);
       // BULK-2 has 10 on hand; -999 must fail the guard and abort the batch.
-      const result = await runAdminAction(db, {} as never, owner, 'variant.bulkUpdate', {
+      const result = await runAdminAction(db, env, owner, 'variant.bulkUpdate', {
         variantIds: ids,
         priceCents: 7777,
         stockDelta: -999,
@@ -253,10 +248,10 @@ describe('ledger rebuild equals counters after mixed operations', () => {
     const { db, dispose } = await createTestDb();
     try {
       const sku = await seedProduct(db, { onHand: 20 });
-      const [r1] = await reserveStock(db, [{ sku, qty: 5 }], { orderId: 'o1' });
-      const [r2] = await reserveStock(db, [{ sku, qty: 3 }], { orderId: 'o2' });
-      await commitReservation(db, r1!);
-      await releaseReservation(db, r2!);
+      const r1 = at(await reserveStock(db, [{ sku, qty: 5 }], { orderId: 'o1' }), 0);
+      const r2 = at(await reserveStock(db, [{ sku, qty: 3 }], { orderId: 'o2' }), 0);
+      await commitReservation(db, r1);
+      await releaseReservation(db, r2);
       const rebuilt = await db
         .prepare(
           `SELECT s.sku, s.on_hand, s.reserved,

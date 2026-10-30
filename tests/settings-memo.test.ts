@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it } from 'vitest';
 import { createTestDb } from './helpers/d1';
 import { buildCatalogReadModels } from './helpers/catalog-driver';
 import { runWithRequestContext } from '../web/src/server/exec-context';
+import { requestContext } from './helpers/fixtures';
 import { getSettings, readSettings, setSetting } from '../web/src/server/settings';
 import { robotsTxt } from '../web/src/server/robots';
 
@@ -39,7 +40,7 @@ function counting(match = /./) {
 }
 
 const request = <T>(operation: () => Promise<T>) =>
-  runWithRequestContext({} as ExecutionContext, operation);
+  runWithRequestContext(requestContext(), operation);
 
 it('reads settings once per request and per call outside one', async () => {
   const settings = counting(/"settings"/);

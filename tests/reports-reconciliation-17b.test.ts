@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb } from './helpers/d1';
+import { at } from './helpers/fixtures';
 import { dashboardStats, paidRevenueByCurrency } from '../web/src/server/reports';
 import { exportReport } from '../web/src/routes/api/reports';
 
@@ -43,7 +44,7 @@ describe('Phase 17B report reconciliation', () => {
     expect(response.status).toBe(200);
     const csv = await response.text();
     const lines = csv.trim().split('\n');
-    const header = lines[0]!.split(',');
+    const header = at(lines, 0).split(',');
     const dayIdx = header.indexOf('day');
     const totalIdx = header.indexOf('total_cents');
     const currencyIdx = header.indexOf('currency');
@@ -52,7 +53,7 @@ describe('Phase 17B report reconciliation', () => {
     const exported = new Map<string, { total: number; orders: number }>();
     for (const line of lines.slice(1)) {
       const cells = line.split(',');
-      const currency = cells[currencyIdx]!;
+      const currency = at(cells, currencyIdx);
       const row = exported.get(currency) ?? { total: 0, orders: 0 };
       row.total += Number(cells[totalIdx]);
       row.orders += Number(cells[ordersIdx]);
