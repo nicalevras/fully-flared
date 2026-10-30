@@ -75,12 +75,14 @@ export async function contactHistory(
     .bind(email)
     .all<ContactOrderRow>();
   const accountOrders = account
-    ? await db
-        .prepare(
-          `SELECT ${ORDER_COLUMNS} FROM orders WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 50`
-        )
-        .bind(account.id)
-        .all<ContactOrderRow>()
-    : { results: [] as ContactOrderRow[] };
-  return { email, guest: guest.results, account: accountOrders.results };
+    ? (
+        await db
+          .prepare(
+            `SELECT ${ORDER_COLUMNS} FROM orders WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 50`
+          )
+          .bind(account.id)
+          .all<ContactOrderRow>()
+      ).results
+    : [];
+  return { email, guest: guest.results, account: accountOrders };
 }
