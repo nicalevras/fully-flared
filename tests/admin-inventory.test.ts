@@ -96,7 +96,8 @@ describe('grouped inventory list', () => {
     expect(byTitle.products.map((p) => p.title)).toEqual(['Mug']);
     expect(byTitle.products[0]?.matchedSkus).toEqual(['MUG-1']);
     const skuTerm = await adminInventoryList(db, { q: 'HAT-1', page: 1, low: false });
-    expect(skuTerm.products).toHaveLength(0);
+    expect(skuTerm.products.map((p) => p.id)).toEqual(['p2']);
+    expect(skuTerm.products[0]?.matchedSkus).toEqual(['HAT-1']);
   });
 });
 

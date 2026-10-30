@@ -1,5 +1,5 @@
 import * as z from 'zod';
-import { ftsTitleMatch, ftsUsable } from '../lib/fts-search';
+import { escapeLike, ftsTitleMatch, ftsUsable } from '../lib/fts-search';
 import type { ProductStatus } from '../db/schema';
 import { pageSizeSchema } from '../schemas/pagination';
 
@@ -54,13 +54,17 @@ export async function adminInventoryList(
   const clauses: string[] = [];
   const binds: string[] = [];
   if (q) {
-    // Title search goes through the existing products_fts index and so
-    // waits for the 3-char FTS threshold.
+    // Title search goes through products_fts and waits for its 3-char
+    // threshold; the SKU prefix is served by variants_sku_nocase_idx.
+    const skuPrefix = `p.id IN (SELECT product_id FROM variants WHERE sku LIKE ? ESCAPE '\\')`;
     if (ftsUsable(q)) {
-      clauses.push(`p.rowid IN (SELECT rowid FROM products_fts WHERE products_fts MATCH ?)`);
-      binds.push(ftsTitleMatch('title', q));
+      clauses.push(
+        `(p.rowid IN (SELECT rowid FROM products_fts WHERE products_fts MATCH ?) OR ${skuPrefix})`
+      );
+      binds.push(ftsTitleMatch('title', q), `${escapeLike(q)}%`);
     } else {
-      clauses.push('1 = 0');
+      clauses.push(skuPrefix);
+      binds.push(`${escapeLike(q)}%`);
     }
   }
   if (input.low) {

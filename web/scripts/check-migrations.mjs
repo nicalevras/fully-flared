@@ -8,12 +8,13 @@ import { DatabaseSync } from 'node:sqlite';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const STATEMENT_BREAKPOINT = '--> statement-breakpoint';
-// drizzle-kit 0.31 emits invalid SQL for expression indexes, so these live only in the migrations.
+// drizzle-kit 0.31 emits invalid SQL for expression and COLLATE indexes, so these live only in the migrations.
 const migrationOnlyIndexes = new Set([
   'outbox_retention_idx',
   'webhook_inbox_retention_idx',
   'orders_email_lower_idx',
   'user_email_lower_idx',
+  'variants_sku_nocase_idx',
 ]);
 // Tables, the FTS5 virtual table with its shadow tables, and triggers are written by hand in the migrations.
 const migrationOnlyTables =
