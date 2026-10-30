@@ -64,6 +64,7 @@ function cartView(cartRevision: number): CartView {
         continueSelling: false,
         priceCents: 2000,
         productTitle: 'Tee',
+        variantTitle: 'Default',
         available: 5,
         cover: null,
       },

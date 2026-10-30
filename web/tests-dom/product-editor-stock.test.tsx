@@ -82,6 +82,7 @@ const product = (onHand: number): ProductDetail => ({
       continue_selling: 0,
       on_hand: onHand,
       reserved: 0,
+      version: 1,
     },
   ],
   media: [],

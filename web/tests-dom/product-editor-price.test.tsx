@@ -38,6 +38,7 @@ const product: ProductDetail = {
       continue_selling: 0,
       on_hand: 5,
       reserved: 0,
+      version: 1,
     },
   ],
   media: [],
