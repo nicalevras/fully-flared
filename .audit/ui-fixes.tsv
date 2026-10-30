@@ -1,9 +1,0 @@
-ts	phase	decision	why	evidence	result
-2026-10-30T15:26:34Z	reproduce	Confirmed no-match products hides table and toolbar	Empty data must not hide search or creation	web/src/routes/admin/products/index.tsx	Browser reproduced
-2026-10-30T15:26:34Z	reproduce	Measured expanded editor width622 on viewport2560	Drawer transforms constrain inline fixed overlays	web/src/components/ExpandableEditor.tsx	Browser reproduced
-2026-10-30T15:26:34Z	reproduce	Delayed first suggestions request locally and closed it	Need to reproduce cancellation rather than infer it	web/src/components/SearchPalette.tsx	Reopening lacked suggestions; temporary delay removed
-2026-10-30T15:26:34Z	verify	Moved editor to body portal with stable editor host	Keep viewport geometry and editor undo state	web/src/components/ExpandableEditor.tsx	Browser width2497 viewport2560; undo preserved across Done
-2026-10-30T15:26:34Z	review	Used z50 for expanded dialog and stopped Radix Escape propagation	Menus must stay visible and Escape must close only the top layer	web/src/components/tiptap-ui-primitive/dropdown-menu/dropdown-menu.tsx	Browser heading/list menus visible; Escape leaves expanded dialog open
-2026-10-30T15:26:34Z	verify	Retried delayed close/reopen on repaired suggestions	Validate adoption after interrupted opening	web/src/components/SearchPalette.tsx	Reopening shows all6 suggestions; temporary delay removed
-
-2026-10-30T15:31:31Z	complete	Accepted independent review and final checks	Original defects fixed on same UI and targeted tests green	.audit/ui-fixes/report.md	42 tests passed; build/typecheck/format passed; baseline lint unchanged
