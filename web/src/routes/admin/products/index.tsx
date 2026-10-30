@@ -90,14 +90,15 @@ export const Route = createFileRoute('/admin/products/')({
     status,
     sort,
     cursor,
-    edit,
+    edit: edit ?? '',
   }),
   loader: async ({ deps: { edit, ...list } }) => {
-    const [discovery, detail] = await Promise.all([
+    const [data, detail] = await Promise.all([
       getData({ data: list }),
+      // A missing or unreadable product opens the not-found drawer.
       edit ? getProductDetail({ data: edit }).catch(() => null) : null,
     ]);
-    return { ...discovery, detail };
+    return { ...data, detail };
   },
   pendingComponent: () => (
     <p className="p-5 text-sm" role="status">
@@ -133,7 +134,6 @@ function AdminProducts() {
   const [createOpen, setCreateOpen] = useState(false);
   const openEditor = (id: string) => void navigate({ search: { ...search, edit: id } });
   const closeEditor = () => void navigate({ search: { ...search, edit: undefined } });
-  const refreshDetail = () => router.invalidate({ sync: true });
   const pillWhite =
     'inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 text-[13px] font-medium text-zinc-950 transition-colors hover:border-zinc-950 disabled:pointer-events-none disabled:opacity-40';
   const statuses = [
@@ -515,13 +515,13 @@ function AdminProducts() {
           </DrawerContent>
         </Drawer>
       ) : null}
-      {search.edit && detail ? (
+      {search.edit && detail?.id === search.edit ? (
         <ProductEditor
           key={detail.id}
           product={detail}
           open
           onClose={closeEditor}
-          refresh={refreshDetail}
+          refresh={() => router.invalidate()}
         />
       ) : null}
     </main>

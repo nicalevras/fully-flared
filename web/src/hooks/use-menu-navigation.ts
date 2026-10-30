@@ -67,6 +67,11 @@ export function useMenuNavigation<T>({
   loopOnTab = true,
 }: MenuNavigationOptions<T>) {
   const [selectedIndex, setSelectedIndex] = useState<number>(autoSelectFirstItem ? 0 : -1);
+  const [shownQuery, setShownQuery] = useState({ query, autoSelectFirstItem });
+  if (shownQuery.query !== query || shownQuery.autoSelectFirstItem !== autoSelectFirstItem) {
+    setShownQuery({ query, autoSelectFirstItem });
+    if (query) setSelectedIndex(autoSelectFirstItem ? 0 : -1);
+  }
 
   useEffect(() => {
     const handleKeyboardNavigation = (event: KeyboardEvent) => {
@@ -175,12 +180,6 @@ export function useMenuNavigation<T>({
 
     return undefined;
   }, [editor, containerRef, items, selectedIndex, onSelect, onClose, orientation, loopOnTab]);
-
-  useEffect(() => {
-    if (query) {
-      setSelectedIndex(autoSelectFirstItem ? 0 : -1);
-    }
-  }, [query, autoSelectFirstItem]);
 
   return {
     selectedIndex: items.length ? selectedIndex : undefined,

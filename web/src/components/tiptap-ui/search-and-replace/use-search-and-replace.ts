@@ -276,17 +276,13 @@ export function useSearchAndReplace(config?: UseSearchAndReplaceConfig) {
 
   // Adopt terms configured on the extension (e.g. an initial `searchTerm`
   // option) once the editor is available.
-  useEffect(() => {
+  const [termsEditor, setTermsEditor] = useState<Editor | null>(null);
+  if (termsEditor !== editor) {
+    setTermsEditor(editor);
     const storage = getFindAndReplaceStorage(editor);
-    if (!storage) return;
-
-    if (storage.searchTerm) {
-      setSearchTermState((previous) => previous || storage.searchTerm);
-    }
-    if (storage.replaceTerm) {
-      setReplaceTermState((previous) => previous || storage.replaceTerm);
-    }
-  }, [editor]);
+    if (storage?.searchTerm) setSearchTermState((previous) => previous || storage.searchTerm);
+    if (storage?.replaceTerm) setReplaceTermState((previous) => previous || storage.replaceTerm);
+  }
 
   // Subscribe to extension transactions so count, current index and disabled
   // states update immediately. Synced eagerly on subscribe: the extension may
@@ -295,10 +291,7 @@ export function useSearchAndReplace(config?: UseSearchAndReplaceConfig) {
   const [editorState, setEditorState] = useState<SearchAndReplaceEditorState>(EMPTY_EDITOR_STATE);
 
   useEffect(() => {
-    if (!editor || !isFindAndReplaceAvailable(editor)) {
-      setEditorState(EMPTY_EDITOR_STATE);
-      return;
-    }
+    if (!editor || !canSearch) return;
 
     const sync = () => {
       const storage = getFindAndReplaceStorage(editor);
@@ -332,10 +325,11 @@ export function useSearchAndReplace(config?: UseSearchAndReplaceConfig) {
     return () => {
       editor.off('transaction', sync);
     };
-  }, [editor]);
+  }, [editor, canSearch]);
 
-  const { total, currentIndex, appliedSearchTerm, caseSensitive, wholeWord, useRegex } =
-    editorState;
+  const { total, currentIndex, appliedSearchTerm, caseSensitive, wholeWord, useRegex } = canSearch
+    ? editorState
+    : EMPTY_EDITOR_STATE;
 
   const setSearchTerm = useCallback(
     (value: string) => {

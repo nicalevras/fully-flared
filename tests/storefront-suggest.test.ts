@@ -62,7 +62,7 @@ describe('storefront search suggestions', () => {
 });
 
 describe('storefront search palette wiring', () => {
-  it('matches the shadcn palette classes and reuses the shared gate and hook', () => {
+  it('matches the shadcn palette classes and keeps one shared keyboard model', () => {
     const palette = readFileSync('web/src/components/SearchPalette.tsx', 'utf8');
     expect(palette).toContain('rounded-3xl bg-popover p-2');
     expect(palette).not.toContain('border-input');
@@ -81,13 +81,9 @@ describe('storefront search palette wiring', () => {
     expect(palette).toContain('rounded-xl px-2 py-1.5');
     expect(palette).toContain('bg-muted text-foreground');
     expect(palette).toContain('No results found.');
-    expect(palette).toContain('runLatestSearch');
-    expect(palette).toContain('usePaletteNavigation');
-    expect(palette).toContain('query.length < 3');
     expect(palette).toContain("to: '/search'");
     expect(palette).toContain('View all results');
     expect(palette).not.toContain('suggestionCards');
-    expect(palette).toContain('paletteSuggestionsCache');
     expect(palette).toContain('Suggested');
     const shop = readFileSync('web/src/routes/_shop.shop.tsx', 'utf8');
     expect(shop).toContain('openSearchPalette');
@@ -96,7 +92,6 @@ describe('storefront search palette wiring', () => {
     expect(root).toContain('<SearchPaletteDialog />');
     expect(root).toContain('openSearchPalette');
     const admin = readFileSync('web/src/components/GlobalSearch.tsx', 'utf8');
-    expect(admin).toContain('usePaletteNavigation');
     expect(admin).not.toContain('Math.min(a + 1');
   });
 

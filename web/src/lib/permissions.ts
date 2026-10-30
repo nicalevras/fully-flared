@@ -158,6 +158,7 @@ export const ACTION_PERMISSIONS: Record<
   'return.reject': { resource: 'return', action: 'reject' },
   'webhook.replay': { resource: 'webhook', action: 'replay' },
   'settings.set': { resource: 'settings', action: 'set' },
+  'settings.setMany': { resource: 'settings', action: 'set' },
   'page.save': { resource: 'page', action: 'save' },
   'post.save': { resource: 'post', action: 'save' },
   'import.productsCsv': { resource: 'import', action: 'products-csv' },

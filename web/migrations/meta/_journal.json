@@ -267,6 +267,13 @@
       "when": 1793387682010,
       "tag": "0037_commerce_revision_variants_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1793389530688,
+      "tag": "0038_variants_version",
+      "breakpoints": true
     }
   ]
 }

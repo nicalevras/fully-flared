@@ -41,7 +41,8 @@ vi.mock('@tanstack/react-start', async (importOriginal) => {
   const builder: Builder = {
     middleware: () => builder,
     validator: () => builder,
-    handler: (fn) => async (opts) => fn({ data: opts?.data, context: {} }),
+    handler: (fn) => async (opts) =>
+      fn({ data: opts?.data, context: { staff: { role: 'owner' } } }),
   };
   return {
     ...(await importOriginal<typeof import('@tanstack/react-start')>()),

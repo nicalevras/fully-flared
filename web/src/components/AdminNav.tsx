@@ -212,8 +212,9 @@ export function AdminNav({
   logo?: MediaSource | null;
   role: string | null | undefined;
 }) {
-  const [open, setOpen] = useState(false);
   const location = useLocation();
+  const [openAt, setOpenAt] = useState<string | null>(null);
+  const open = openAt === location.href;
   const railRef = useRef<HTMLElement>(null);
   const visible = (item: NavItem) =>
     !item.requires || roleCan(role, item.requires[0], item.requires[1]);
@@ -222,11 +223,10 @@ export function AdminNav({
     .filter((section) => section.items.length > 0);
   const settings = visible(settingsItem) ? settingsItem : null;
 
-  useEffect(() => setOpen(false), [location.href]);
   useEffect(() => {
     const media = window.matchMedia('(min-width: 640px)');
     const closeOnRail = () => {
-      if (media.matches) setOpen(false);
+      if (media.matches) setOpenAt(null);
     };
     media.addEventListener('change', closeOnRail);
     closeOnRail();
@@ -263,7 +263,12 @@ export function AdminNav({
         <NavigationLinks sections={visibleSections} settings={settings} />
       </aside>
       <div className="flex h-[62px] items-center gap-2 border-b border-zinc-100 bg-white px-4 sm:hidden">
-        <Drawer instant swipeDirection="left" open={open} onOpenChange={setOpen}>
+        <Drawer
+          instant
+          swipeDirection="left"
+          open={open}
+          onOpenChange={(next) => setOpenAt(next ? location.href : null)}
+        >
           <DrawerTrigger
             render={
               <Button variant="ghost" size="icon-sm" aria-label="Open admin navigation">
@@ -301,7 +306,7 @@ export function AdminNav({
             <NavigationLinks
               sections={visibleSections}
               settings={settings}
-              onNavigate={() => setOpen(false)}
+              onNavigate={() => setOpenAt(null)}
             />
           </DrawerContent>
         </Drawer>

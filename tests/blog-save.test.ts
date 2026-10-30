@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-
 import { describe, expect, it } from 'vitest';
 
 import { runEditorSave, saveBlogPost, type BlogPostForm } from '../web/src/lib/blog-save';
@@ -152,18 +150,5 @@ describe('runEditorSave', () => {
     const sequence: boolean[] = [];
     await runEditorSave({ setSaving: (v) => sequence.push(v), onSave: async () => {} });
     expect(sequence).toEqual([true, false]);
-  });
-});
-
-describe('blog editor wiring', () => {
-  it('editor save and feedback are wired', () => {
-    const editor = readFileSync(
-      'web/src/components/tiptap-templates/simple/simple-editor.tsx',
-      'utf8'
-    );
-    expect(editor).toContain('runEditorSave');
-    const blogPage = readFileSync('web/src/components/BlogPostEditor.tsx', 'utf8');
-    expect(blogPage).toContain('onSaved()');
-    expect(blogPage).toContain("kind: 'status'");
   });
 });

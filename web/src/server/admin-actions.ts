@@ -11,6 +11,15 @@ import { isRichTextHtml, richHtmlToPlainText } from '../lib/rich-text';
 import { adminActionSchema, csvProductRowSchema } from '../schemas/admin';
 import { z } from 'zod';
 import { settingKeySchema, validateSetting } from '../schemas/settings';
+
+function validSetting(key: string, value: string) {
+  try {
+    validateSetting(key, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
 import { zodIssues } from '../schemas/common';
 import { ACTION_PERMISSIONS, roles, type StaffRole } from '../lib/permissions';
 import type { Auth } from '../lib/auth';
@@ -917,6 +926,103 @@ export async function runAdminAction(
         }
         return { ok: true };
       }
+      case 'settings.setMany': {
+        const { changes } = parsedAction.data;
+        for (const change of changes) {
+          if (!validSetting(change.key, change.value))
+            return { ok: false, error: `Invalid value for ${change.key}`, status: 400 };
+        }
+        const mediaBase = changes.find((c) => c.key === 'media_public_base_url');
+        if (mediaBase?.value) {
+          const delivery = publicMediaEnvironment(env);
+          if (!delivery.PUBLIC_MEDIA || !delivery.MEDIA_ZONE_ID || !delivery.MEDIA_PURGE_TOKEN)
+            return {
+              ok: false,
+              error:
+                'Configure public media storage and purge credentials before enabling delivery',
+              status: 503,
+            };
+        }
+        const stored = new Map(
+          (
+            await db
+              .prepare(
+                'SELECT key, value, updated_at FROM settings WHERE key IN (SELECT value FROM json_each(?))'
+              )
+              .bind(JSON.stringify(changes.map((c) => c.key)))
+              .all<{ key: string; value: string; updated_at: string }>()
+          ).results.map((row) => [row.key, row])
+        );
+        const staleSettings = (): AdminActionResult => ({
+          ok: false,
+          error:
+            'Settings changed in another session since you opened this page. Reload to see the latest values before saving.',
+          conflict: true,
+          status: 409,
+        });
+        if (changes.some((c) => (stored.get(c.key)?.updated_at ?? null) !== c.expectedUpdatedAt))
+          return staleSettings();
+        const changed = changes.filter((c) => stored.get(c.key)?.value !== c.value);
+        if (changed.length === 0) return { ok: true };
+        const settings = await getSettings(db);
+        const currency = changed.find((c) => c.key === 'currency');
+        if (currency && settings.currencyLocked)
+          return { ok: false, error: 'Currency is locked after the first live order', status: 409 };
+        const at = now();
+        try {
+          await db.batch([
+            // A save that lands between the read above and this batch
+            // aborts the whole batch instead of being overwritten.
+            ...changes.map((c) =>
+              c.expectedUpdatedAt === null
+                ? db
+                    .prepare(
+                      "INSERT INTO batch_guard (id) SELECT 'stale-setting' WHERE EXISTS (SELECT 1 FROM settings WHERE key = ?)"
+                    )
+                    .bind(c.key)
+                : db
+                    .prepare(
+                      "INSERT INTO batch_guard (id) SELECT 'stale-setting' WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = ? AND updated_at = ?)"
+                    )
+                    .bind(c.key, c.expectedUpdatedAt)
+            ),
+            ...changed.flatMap((c) => [
+              db
+                .prepare(
+                  'INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at'
+                )
+                .bind(c.key, c.value, at),
+              auditStmt(db, actor.id, 'settings.set', 'settings', c.key),
+            ]),
+          ]);
+        } catch (error) {
+          const current = await db
+            .prepare(
+              'SELECT key, updated_at FROM settings WHERE key IN (SELECT value FROM json_each(?))'
+            )
+            .bind(JSON.stringify(changes.map((c) => c.key)))
+            .all<{ key: string; updated_at: string }>();
+          const latest = new Map(current.results.map((row) => [row.key, row.updated_at]));
+          if (changes.some((c) => (latest.get(c.key) ?? null) !== c.expectedUpdatedAt))
+            return staleSettings();
+          for (
+            let cause = error, depth = 0;
+            currency && cause instanceof Error && depth < 5;
+            depth++
+          ) {
+            if (/currency is locked/.test(cause.message))
+              return {
+                ok: false,
+                error:
+                  'Currency cannot change while a checkout is pending or after the first completed order',
+                status: 409,
+              };
+            cause = cause.cause;
+          }
+          throw error;
+        }
+        return { ok: true };
+      }
       case 'page.save': {
         const f = parsedAction.data;
         const pageId = f.id || id();
@@ -1106,7 +1212,7 @@ export async function runAdminAction(
           if (priceCents != null) {
             stmts.push(
               db
-                .prepare('UPDATE variants SET price_cents = ? WHERE id = ?')
+                .prepare('UPDATE variants SET price_cents = ?, version = version + 1 WHERE id = ?')
                 .bind(priceCents, variantIds[i]),
               // Abort the whole batch if this variant disappeared after
               // validation (batch_guard has CHECK (0): any insert fails).
@@ -1265,34 +1371,65 @@ export async function runAdminAction(
           .first();
         if (skuClash) return { ok: false, error: `SKU ${sku} is already in use` };
         if (variantId) {
+          const expectedVersion = f.expectedVersion;
+          if (expectedVersion === undefined)
+            return {
+              ok: false,
+              error: 'Reload the product before editing this variant',
+              status: 400,
+            };
           const existing = await db
-            .prepare('SELECT sku FROM variants WHERE id = ?')
-            .bind(variantId)
-            .first<{ sku: string }>();
-          if (existing && existing.sku !== sku) {
+            .prepare('SELECT sku, version FROM variants WHERE id = ? AND product_id = ?')
+            .bind(variantId, f.productId)
+            .first<{ sku: string; version: number }>();
+          if (!existing) return { ok: false, error: 'Variant not found', status: 404 };
+          const staleVariant: AdminActionResult = {
+            ok: false,
+            error:
+              'This variant changed in another session since you opened it. Reload to see the latest values before saving.',
+            conflict: true,
+            status: 409,
+          };
+          if (existing.version !== expectedVersion) return staleVariant;
+          if (existing.sku !== sku) {
             return {
               ok: false,
               error:
                 'SKU cannot be changed after creation, because stock and orders are tracked by SKU. Add a new variant with the new SKU instead.',
             };
           }
-          await db.batch([
-            db
-              .prepare(
-                'UPDATE variants SET sku = ?, title = ?, price_cents = ?, compare_at_cents = ?, continue_selling = ?, weight_grams = ? WHERE id = ?'
-              )
-              .bind(
-                sku,
-                f.title || 'Default',
-                priceCents,
-                f.compareAtCents ?? null,
-                f.continueSelling ? 1 : 0,
-                f.weightGrams,
-                variantId
-              ),
-            auditStmt(db, actor.id, 'variant.save', 'variant', variantId),
-          ]);
-          return { ok: true, data: { variantId } };
+          try {
+            const [updated] = await db.batch<{ id: string }>([
+              db
+                .prepare(
+                  'UPDATE variants SET sku = ?, title = ?, price_cents = ?, compare_at_cents = ?, continue_selling = ?, weight_grams = ?, version = version + 1 WHERE id = ? AND product_id = ? AND version = ? RETURNING id'
+                )
+                .bind(
+                  sku,
+                  f.title || 'Default',
+                  priceCents,
+                  f.compareAtCents ?? null,
+                  f.continueSelling ? 1 : 0,
+                  f.weightGrams,
+                  variantId,
+                  f.productId,
+                  expectedVersion
+                ),
+              // A save that lands after the version check above leaves
+              // nothing to update; abort the batch so no audit row claims it.
+              db.prepare('INSERT INTO batch_guard SELECT 1 WHERE changes() = 0'),
+              auditStmt(db, actor.id, 'variant.save', 'variant', variantId),
+            ]);
+            if (updated?.results.length !== 1) return staleVariant;
+          } catch (error) {
+            const current = await db
+              .prepare('SELECT version FROM variants WHERE id = ? AND product_id = ?')
+              .bind(variantId, f.productId)
+              .first<{ version: number }>();
+            if (current?.version !== expectedVersion) return staleVariant;
+            throw error;
+          }
+          return { ok: true, data: { variantId, version: expectedVersion + 1 } };
         }
         const newId = id();
         await db.batch([

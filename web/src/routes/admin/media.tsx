@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { PlusIcon, XIcon } from 'lucide-react';
 import { staffMiddleware } from '../../server/staff-middleware';
 import { formatDate } from '../../lib/format';
@@ -157,8 +157,16 @@ export const Route = createFileRoute('/admin/media')({
     q: search.q ?? '',
     page: search.page,
     size: search.size ?? 25,
+    edit: search.edit ?? '',
   }),
-  loader: async ({ deps }) => getData({ data: deps }),
+  loader: async ({ deps: { edit, ...list } }) => {
+    const [data, detail] = await Promise.all([
+      getData({ data: list }),
+      // Usage stays unknown, and delete stays disabled, if it cannot be read.
+      edit ? getMediaDetail({ data: { mediaId: edit } }).catch(() => null) : null,
+    ]);
+    return { ...data, usedCount: detail?.usedCount ?? null };
+  },
   component: AdminMedia,
 });
 
@@ -361,7 +369,7 @@ function AdminMedia() {
   const adminAction = useAdminAction();
   const publishExisting = useServerFn(publishExistingFn);
 
-  const { media, total, page, pageSize } = Route.useLoaderData();
+  const { media, total, page, pageSize, usedCount } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
@@ -397,34 +405,6 @@ function AdminMedia() {
   };
   const editingRow = search.edit ? (media.find((m) => m.id === search.edit) ?? null) : null;
   const detailFn = useServerFn(getMediaDetail);
-  const [usedCount, setUsedCount] = useState<number | null>(null);
-  const [usedFor, setUsedFor] = useState('');
-  useEffect(() => {
-    if (!editingRow) {
-      setUsedCount(null);
-      setUsedFor('');
-      return;
-    }
-    let cancelled = false;
-    setUsedCount(null);
-    setUsedFor('');
-    detailFn({ data: { mediaId: editingRow.id } })
-      .then((detail) => {
-        if (!cancelled) {
-          setUsedCount(detail?.usedCount ?? null);
-          setUsedFor(editingRow.id);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setUsedCount(null);
-          setUsedFor(editingRow.id);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [editingRow?.id]);
 
   const requestDelete = async (row: MediaRow) => {
     try {
@@ -672,7 +652,7 @@ function AdminMedia() {
         <MediaDrawer
           key={editingRow.id}
           row={editingRow}
-          usedCount={usedFor === editingRow.id ? usedCount : null}
+          usedCount={usedCount}
           busy={busy}
           onClose={closeDrawer}
           onSaveAlt={async (altText) =>
