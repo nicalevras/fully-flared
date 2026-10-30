@@ -265,55 +265,44 @@ function AdminBlog() {
         </div>
       </div>
       <AdminActionFeedback value={feedback} />
-      {posts.length === 0 && !search.q ? (
-        <div className="mt-6 rounded-xl bg-zinc-50 px-6 py-14 text-center" role="status">
-          <p className="text-sm text-zinc-500">
-            {search.q ? `No articles match "${search.q}".` : 'No posts yet. Write your first one.'}
-          </p>
-          <Button type="button" className="mt-4" onClick={() => setCreateOpen(true)}>
-            <PlusIcon className="size-4" />
-            New
-          </Button>
-        </div>
-      ) : (
-        <div className="mt-6" tabIndex={0} role="region" aria-label="Articles">
-          <DataTable
-            caption="Articles"
-            columns={articlesColumns}
-            data={posts}
-            pageIndex={page - 1}
-            pageSize={pageSize}
-            rowCount={total}
-            pageSizeOptions={pageSizeOptions}
-            onPaginationChange={handlePaginationChange}
-            onRowClick={(row) => openEditor(row.id)}
-            tableClassName="min-w-[720px]"
-            emptyMessage={search.q ? `No articles match "${search.q}".` : 'No posts yet.'}
-            toolbar={
-              <DataTableSearch
-                value={search.q ?? ''}
-                onSearch={(q) =>
-                  void navigate({
-                    search: { q: q || undefined, page: 1, size: search.size, edit: undefined },
-                  })
-                }
-                placeholder="Search Articles"
-                ariaLabel="Find an article"
-              />
-            }
-            toolbarEnd={
-              <TableButton
-                type="button"
-                size="sm"
-                onClick={() => setCreateOpen(true)}
-                className="h-8 rounded-md bg-zinc-950 text-white shadow-none hover:bg-zinc-800"
-              >
-                <PlusIcon /> New
-              </TableButton>
-            }
-          />
-        </div>
-      )}
+      <div className="mt-6" tabIndex={0} role="region" aria-label="Articles">
+        <DataTable
+          caption="Articles"
+          columns={articlesColumns}
+          data={posts}
+          pageIndex={page - 1}
+          pageSize={pageSize}
+          rowCount={total}
+          pageSizeOptions={pageSizeOptions}
+          onPaginationChange={handlePaginationChange}
+          onRowClick={(row) => openEditor(row.id)}
+          tableClassName="min-w-[720px]"
+          emptyMessage={search.q ? `No articles match "${search.q}".` : 'No posts yet.'}
+          toolbar={
+            <DataTableSearch
+              value={search.q ?? ''}
+              onSearch={(q) =>
+                void navigate({
+                  search: { q: q || undefined, page: 1, size: search.size, edit: undefined },
+                })
+              }
+              placeholder="Search Articles"
+              ariaLabel="Find an article"
+            />
+          }
+          toolbarEnd={
+            <TableButton
+              type="button"
+              size="sm"
+              onClick={() => setCreateOpen(true)}
+              className="h-8 rounded-md bg-zinc-950 text-white shadow-none hover:bg-zinc-800"
+            >
+              <PlusIcon /> New
+            </TableButton>
+          }
+        />
+      </div>
+
       {createOpen || search.edit === 'new' ? (
         <BlogPostEditor
           key="new"

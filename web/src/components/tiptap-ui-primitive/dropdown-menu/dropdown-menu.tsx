@@ -24,6 +24,7 @@ function DropdownMenuContent({
   className,
   align = 'start',
   sideOffset = 4,
+  onEscapeKeyDown,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
   return (
@@ -34,6 +35,10 @@ function DropdownMenuContent({
         align={align}
         className={cn('tiptap-dropdown-menu-content', className)}
         onCloseAutoFocus={(e) => e.preventDefault()}
+        onEscapeKeyDown={(event) => {
+          event.stopPropagation();
+          onEscapeKeyDown?.(event);
+        }}
         {...props}
       />
     </DropdownMenuPrimitive.Portal>

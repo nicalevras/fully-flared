@@ -476,70 +476,67 @@ function AdminInventory() {
       <p className={pageSub}>On hand, reserved, and available by product.</p>
       <AdminActionFeedback value={feedback} />
 
-      {products.length === 0 && !search.q && !search.low ? (
-        <p className="mt-6 rounded-2xl bg-zinc-50 p-5 text-sm text-zinc-500" role="status">
-          {search.q || search.low ? 'No products match that search.' : 'No products yet.'}
-        </p>
-      ) : (
-        <div className="mt-6" tabIndex={0} role="region" aria-label="Inventory">
-          <DataTable
-            caption="Inventory by product"
-            columns={inventoryColumns}
-            data={tableData}
-            pageIndex={page - 1}
-            pageSize={pageSize}
-            rowCount={total}
-            pageSizeOptions={pageSizeOptions}
-            onPaginationChange={handlePaginationChange}
-            onRowClick={handleRowClick}
-            getRowId={(row) =>
-              row.kind === 'product' ? `product:${row.group.id}` : `sku:${row.sku.sku}`
-            }
-            getRowClassName={(row) => (row.kind === 'sku' ? 'bg-zinc-50/60' : undefined)}
-            hideViewOptions
-            toolbar={
-              <DataTableSearch
-                value={search.q}
-                onSearch={(q) =>
-                  void navigate({
-                    search: {
-                      q,
-                      page: 1,
-                      low: search.low,
-                      size: search.size,
-                      sku: undefined,
-                    },
-                  })
-                }
-                placeholder="Search Products"
-                ariaLabel="Find a product"
-              />
-            }
-            toolbarActions={
-              <>
-                <label className={`flex items-center gap-2 ${dataTableControlClassName}`}>
-                  <Switch
-                    checked={search.low}
-                    onCheckedChange={(checked) =>
-                      void navigate({
-                        search: {
-                          q: search.q,
-                          page: 1,
-                          low: checked,
-                          size: search.size,
-                          sku: undefined,
-                        },
-                      })
-                    }
-                  />
-                  Low stock only
-                </label>
-              </>
-            }
-            tableClassName="min-w-[760px]"
-          />
-        </div>
-      )}
+      <div className="mt-6" tabIndex={0} role="region" aria-label="Inventory">
+        <DataTable
+          caption="Inventory by product"
+          emptyMessage={
+            search.q || search.low ? 'No products match these filters.' : 'No products yet.'
+          }
+          columns={inventoryColumns}
+          data={tableData}
+          pageIndex={page - 1}
+          pageSize={pageSize}
+          rowCount={total}
+          pageSizeOptions={pageSizeOptions}
+          onPaginationChange={handlePaginationChange}
+          onRowClick={handleRowClick}
+          getRowId={(row) =>
+            row.kind === 'product' ? `product:${row.group.id}` : `sku:${row.sku.sku}`
+          }
+          getRowClassName={(row) => (row.kind === 'sku' ? 'bg-zinc-50/60' : undefined)}
+          hideViewOptions
+          toolbar={
+            <DataTableSearch
+              value={search.q}
+              onSearch={(q) =>
+                void navigate({
+                  search: {
+                    q,
+                    page: 1,
+                    low: search.low,
+                    size: search.size,
+                    sku: undefined,
+                  },
+                })
+              }
+              placeholder="Search Products"
+              ariaLabel="Find a product"
+            />
+          }
+          toolbarActions={
+            <>
+              <label className={`flex items-center gap-2 ${dataTableControlClassName}`}>
+                <Switch
+                  checked={search.low}
+                  onCheckedChange={(checked) =>
+                    void navigate({
+                      search: {
+                        q: search.q,
+                        page: 1,
+                        low: checked,
+                        size: search.size,
+                        sku: undefined,
+                      },
+                    })
+                  }
+                />
+                Low stock only
+              </label>
+            </>
+          }
+          tableClassName="min-w-[760px]"
+        />
+      </div>
 
       {dirtyEntries.length > 0 ? (
         <div className="sticky bottom-4 z-10 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-lg">
@@ -838,36 +835,37 @@ function SkuDrawerForm({
               Export CSV
             </Button>
           </div>
-          {detail.history.length === 0 ? (
-            <p className="mt-3 text-sm text-zinc-500" role="status">
-              No movements recorded for this SKU yet.
-            </p>
-          ) : (
-            <div className="mt-3" tabIndex={0} role="region" aria-label="Stock movements">
-              <AdminDataTableShell>
-                <Table className="min-w-[520px]">
-                  <TableHeader>
+          <div className="mt-3" tabIndex={0} role="region" aria-label="Stock movements">
+            <AdminDataTableShell>
+              <Table className="min-w-[520px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>When</TableHead>
+                    <TableHead>On hand change</TableHead>
+                    <TableHead>Reserved change</TableHead>
+                    <TableHead>Reason</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {detail.history.length === 0 ? (
                     <TableRow>
-                      <TableHead>When</TableHead>
-                      <TableHead>On hand change</TableHead>
-                      <TableHead>Reserved change</TableHead>
-                      <TableHead>Reason</TableHead>
+                      <TableCell colSpan={4} className="h-24 text-center">
+                        No movements recorded for this SKU yet.
+                      </TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {detail.history.map((row) => (
-                      <TableRow key={row.id}>
-                        <TableCell>{row.created_at}</TableCell>
-                        <TableCell>{row.delta_on_hand}</TableCell>
-                        <TableCell>{row.delta_reserved}</TableCell>
-                        <TableCell>{row.reason}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </AdminDataTableShell>
-            </div>
-          )}
+                  ) : null}
+                  {detail.history.map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell>{row.created_at}</TableCell>
+                      <TableCell>{row.delta_on_hand}</TableCell>
+                      <TableCell>{row.delta_reserved}</TableCell>
+                      <TableCell>{row.reason}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </AdminDataTableShell>
+          </div>
         </section>
       </div>
       {dirty ? (

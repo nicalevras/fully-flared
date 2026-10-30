@@ -14,8 +14,8 @@ describe('Phase 11B pages list and editor split', () => {
     expect(list).toContain('<DataTable');
     const editor = readFileSync('web/src/components/PageEditor.tsx', 'utf8');
     expect(editor).toContain('page.save');
-    expect(editor).toContain("key={form.id || 'new'}");
-    expect(editor).toContain('BlogEditor');
+    expect(editor).toContain("editorKey={form.id || 'new'}");
+    expect(editor).toContain('ExpandableEditor');
     expect(editor).toContain('SeoPreview');
     expect(editor).toContain('Save changes');
     const shim = readFileSync('web/src/routes/admin/pages_/$id.tsx', 'utf8');

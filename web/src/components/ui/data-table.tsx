@@ -164,6 +164,8 @@ export function DataTablePagination<TData extends RowData>({
   table: ReactTable<DataTableFeatures, TData>;
   pageSizeOptions?: readonly number[];
 }) {
+  const pageCount = table.getPageCount();
+  const hasPages = pageCount > 0;
   return (
     <div className="flex items-center justify-between px-2 py-3">
       <div className="flex-1 text-sm text-muted-foreground" role="status">
@@ -191,7 +193,7 @@ export function DataTablePagination<TData extends RowData>({
           </div>
         ) : null}
         <div className="flex w-[100px] items-center justify-center text-sm font-medium">
-          Page {table.state.pagination.pageIndex + 1} of {table.getPageCount()}
+          Page {hasPages ? table.state.pagination.pageIndex + 1 : 0} of {pageCount}
         </div>
         <div className="flex items-center space-x-2">
           <Button
@@ -199,7 +201,7 @@ export function DataTablePagination<TData extends RowData>({
             variant="outline"
             className="hidden h-8 w-8 rounded-md p-0 lg:flex"
             onClick={() => table.setPageIndex(0)}
-            disabled={!table.getCanPreviousPage()}
+            disabled={!hasPages || !table.getCanPreviousPage()}
             aria-label="Go to first page"
           >
             <ChevronsLeftIcon />
@@ -209,7 +211,7 @@ export function DataTablePagination<TData extends RowData>({
             variant="outline"
             className="h-8 w-8 rounded-md p-0"
             onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
+            disabled={!hasPages || !table.getCanPreviousPage()}
             aria-label="Go to previous page"
           >
             <ChevronLeftIcon />
@@ -219,7 +221,7 @@ export function DataTablePagination<TData extends RowData>({
             variant="outline"
             className="h-8 w-8 rounded-md p-0"
             onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
+            disabled={!hasPages || !table.getCanNextPage()}
             aria-label="Go to next page"
           >
             <ChevronRightIcon />
@@ -229,7 +231,7 @@ export function DataTablePagination<TData extends RowData>({
             variant="outline"
             className="hidden h-8 w-8 rounded-md p-0 lg:flex"
             onClick={() => table.setPageIndex(table.getPageCount() - 1)}
-            disabled={!table.getCanNextPage()}
+            disabled={!hasPages || !table.getCanNextPage()}
             aria-label="Go to last page"
           >
             <ChevronsRightIcon />
@@ -261,7 +263,7 @@ export type ServerDataTableProps<TData extends RowData> = {
   hideViewOptions?: boolean;
   onRowClick?: (row: TData) => void;
   getRowClassName?: (row: TData) => string | undefined;
-  emptyMessage?: string;
+  emptyMessage?: React.ReactNode;
   tableClassName?: string;
   paginationFooter?: React.ReactNode;
 };
@@ -380,7 +382,10 @@ export function DataTable<TData extends RowData>({
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={columns.length} className="h-24 text-center">
+                <TableCell
+                  colSpan={Math.max(1, table.getVisibleLeafColumns().length)}
+                  className="h-24 text-center"
+                >
                   {emptyMessage}
                 </TableCell>
               </TableRow>

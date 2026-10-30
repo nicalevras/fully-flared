@@ -1,12 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useRef, useState } from 'react';
 import { createServerFn } from '@tanstack/react-start';
 import { Link } from '@tanstack/react-router';
-import { EllipsisIcon, Maximize2Icon, PlusIcon, XIcon } from 'lucide-react';
+import { EllipsisIcon, PlusIcon, XIcon } from 'lucide-react';
 import { staffMiddleware } from '../server/staff-middleware';
 import { validateServerInput } from '../server/function-boundary';
 import { idString } from '../schemas/common';
-import { BlogEditor } from './BlogEditor';
+import { ExpandableEditor } from './ExpandableEditor';
 import { useAdminAction } from './AdminNav';
 import type { AdminActionFeedbackState } from './AdminActionFeedback';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -26,7 +25,7 @@ import { slugify, utcToLocalDateTimeInput, type LoadedSchedule } from '../lib/fo
 import { saveBlogPost } from '../lib/blog-save';
 import { uploadMedia } from '../lib/upload';
 import { mediaUrl } from '../lib/media-url';
-import { btnGhost, btnPrimary, btnSmall, inputCls, labelCls, textareaCls } from './ui';
+import { btnPrimary, btnSmall, inputCls, labelCls, textareaCls } from './ui';
 
 type PostRow = {
   id: string;
@@ -316,27 +315,6 @@ function EditorForm({
   const [contentJson, setContentJson] = useState(post?.content_json ?? '');
   const [coverUrl, setCoverUrl] = useState(() => coverPreviewUrl(post));
   const [stagedCover, setStagedCover] = useState<{ file: File; url: string } | null>(null);
-  const [editorDialogOpen, setEditorDialogOpen] = useState(false);
-  const [inlineSlot, setInlineSlot] = useState<HTMLDivElement | null>(null);
-  const [dialogSlot, setDialogSlot] = useState<HTMLDivElement | null>(null);
-  const expandButtonRef = useRef<HTMLButtonElement>(null);
-  const dialogPanelRef = useRef<HTMLDivElement>(null);
-  const closeEditorDialog = useCallback(() => {
-    setEditorDialogOpen(false);
-    requestAnimationFrame(() => expandButtonRef.current?.focus({ preventScroll: true }));
-  }, []);
-  useEffect(() => {
-    if (!editorDialogOpen) return;
-    dialogPanelRef.current?.focus({ preventScroll: true });
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      event.stopPropagation();
-      closeEditorDialog();
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [editorDialogOpen, closeEditorDialog]);
   useEffect(() => {
     return () => {
       if (stagedCover) URL.revokeObjectURL(stagedCover.url);
@@ -387,7 +365,6 @@ function EditorForm({
     } else onFeedback({ kind: 'error', message: result.error });
   };
 
-  const editorPortalTarget = editorDialogOpen ? dialogSlot : inlineSlot;
   return (
     <>
       <Accordion type="multiple" value={openSections} onValueChange={setOpenSections}>
@@ -506,23 +483,16 @@ function EditorForm({
                   />
                 </div>
               ) : null}
-              <div className="min-w-0">
-                <div className="mb-1.5 flex items-center justify-between">
-                  <div className="text-sm font-medium text-zinc-900">Post</div>
-                  <button
-                    ref={expandButtonRef}
-                    type="button"
-                    className={btnGhost}
-                    aria-haspopup="dialog"
-                    aria-expanded={editorDialogOpen}
-                    onClick={() => setEditorDialogOpen(true)}
-                  >
-                    <Maximize2Icon className="size-4" />
-                    Expand
-                  </button>
-                </div>
-                <div ref={setInlineSlot} />
-              </div>
+              <ExpandableEditor
+                label="Post"
+                editorKey={form.id || 'new'}
+                initialHtml={contentHtml}
+                onChange={(html, json) => {
+                  setContentHtml(html);
+                  setContentJson(json);
+                }}
+                onUploadPendingChange={onUploadPendingChange}
+              />
               <div>
                 <label className={labelCls} htmlFor="b-tags">
                   Tags
@@ -591,45 +561,6 @@ function EditorForm({
           </AccordionContent>
         </AccordionItem>
       </Accordion>
-      <div
-        className={editorDialogOpen ? 'fixed inset-0 z-50 bg-zinc-950/40 p-4 sm:p-6' : 'hidden'}
-        onClick={(event) => {
-          if (event.target === event.currentTarget) closeEditorDialog();
-        }}
-      >
-        <div
-          ref={dialogPanelRef}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Post editor"
-          tabIndex={-1}
-          className="flex h-full w-full flex-col overflow-hidden rounded-2xl bg-white shadow-xl outline-none"
-        >
-          <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-3">
-            <div className="text-sm font-medium text-zinc-900">Post</div>
-            <button type="button" className={btnSmall} onClick={closeEditorDialog}>
-              Done
-            </button>
-          </div>
-          <div className="min-h-0 flex-1 p-4 sm:p-5">
-            <div ref={setDialogSlot} className="article-editor-dialog h-full" />
-          </div>
-        </div>
-      </div>
-      {editorPortalTarget
-        ? createPortal(
-            <BlogEditor
-              key={form.id || 'new'}
-              initialHtml={contentHtml}
-              onChange={(html, json) => {
-                setContentHtml(html);
-                setContentJson(json);
-              }}
-              onUploadPendingChange={onUploadPendingChange}
-            />,
-            editorPortalTarget
-          )
-        : null}
     </>
   );
 }
