@@ -11,6 +11,7 @@ import { storefrontLimited } from '../../server/storefront-limit';
 import { slugParamSchema } from '../../schemas/checkout';
 import { formatMoney } from '../../components/ProductCard';
 import { absoluteUrl, jsonLd, seoMeta } from '../../lib/seo';
+import { productJsonLd } from '../../lib/product-jsonld';
 import { CheckIcon, ReturnIcon, ShieldIcon, TruckIcon } from '../../components/icons';
 import { ProductNotFound } from '../../components/NotFound';
 import { Badge } from '@/components/ui/badge';
@@ -77,7 +78,6 @@ export const Route = createFileRoute('/_shop/products/$slug')({
     if (!loaderData) return { meta: [{ title: 'Store' }] };
     const url = absoluteUrl(loaderData.canonicalBaseUrl, `/products/${loaderData.slug}`);
     const firstImage = loaderData.images[0];
-    const firstVariant = loaderData.variants.find((v) => v.status === 'active');
     return {
       meta: seoMeta({
         title:
@@ -94,26 +94,7 @@ export const Route = createFileRoute('/_shop/products/$slug')({
           : undefined,
       }),
       links: [{ rel: 'canonical', href: url }],
-      ...jsonLd({
-        '@context': 'https://schema.org',
-        '@type': 'Product',
-        name: loaderData.title,
-        description: loaderData.seoDescription ?? richHtmlToPlainText(loaderData.description),
-        url,
-        ...(firstImage
-          ? { image: absoluteUrl(loaderData.canonicalBaseUrl, mediaUrl(firstImage)) }
-          : {}),
-        ...(firstVariant
-          ? {
-              offers: {
-                '@type': 'Offer',
-                url,
-                priceCurrency: loaderData.currency,
-                price: (firstVariant.priceCents / 100).toFixed(2),
-              },
-            }
-          : {}),
-      }),
+      ...jsonLd(productJsonLd(loaderData)),
     };
   },
   remountDeps: ({ params }) => params,
