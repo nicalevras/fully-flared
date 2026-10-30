@@ -2,6 +2,7 @@ import * as z from 'zod';
 import { escapeLike, ftsTitleMatch, ftsUsable } from '../lib/fts-search';
 import type { ProductStatus } from '../db/schema';
 import { pageSizeSchema } from '../schemas/pagination';
+import { requireStaffPermission } from './session';
 
 export const inventoryListInputSchema = z.object({
   q: z.string().max(200).default(''),
@@ -161,4 +162,57 @@ export async function adminInventoryList(
     page,
     pageSize: size,
   };
+}
+
+export type InventoryDetail = {
+  sku: string;
+  variantTitle: string;
+  productId: string;
+  productTitle: string;
+  onHand: number;
+  reserved: number;
+  available: number;
+  history: Array<{
+    id: string;
+    delta_on_hand: number;
+    delta_reserved: number;
+    reason: string;
+    created_at: string;
+  }>;
+};
+
+export const skuDetailInputSchema = z.object({ sku: z.string().max(100) });
+
+export async function adminInventoryDetail(
+  db: D1Database,
+  staff: { role?: string | null | undefined },
+  sku: string
+): Promise<InventoryDetail | null> {
+  requireStaffPermission(staff, 'stock', 'view');
+  const head = await db
+    .prepare(
+      `SELECT v.sku, v.title AS variantTitle, v.product_id AS productId, p.title AS productTitle,
+                COALESCE(s.on_hand, 0) AS onHand, COALESCE(s.reserved, 0) AS reserved
+         FROM variants v
+         JOIN products p ON p.id = v.product_id
+         LEFT JOIN stock s ON s.sku = v.sku
+         WHERE v.sku = ?`
+    )
+    .bind(sku.trim())
+    .first<{
+      sku: string;
+      variantTitle: string;
+      productId: string;
+      productTitle: string;
+      onHand: number;
+      reserved: number;
+    }>();
+  if (!head) return null;
+  const history = await db
+    .prepare(
+      'SELECT id, delta_on_hand, delta_reserved, reason, created_at FROM stock_ledger WHERE sku = ? ORDER BY created_at DESC, id DESC LIMIT 50'
+    )
+    .bind(head.sku)
+    .all<InventoryDetail['history'][number]>();
+  return { ...head, available: head.onHand - head.reserved, history: history.results };
 }

@@ -1,6 +1,11 @@
 import { grossSalePredicate } from './reports';
 import { pageInputSchema, orderPagesSchema } from '../schemas/pagination';
-import type { OrderStatus, PaymentStatus, ReturnStatus } from '../db/schema';
+import type { DiscountStatus, OrderStatus, PaymentStatus, ReturnStatus } from '../db/schema';
+import * as z from 'zod';
+import { pageSizeSchema } from '../schemas/pagination';
+import { pageWindow } from '../lib/catalog-page';
+import { ftsPhrase, ftsUsable } from '../lib/fts-search';
+import { requireStaffPermission } from './session';
 
 export type AdminOrderRow = {
   id: string;
@@ -90,4 +95,53 @@ export async function adminOrders(db: D1Database, input: unknown) {
     page,
     returnsPage,
   };
+}
+
+export type DiscountRow = {
+  id: string;
+  code: string;
+  type: string;
+  value: number;
+  status: DiscountStatus;
+  usage_count: number;
+  min_purchase_cents: number;
+  usage_limit: number | null;
+  expires_at: string | null;
+};
+
+export const discountListInputSchema = z.object({
+  q: z.string().max(64).default(''),
+  page: z.number().int().min(1).default(1),
+  size: pageSizeSchema,
+});
+
+export async function adminDiscounts(
+  db: D1Database,
+  staff: { role?: string | null | undefined },
+  input: z.infer<typeof discountListInputSchema>
+) {
+  requireStaffPermission(staff, 'discount', 'view');
+  const q = input.q.trim().toUpperCase();
+  // >= 3 chars: trigram FTS (substring, index-served). Shorter: prefix LIKE.
+  const useFts = q ? ftsUsable(q) : false;
+  const pattern = q && !useFts ? `${q.replace(/[\\%_]/g, '\\$&')}%` : null;
+  const where = useFts
+    ? 'WHERE rowid IN (SELECT rowid FROM discounts_fts WHERE discounts_fts MATCH ?)'
+    : pattern
+      ? "WHERE code LIKE ? ESCAPE '\\'"
+      : '';
+  const searchBind = useFts ? ftsPhrase(q) : pattern;
+  const count = await db
+    .prepare(`SELECT COUNT(*) AS n FROM discounts ${where}`)
+    .bind(...(searchBind ? [searchBind] : []))
+    .first<{ n: number }>();
+  const total = count?.n ?? 0;
+  const { page, offset } = pageWindow(total, input.page, input.size);
+  const rows = await db
+    .prepare(
+      `SELECT id, code, type, value, status, usage_count, min_purchase_cents, usage_limit, expires_at FROM discounts ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`
+    )
+    .bind(...(searchBind ? [searchBind] : []), input.size, offset)
+    .all<DiscountRow>();
+  return { discounts: rows.results, total, page, pageSize: input.size };
 }

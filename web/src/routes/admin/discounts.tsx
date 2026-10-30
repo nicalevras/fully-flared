@@ -1,27 +1,26 @@
 import { useState } from 'react';
 import { staffMiddleware } from '../../server/staff-middleware';
-import { requireStaffPermission } from '../../server/session';
+import {
+  adminDiscounts,
+  discountListInputSchema,
+  type DiscountRow,
+} from '../../server/admin-lists';
 import { useStoreCurrency } from '../../lib/use-store-currency';
 import { formatDate } from '../../lib/format';
-import { pageWindow } from '../../lib/catalog-page';
 import { AdminRowActions } from '../../components/AdminDataTable';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { createFileRoute, useRouter } from '@tanstack/react-router';
-import * as z from 'zod';
 import { validateServerInput } from '../../server/function-boundary';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { createServerFn } from '@tanstack/react-start';
 import { useAdminAction, type AdminPayload } from '../../components/AdminNav';
 import { StatusBadge } from '../../components/StatusBadge';
-import type { DiscountStatus } from '../../db/schema';
 import { formatMoney } from '../../components/ProductCard';
 import { hintCls, labelCls, pageSub, pageTitle } from '../../components/ui';
 import type { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table';
 import { DataTable, DataTableSearch } from '../../components/ui/data-table';
-import { ftsPhrase, ftsUsable } from '../../lib/fts-search';
 import type { DataTableFeatures } from '../../components/data-table-features';
 import { isPageSize, pageSizeOptions } from '../../lib/search-params';
-import { pageSizeSchema } from '../../schemas/pagination';
 import {
   AdminActionFeedback,
   type AdminActionFeedbackState,
@@ -45,53 +44,12 @@ import {
 } from '@/components/ui/drawer';
 import { PlusIcon, XIcon } from 'lucide-react';
 
-type DiscountRow = {
-  id: string;
-  code: string;
-  type: string;
-  value: number;
-  status: DiscountStatus;
-  usage_count: number;
-  min_purchase_cents: number;
-  usage_limit: number | null;
-  expires_at: string | null;
-};
-
 const getData = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
-  .validator(
-    validateServerInput(
-      z.object({
-        q: z.string().max(64).default(''),
-        page: z.number().int().min(1).default(1),
-        size: pageSizeSchema,
-      })
-    )
-  )
+  .validator(validateServerInput(discountListInputSchema))
   .handler(async ({ data, context }) => {
-    requireStaffPermission(context.staff, 'discount', 'view');
     const { env } = await import('cloudflare:workers');
-    const q = data.q.trim().toUpperCase();
-    // >= 3 chars: trigram FTS (substring, index-served). Shorter: prefix LIKE.
-    const useFts = q ? ftsUsable(q) : false;
-    const pattern = q && !useFts ? `${q.replace(/[\\%_]/g, '\\$&')}%` : null;
-    const where = useFts
-      ? 'WHERE rowid IN (SELECT rowid FROM discounts_fts WHERE discounts_fts MATCH ?)'
-      : pattern
-        ? "WHERE code LIKE ? ESCAPE '\\'"
-        : '';
-    const searchBind = useFts ? ftsPhrase(q) : pattern;
-    const count = await env.DB.prepare(`SELECT COUNT(*) AS n FROM discounts ${where}`)
-      .bind(...(searchBind ? [searchBind] : []))
-      .first<{ n: number }>();
-    const total = count?.n ?? 0;
-    const { page, offset } = pageWindow(total, data.page, data.size);
-    const rows = await env.DB.prepare(
-      `SELECT id, code, type, value, status, usage_count, min_purchase_cents, usage_limit, expires_at FROM discounts ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`
-    )
-      .bind(...(searchBind ? [searchBind] : []), data.size, offset)
-      .all<DiscountRow>();
-    return { discounts: rows.results, total, page, pageSize: data.size };
+    return adminDiscounts(env.DB, context.staff, data);
   });
 
 export const Route = createFileRoute('/admin/discounts')({
