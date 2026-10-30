@@ -11,6 +11,7 @@ import {
 import { staffMiddleware } from '../../server/staff-middleware';
 import { requireStaffPermission } from '../../server/session';
 import { useStoreCurrency } from '../../lib/use-store-currency';
+import { stringArray } from '../../lib/is-record';
 import { createFileRoute, useRouter } from '@tanstack/react-router';
 import { createServerFn, useServerFn } from '@tanstack/react-start';
 import * as z from 'zod';
@@ -47,7 +48,11 @@ type Zone = {
   }>;
 };
 
-const zoneCountries = (json: string) => z.array(z.string()).parse(JSON.parse(json));
+function zoneCountries(json: string): string[] {
+  const countries = stringArray(JSON.parse(json));
+  if (!countries) throw new Error('Shipping zone countries are not a list of codes.');
+  return countries;
+}
 
 export function countryLabel(code: string): string {
   try {
