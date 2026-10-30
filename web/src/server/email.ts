@@ -84,7 +84,7 @@ export async function queueEmail(db: D1Database, msg: EmailMessage): Promise<str
 function parseOutboxPayload(json: string): EmailMessage | null {
   try {
     const parsed = emailMessageSchema.safeParse(JSON.parse(json));
-    return parsed.success ? (parsed.data as EmailMessage) : null;
+    return parsed.success ? parsed.data : null;
   } catch {
     return null;
   }
