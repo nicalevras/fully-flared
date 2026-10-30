@@ -69,7 +69,13 @@ type OrderDetail = {
     status: RefundStatus;
     created_at: string;
   }>;
-  permissions: { ship: boolean; refund: boolean; approve: boolean; reject: boolean };
+  permissions: {
+    ship: boolean;
+    refund: boolean;
+    restock: boolean;
+    approve: boolean;
+    reject: boolean;
+  };
   returns: Array<{
     id: string;
     reason: string;
@@ -147,6 +153,7 @@ const getData = createServerFn({ method: 'GET' })
       permissions: {
         ship: role?.authorize({ order: ['ship'] }).success ?? false,
         refund: role?.authorize({ order: ['refund'] }).success ?? false,
+        restock: role?.authorize({ stock: ['adjust'] }).success ?? false,
         approve: role?.authorize({ return: ['approve'] }).success ?? false,
         reject: role?.authorize({ return: ['reject'] }).success ?? false,
       },
@@ -181,6 +188,7 @@ function OrderPage() {
   const [tracking, setTracking] = useState('');
   const [refundAmount, setRefundAmount] = useState('');
   const [returnAmounts, setReturnAmounts] = useState<Record<string, string>>({});
+  const [returnRestock, setReturnRestock] = useState<Record<string, boolean>>({});
   const [msg, setMsg] = useState<AdminActionFeedbackState>(null);
   const [busy, setBusy] = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState<{
@@ -519,6 +527,18 @@ function OrderPage() {
                             setReturnAmounts({ ...returnAmounts, [r.id]: e.target.value })
                           }
                         />
+                        {order.permissions.restock ? (
+                          <label className="flex items-center gap-1 text-sm text-zinc-600">
+                            <input
+                              type="checkbox"
+                              checked={returnRestock[r.id] ?? true}
+                              onChange={(e) =>
+                                setReturnRestock({ ...returnRestock, [r.id]: e.target.checked })
+                              }
+                            />
+                            Return items to stock
+                          </label>
+                        ) : null}
                         <button
                           className={btnSmall}
                           disabled={
@@ -551,7 +571,12 @@ function OrderPage() {
                               run: () =>
                                 void run(
                                   'return.refund',
-                                  { returnId: r.id, amountCents: cents },
+                                  {
+                                    returnId: r.id,
+                                    amountCents: cents,
+                                    restock:
+                                      order.permissions.restock && (returnRestock[r.id] ?? true),
+                                  },
                                   'Refund submitted.'
                                 ),
                             });

@@ -455,3 +455,34 @@ unapplied. Verification is deferred: see
   payload for at most 90 days. `tests/phase6-data.test.ts` pins both rules.
 - Rejected: scrubbing dead rows (loses recovery), and removing only the PII keys
   with `json_remove` (changes payloads the recovery code replays).
+
+## 2026-10-30: money-path fixes from the full audit (Phase 2)
+
+- **Discount times are instants (MS-1, D-4 B).** The admin enters start and
+  expiry in its own time zone with `datetime-local`. The browser converts the
+  value to a UTC ISO string with milliseconds, and the server accepts only that
+  form (`z.iso.datetime({ precision: 3 })`), so stored values compare correctly
+  as strings. Date-only values are rejected.
+- **Email retries run 8 attempts, about 2 hours (MS-2).** `MAX_EMAIL_ATTEMPTS`
+  in `server/outbox.ts` is the one cap for the claim, the recovery query and the
+  dashboard. Migration `0033_outbox_claim_due_cap` rebuilds the partial claim
+  index with `attempts<8`, so the drain still uses it. The final failure queues
+  one email to the operational alert addresses; alert rows never alert about
+  themselves. The dashboard counts only rows that used every attempt. Retention
+  deletes failed rows only after they reach the same cap.
+- **Email sends carry no idempotency key (R-33).** The `send_email` binding call
+  in `server/email.ts` takes none, so a send the provider accepted but that
+  timed out on our side can be sent again on retry. The per-row claim and the
+  8-attempt cap bound this; it cannot be removed at the provider.
+- **The product editor reads its detail from the route loader (UX-04).**
+  `edit` is a loader dependency, so `router.invalidate()` refreshes `on_hand`
+  and the stock delta is computed from fresh data at save time. Each staged
+  stock edit carries its own `operationId` and reason; a retry reuses the ID,
+  and changing the total or reason stages a new one.
+  The editor and the inventory page also send `expectedOnHand` (R-10); the
+  server applies the change only if `on_hand` still equals it, otherwise it
+  returns a conflict naming the current value and writes nothing.
+- **Prices stay strings until save (UX-01, UX-02).** Variant price fields keep
+  what the admin typed and `parseMoneyCents` runs at save. A blank or invalid
+  price blocks the save with a field error, and a new variant needs an explicit
+  price. $0 stays a valid choice when typed.

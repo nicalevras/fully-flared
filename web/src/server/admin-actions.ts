@@ -469,6 +469,7 @@ export async function runAdminAction(
             delta: f.delta,
             reason: (f.reason as 'restock') || 'restock',
             ...(f.note !== undefined ? { note: f.note } : {}),
+            ...(f.expectedOnHand !== undefined ? { expectedOnHand: f.expectedOnHand } : {}),
             extraStatements: [
               auditStmt(db, actor.id, 'stock.adjust', 'stock', f.sku, {
                 delta: f.delta,
@@ -508,8 +509,8 @@ export async function runAdminAction(
         await db.batch([
           db
             .prepare(
-              `INSERT INTO discounts (id, code, type, value, status, min_purchase_cents, usage_limit, starts_at, expires_at, created_at)
-           VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)`
+              `INSERT INTO discounts (id, code, type, value, status, min_purchase_cents, usage_limit, usage_per_customer, max_discount_cents, starts_at, expires_at, created_at)
+           VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)`
             )
             .bind(
               discountId,
@@ -518,8 +519,10 @@ export async function runAdminAction(
               f.value,
               f.minPurchaseCents,
               f.usageLimit ?? null,
-              f.startsAt || null,
-              f.expiresAt || null,
+              f.usagePerCustomer,
+              f.maxDiscountCents ?? null,
+              f.startsAt ?? null,
+              f.expiresAt ?? null,
               now()
             ),
           auditStmt(db, actor.id, 'discount.create', 'discount', discountId),
@@ -542,7 +545,7 @@ export async function runAdminAction(
         const [updated] = await db.batch([
           db
             .prepare(
-              `UPDATE discounts SET code = ?, type = ?, value = ?, min_purchase_cents = ?, usage_limit = ?, expires_at = ? WHERE id = ?`
+              `UPDATE discounts SET code = ?, type = ?, value = ?, min_purchase_cents = ?, usage_limit = ?, usage_per_customer = ?, max_discount_cents = ?, starts_at = ?, expires_at = ? WHERE id = ?`
             )
             .bind(
               f.code.toUpperCase(),
@@ -550,7 +553,10 @@ export async function runAdminAction(
               f.value,
               f.minPurchaseCents,
               f.usageLimit ?? null,
-              f.expiresAt || null,
+              f.usagePerCustomer,
+              f.maxDiscountCents ?? null,
+              f.startsAt ?? null,
+              f.expiresAt ?? null,
               f.discountId
             ),
           auditStmt(db, actor.id, 'discount.update', 'discount', f.discountId),
@@ -737,7 +743,7 @@ export async function runAdminAction(
           env,
           ret.order_id,
           f.amountCents,
-          false,
+          f.restock,
           `return-${ret.id}-${prior?.n ?? 0}`,
           ret.id
         );

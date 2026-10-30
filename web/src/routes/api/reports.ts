@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { requireStaff, requireStaffPermission } from '../../server/session';
-import { reportQuerySchema } from '../../schemas/account';
+import { reportQuerySchema, reportRangeSchema, type ReportRange } from '../../schemas/account';
 
 import { serializeCsvCell } from '../../server/csv';
 import { grossSalePredicate } from '../../server/reports';
@@ -25,7 +25,9 @@ const EXPORT_QUERIES: Record<ExportType, string> = {
   products: `SELECT i.sku,i.title,o.currency,SUM(i.qty) AS units,SUM(i.qty*i.unit_price_cents) AS revenue_cents FROM order_items i JOIN orders o ON o.id=i.order_id WHERE ${grossSalePredicate('o')} GROUP BY i.sku,i.title,o.currency ORDER BY i.sku,i.title,o.currency LIMIT ?`,
   inventory: `SELECT sku, on_hand, reserved, on_hand - reserved AS available FROM stock ORDER BY sku LIMIT ?`,
   orders: `SELECT number, customer_email, status, payment_status, total_cents, currency, tracking_number, created_at
-                 FROM orders ORDER BY created_at DESC, id DESC LIMIT ?`,
+                 FROM orders WHERE (?1 IS NULL OR created_at >= ?1)
+                   AND (?2 IS NULL OR created_at < strftime('%Y-%m-%dT%H:%M:%fZ', ?2, '+1 day'))
+                 ORDER BY created_at DESC, id DESC LIMIT ?3`,
   customers: `SELECT customer_email,currency,COUNT(*) AS orders,SUM(total_cents) AS spent_cents FROM orders o WHERE ${grossSalePredicate('o')} GROUP BY customer_email,currency ORDER BY customer_email,currency LIMIT ?`,
 };
 
@@ -38,13 +40,18 @@ export async function exportReport(
   limits: { maxRows: number; maxBytes: number } = {
     maxRows: EXPORT_MAX_ROWS,
     maxBytes: EXPORT_MAX_BYTES,
-  }
+  },
+  range: ReportRange = {}
 ): Promise<Response> {
+  const binds =
+    type === 'orders'
+      ? [range.from ?? null, range.to ?? null, limits.maxRows + 1]
+      : [limits.maxRows + 1];
   let rows: Record<string, unknown>[];
   try {
     const result = await db
       .prepare(EXPORT_QUERIES[type])
-      .bind(limits.maxRows + 1)
+      .bind(...binds)
       .all<Record<string, unknown>>();
     rows = result.results;
   } catch (error) {
@@ -68,7 +75,10 @@ export async function exportReport(
     );
     return Response.json(
       {
-        error: `Export exceeds the ${limits.maxRows}-row limit. Narrow the store data or split the export.`,
+        error:
+          type === 'orders'
+            ? `Export exceeds the ${limits.maxRows}-row limit. Pick a shorter date range.`
+            : `Export exceeds the ${limits.maxRows}-row limit. Narrow the store data or split the export.`,
       },
       { status: 413 }
     );
@@ -153,6 +163,20 @@ export const Route = createFileRoute('/api/reports')({
         if (!parsedQuery.success)
           return Response.json({ error: 'Unknown report type' }, { status: 400 });
         const { type, format } = parsedQuery.data;
+        const parsedRange = reportRangeSchema.safeParse({
+          from: url.searchParams.get('from') || undefined,
+          to: url.searchParams.get('to') || undefined,
+        });
+        if (!parsedRange.success)
+          return Response.json(
+            { error: 'Dates must be YYYY-MM-DD, with the start on or before the end' },
+            { status: 400 }
+          );
+        if (type !== 'orders' && (parsedRange.data.from || parsedRange.data.to))
+          return Response.json(
+            { error: 'Only the orders export takes a date range' },
+            { status: 400 }
+          );
         try {
           requireStaffPermission(staff, 'report', 'view');
         } catch {
@@ -165,7 +189,7 @@ export const Route = createFileRoute('/api/reports')({
             return Response.json({ error: 'Customer export permission required' }, { status: 403 });
           }
         }
-        return exportReport(env.DB, type, format);
+        return exportReport(env.DB, type, format, undefined, parsedRange.data);
       },
     },
   },

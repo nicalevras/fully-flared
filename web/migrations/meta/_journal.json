@@ -234,6 +234,20 @@
       "breakpoints": true
     },
     {
+      "idx": 33,
+      "version": "6",
+      "when": 1793384933851,
+      "tag": "0033_outbox_claim_due_cap",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1793387682010,
+      "tag": "0037_commerce_revision_variants_scope",
+      "breakpoints": true
+    },
+    {
       "idx": 38,
       "version": "6",
       "when": 1793389530688,

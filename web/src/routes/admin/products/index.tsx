@@ -134,6 +134,7 @@ function AdminProducts() {
   const [createOpen, setCreateOpen] = useState(false);
   const openEditor = (id: string) => void navigate({ search: { ...search, edit: id } });
   const closeEditor = () => void navigate({ search: { ...search, edit: undefined } });
+  const refreshDetail = () => router.invalidate({ sync: true });
   const pillWhite =
     'inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 text-[13px] font-medium text-zinc-950 transition-colors hover:border-zinc-950 disabled:pointer-events-none disabled:opacity-40';
   const statuses = [
@@ -521,7 +522,7 @@ function AdminProducts() {
           product={detail}
           open
           onClose={closeEditor}
-          refresh={() => router.invalidate()}
+          refresh={refreshDetail}
         />
       ) : null}
     </main>
