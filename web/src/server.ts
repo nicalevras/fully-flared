@@ -5,7 +5,7 @@ import {
 } from './server/public-cache';
 import { normalizeNetwork } from './server/network';
 import entry from '@tanstack/react-start/server-entry';
-import { processOutboxRow, type JobMessage } from './server/email';
+import { processCustomerDeletion, processOutboxRow, type JobMessage } from './server/email';
 import { failInboxEvent, processInboxEvent } from './server/checkout';
 import { getStripeProvider, providerWithBudget } from './server/payments';
 import { runCatalogUnit } from './server/catalog-publisher';
@@ -271,7 +271,7 @@ async function handleQueue(
         binding = maintenanceQueueBinding(run.task);
       } else {
         binding =
-          job.type === 'email.send'
+          job.type === 'email.send' || job.type === 'stripe.customer.delete'
             ? 'NOTIFICATIONS'
             : job.type === 'catalog.rebuild'
               ? 'CATALOG_JOBS'
@@ -285,6 +285,8 @@ async function handleQueue(
       }
       if (job.type === 'email.send') {
         await processOutboxRow(env.DB, job.outboxId);
+      } else if (job.type === 'stripe.customer.delete') {
+        await processCustomerDeletion(env.DB, job.outboxId, getStripeProvider(env) ?? undefined);
       } else if (job.type === 'webhook.process') {
         const provider = getStripeProvider(env);
         await processInboxEvent(
