@@ -1,6 +1,7 @@
 import { configDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  css: { preprocessorOptions: { scss: { api: 'modern-compiler' } } },
   resolve: {
     alias: {
       'cloudflare:workers': new URL('./tests/helpers/cloudflare-workers-stub.ts', import.meta.url)
@@ -11,7 +12,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['tests/**/*.test.ts'],
+    include: ['tests/**/*.test.ts', 'web/tests-dom/**/*.test.tsx'],
     // The 100k capacity gate takes about half an hour; run it with `npm run test:scale`.
     exclude: [
       ...configDefaults.exclude,
