@@ -1,0 +1,18 @@
+{
+  "extends": "../web/tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "vitest/globals"]
+  },
+  "include": ["./**/*.ts", "../web/src/*.d.ts", "../web/worker-configuration.d.ts"],
+  // Phase 10b: the money and auth stacks change these files; they join the check once those merge.
+  "exclude": [
+    "./blog-editor-11a.test.ts",
+    "./blog-save.test.ts",
+    "./cart-ui.test.ts",
+    "./csv.test.ts",
+    "./discounts-edit-14.test.ts",
+    "./outbox-claim.test.ts",
+    "./search-params.test.ts",
+    "./settings-save.test.ts"
+  ]
+}
