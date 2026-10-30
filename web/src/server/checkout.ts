@@ -1,7 +1,7 @@
 import * as z from 'zod';
 import { cancelOrdersStatements } from './order-cancellation';
 import { recoveryContext, webhookDue, type RecoveryContext } from './recovery-eligibility';
-import { resolvePaymentOrder } from './payment-order';
+import { lookupPaymentOrder } from './payment-order';
 import { releaseOrderHoldsStmts, InsufficientStock } from './inventory';
 import { getSettings, readSettings } from './settings';
 import { inArray, eq } from 'drizzle-orm';
@@ -725,19 +725,21 @@ async function applyStripeEvent(
       await handleRefundEvent(db, event.type, data, provider);
     } else if (event.type === 'charge.refunded') {
       await syncChargeRefund(db, data, provider);
-    } else if (
-      (event.type === 'charge.dispute.closed' || event.type === 'charge.dispute.created') &&
-      data.payment_intent === null
-    ) {
-      // Checkout always creates a PaymentIntent, so this dispute is not for one of our orders.
-      console.warn(
-        JSON.stringify({ event: 'webhook_dispute_unmatched', type: event.type, eventId: event.id })
-      );
     } else if (event.type === 'charge.dispute.closed' || event.type === 'charge.dispute.created') {
       const pi = typeof data.payment_intent === 'string' ? data.payment_intent : null;
-      if (!pi || !(await resolvePaymentOrder(db, pi, provider)))
+      // Checkout always creates a PaymentIntent, and Stripe lists a Session for every one of ours.
+      const lookup = pi ? await lookupPaymentOrder(db, pi, provider) : null;
+      if (data.payment_intent === null || lookup?.foreign) {
+        console.warn(
+          JSON.stringify({
+            event: 'webhook_dispute_unmatched',
+            type: event.type,
+            eventId: event.id,
+          })
+        );
+      } else if (!pi || !lookup?.order) {
         throw new Error('Dispute order has not arrived yet');
-      if (event.type === 'charge.dispute.closed') {
+      } else if (event.type === 'charge.dispute.closed') {
         if (
           data.status === 'won' ||
           data.status === 'warning_closed' ||
