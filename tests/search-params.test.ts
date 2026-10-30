@@ -31,13 +31,20 @@ describe('route search parsers', () => {
   });
 
   it('text params keep strings within their length and drop anything else', () => {
-    expect(catalogSearch({})).toEqual({ q: '', cursor: undefined });
-    expect(catalogSearch({ q: 'tee', cursor: 'c1' })).toEqual({ q: 'tee', cursor: 'c1' });
+    expect(catalogSearch({})).toEqual({ q: '', cursor: undefined, page: 1 });
+    expect(catalogSearch({ q: 'tee', cursor: 'c1', page: '3' })).toEqual({
+      q: 'tee',
+      cursor: 'c1',
+      page: 3,
+    });
+    expect(catalogSearch({ q: 'tee', cursor: 'c1' })).toEqual({ q: 'tee', cursor: 'c1', page: 2 });
+    expect(catalogSearch({ q: 'tee', page: 4 })).toEqual({ q: 'tee', cursor: undefined, page: 1 });
     expect(catalogSearch({ q: 'x'.repeat(201), cursor: 'x'.repeat(501) })).toEqual({
       q: '',
       cursor: undefined,
+      page: 1,
     });
-    expect(catalogSearch({ q: 5 })).toEqual({ q: '', cursor: undefined });
+    expect(catalogSearch({ q: 5 })).toEqual({ q: '', cursor: undefined, page: 1 });
     expect(successSearch({})).toEqual({ order: '', t: '' });
     expect(successSearch({ order: 'ord_1', t: 'abc' })).toEqual({ order: 'ord_1', t: 'abc' });
     expect(successSearch({ order: 'x'.repeat(101), t: 'x'.repeat(201) })).toEqual({

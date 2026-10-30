@@ -72,7 +72,7 @@ function SearchForm({ initial }: { initial: string }) {
 function SearchPage() {
   const data = Route.useLoaderData();
   const results = data.cards;
-  const { q } = Route.useSearch();
+  const { q, page } = Route.useSearch();
   const availability = useAvailability(
     results.map((p) => p.id),
     'products',
@@ -95,6 +95,7 @@ function SearchPage() {
             {results.length}
             {data.nextCursor ? '+' : ''} result{results.length === 1 ? '' : 's'} for{' '}
             <strong className="text-zinc-950">“{q}”</strong>
+            {page > 1 ? ` · Page ${page}` : ''}
           </p>
           {results.length === 0 ? (
             <Card className="mt-6 border-dashed px-6 py-14 text-center">
@@ -114,19 +115,29 @@ function SearchPage() {
               ))}
             </div>
           )}
-          {data.nextCursor && (
-            <p className="mt-8">
-              <Button asChild variant="outline">
-                <Link to="/search" search={{ q, cursor: data.nextCursor }}>
-                  More results
-                </Link>
-              </Button>
+          {(page > 1 || data.nextCursor) && (
+            <p className="mt-8 flex gap-3">
+              {page > 1 && (
+                <Button asChild variant="outline">
+                  <Link to="/search" search={{ q }}>
+                    Back to page 1
+                  </Link>
+                </Button>
+              )}
+              {data.nextCursor && (
+                <Button asChild variant="outline">
+                  <Link to="/search" search={{ q, cursor: data.nextCursor, page: page + 1 }}>
+                    More results
+                  </Link>
+                </Button>
+              )}
             </p>
           )}
         </>
       ) : (
         <p className="mt-8 text-sm text-zinc-500">
-          Start typing to search titles and descriptions across the whole catalog.
+          Enter a word and press Search to look through titles and descriptions across the whole
+          catalog.
         </p>
       )}
     </main>
