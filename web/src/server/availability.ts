@@ -38,13 +38,17 @@ async function readProducts(db: D1Database, ids: string[], mode: AvailabilityMod
     const rows = rowsById.get(id) ?? [];
     const active = rows[0]?.status === 'active';
     const variants = active
-      ? rows
-          .filter((r) => r.sku !== null)
-          .map((r) => ({
-            sku: r.sku!,
-            available: r.available === null ? null : Math.max(0, r.available),
-            continueSelling: !!r.continueSelling,
-          }))
+      ? rows.flatMap((r) =>
+          r.sku === null
+            ? []
+            : [
+                {
+                  sku: r.sku,
+                  available: r.available === null ? null : Math.max(0, r.available),
+                  continueSelling: !!r.continueSelling,
+                },
+              ]
+        )
       : [];
     const stocked = variants.some((v) => v.available !== null && v.available > 0);
     const backorder = variants.some((v) => v.available !== null && v.continueSelling);
@@ -77,28 +81,30 @@ export async function getAvailability(
     } catch {
       console.warn(JSON.stringify({ event: 'availability_cache_open_failed' }));
     }
-    const keys = query.ids.map(
-      (id) =>
-        new Request(`${origin}/_internal/availability/v1/${query.mode}/${encodeURIComponent(id)}`)
-    );
-    const cached = await Promise.all(
-      keys.map(async (key, index) => {
-        try {
-          const response = await cache?.match(key);
-          if (response) {
-            const parsed = cacheEntrySchema.safeParse(await response.json());
-            if (
-              parsed.success &&
-              parsed.data.expiresAt > Date.now() &&
-              parsed.data.product.id === query.ids[index] &&
-              (query.mode !== 'product' || !!parsed.data.product.variants)
-            )
-              return parsed.data.product;
-          }
-        } catch {
-          console.warn(JSON.stringify({ event: 'availability_cache_read_failed' }));
+    const cachedProduct = async (key: Request, id: string) => {
+      try {
+        const response = await cache?.match(key);
+        if (response) {
+          const parsed = cacheEntrySchema.safeParse(await response.json());
+          if (
+            parsed.success &&
+            parsed.data.expiresAt > Date.now() &&
+            parsed.data.product.id === id &&
+            (query.mode !== 'product' || !!parsed.data.product.variants)
+          )
+            return parsed.data.product;
         }
-        return undefined;
+      } catch {
+        console.warn(JSON.stringify({ event: 'availability_cache_read_failed' }));
+      }
+      return undefined;
+    };
+    const entries = await Promise.all(
+      query.ids.map(async (id) => {
+        const key = new Request(
+          `${origin}/_internal/availability/v1/${query.mode}/${encodeURIComponent(id)}`
+        );
+        return { id, key, hit: await cachedProduct(key, id) };
       })
     );
     let pending = pendingByDb.get(db);
@@ -107,19 +113,19 @@ export async function getAvailability(
       pendingByDb.set(db, pending);
     }
     const owners: Array<{
-      index: number;
+      id: string;
+      key: Request;
       resolve: (v: ProductAvailability) => void;
       reject: (e: unknown) => void;
     }> = [];
-    const promises = query.ids.map((_, index) => {
-      if (cached[index]) return Promise.resolve(cached[index]!);
-      const key = keys[index]!.url;
-      const existing = pending.get(key);
+    const promises = entries.map(({ id, key, hit }) => {
+      if (hit) return Promise.resolve(hit);
+      const existing = pending.get(key.url);
       if (existing) return existing;
       const promise = new Promise<ProductAvailability>((resolve, reject) => {
-        owners.push({ index, resolve, reject });
+        owners.push({ id, key, resolve, reject });
       });
-      pending.set(key, promise);
+      pending.set(key.url, promise);
       return promise;
     });
     let population: Promise<void> = Promise.resolve();
@@ -130,15 +136,16 @@ export async function getAvailability(
         try {
           const products = await readProducts(
             db,
-            owners.map((o) => query.ids[o.index]!),
+            owners.map((o) => o.id),
             query.mode
           );
           await Promise.all(
             owners.map(async (owner, i) => {
-              const product = products[i]!;
+              const product = products.at(i);
+              if (!product) throw new Error(`Availability read skipped ${owner.id}`);
               try {
                 await cache?.put(
-                  keys[owner.index]!,
+                  owner.key,
                   Response.json(
                     { expiresAt: Date.now() + CACHE_SECONDS * 1000, product },
                     { headers: { 'Cache-Control': `public, max-age=${CACHE_SECONDS}` } }
@@ -153,7 +160,7 @@ export async function getAvailability(
         } catch (error) {
           for (const owner of owners) owner.reject(error);
         } finally {
-          for (const owner of owners) pending.delete(keys[owner.index]!.url);
+          for (const owner of owners) pending.delete(owner.key.url);
         }
       };
       // Promise.all below observes the owned promises before a read can reject them.
