@@ -103,17 +103,7 @@ async function removeSelf() {
   );
 }
 function adminContext() {
-  return {
-    auth: {
-      api: {
-        userHasPermission: async () => ({ success: true }),
-        removeUser: async () => {
-          await db.prepare('DELETE FROM user WHERE id=?').bind(userId).run();
-        },
-      },
-    } as never,
-    headers: new Headers(),
-  };
+  return { auth, headers: new Headers() };
 }
 async function removed() {
   expect(await db.prepare('SELECT id FROM user WHERE id=?').bind(userId).first()).toBeNull();

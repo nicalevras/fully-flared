@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestDb, seedProduct } from './helpers/d1';
 import { runAdminAction } from '../web/src/server/admin-actions';
 import { withOverrides } from './helpers/fixtures';
+import { grantingAdminAuth } from './helpers/admin-auth';
 import { actionData, actionFailure, z } from './helpers/json';
 
 let db: D1Database;
@@ -99,27 +100,17 @@ describe('admin customer export and deletion', () => {
   });
 
   it('deletion anonymizes orders and removes the identity atomically, retaining plugin permission checks', async () => {
-    const removed: string[] = [];
-    const fakeAuth = {
-      api: {
-        userHasPermission: async () => ({ success: true }),
-        removeUser: async ({ body }: { body: { userId: string } }) => {
-          removed.push(body.userId);
-          await db.prepare('DELETE FROM user WHERE id = ?').bind(body.userId).run();
-          return { success: true };
-        },
-      },
-    };
+    const { auth, userHasPermission } = grantingAdminAuth();
     const result = await runAdminAction(
       db,
       env,
       { id: 'owner-1', role: 'owner' },
       'customer.delete',
       { userId: 'cust-1' },
-      { auth: fakeAuth as never, headers: new Headers() }
+      { auth, headers: new Headers() }
     );
     expect(result.ok).toBe(true);
-    expect(removed).toEqual([]);
+    expect(userHasPermission).toHaveBeenCalledOnce();
     const order = await db
       .prepare("SELECT customer_email FROM orders WHERE id = 'ord-1'")
       .first<{ customer_email: string }>();
