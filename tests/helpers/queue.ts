@@ -24,3 +24,20 @@ export function messageBatch<Body>(
     ackAll: () => messages.forEach((message) => message.ack()),
   };
 }
+
+const noBacklog = { backlogCount: 0, backlogBytes: 0 };
+
+/** A producer binding that hands every sent body, batched or not, to `deliver`. */
+export function fakeQueue(deliver: (body: unknown) => unknown = () => {}): Queue {
+  return {
+    metrics: async () => noBacklog,
+    send: async (body) => {
+      await deliver(body);
+      return { metadata: { metrics: noBacklog } };
+    },
+    sendBatch: async (messages) => {
+      for (const message of messages) await deliver(message.body);
+      return { metadata: { metrics: noBacklog } };
+    },
+  };
+}
