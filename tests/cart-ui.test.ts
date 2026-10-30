@@ -105,13 +105,16 @@ describe('cart mutation lock', () => {
           active++;
           maxActive = Math.max(maxActive, active);
           try {
-            await callback();
+            return await callback();
           } finally {
             active--;
           }
         });
-        tail = run.catch(() => {});
-        await run;
+        tail = run.then(
+          () => {},
+          () => {}
+        );
+        return run;
       },
     };
     return { locks, maxActive: () => maxActive };
