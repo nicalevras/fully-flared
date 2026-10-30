@@ -8,7 +8,7 @@ describe('Phase 11A blog list and editor split', () => {
     expect(list).toContain('BlogPostEditor');
     expect(list).toContain('AdminActionFeedback');
     expect(list).toContain('getPostDetail');
-    expect(list).toContain('detailFor === editingId');
+    expect(list).toContain('detail?.id === editingId');
     expect(list).toContain('?w=${variant.width}');
     expect(list).not.toContain('lg:grid-cols-4');
     expect(list).toContain('ui/data-table');
