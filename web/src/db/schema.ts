@@ -924,6 +924,9 @@ export const checkoutIntents = sqliteTable(
     index('checkout_intents_recovery_idx').on(t.state, t.nextReconcileAt),
     index('checkout_intents_session_idx').on(t.stripeSessionId),
     index('checkout_intents_retention_idx').on(t.state, t.createdAt, t.id),
+    index('checkout_intents_superseded_idx')
+      .on(t.supersededBy, t.createdAt)
+      .where(sql`${t.supersededBy} IS NOT NULL`),
   ]
 );
 
