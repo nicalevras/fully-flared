@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useRouter } from '@tanstack/react-router';
+import { isRecord } from '../lib/is-record';
 
 /**
  * Admin realtime client: subscribes to the /ws fan-out (staff + 2FA gated
@@ -24,8 +25,13 @@ export function RealtimeRefresh() {
       socket = new WebSocket(`${proto}//${window.location.host}/ws?topics=order,inventory,catalog`);
       socket.onmessage = (msg) => {
         try {
-          const parsed = JSON.parse(String(msg.data)) as { type?: string };
-          if (parsed.type && parsed.type !== 'error') {
+          const parsed: unknown = JSON.parse(String(msg.data));
+          if (
+            isRecord(parsed) &&
+            typeof parsed.type === 'string' &&
+            parsed.type &&
+            parsed.type !== 'error'
+          ) {
             if (refreshTimer) clearTimeout(refreshTimer);
             refreshTimer = setTimeout(() => void router.invalidate(), 250);
           }
