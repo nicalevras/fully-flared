@@ -320,8 +320,12 @@ export async function createPendingOrder(
       ),
     db
       .prepare(
-        `INSERT INTO checkout_intents (id, order_id, owner_type, user_id, guest_capability_hash, fingerprint, state, provider_payload_json, payload_version, coupon_idempotency_key, session_idempotency_key, session_expires_at,shipping_address_json,cart_id,cart_revision,payment_next_at,created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'reserved', ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO checkout_intents (id, order_id, owner_type, user_id, guest_capability_hash, fingerprint, state, provider_payload_json, payload_version, coupon_idempotency_key, session_idempotency_key, session_expires_at,shipping_address_json,cart_id,cart_revision,payment_next_at,created_at, updated_at, stripe_customer_id)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, 'reserved', ?7, 1, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+           (SELECT p.stripe_customer_id FROM checkout_intents p JOIN orders po ON po.id=p.order_id
+             WHERE ?12 IS NOT NULL AND p.cart_id=?12 AND p.stripe_customer_id IS NOT NULL
+               AND p.shipping_address_json IS ?11 AND po.customer_email=?17
+             ORDER BY p.created_at DESC, p.rowid DESC LIMIT 1)`
       )
       .bind(
         intent.id,
@@ -339,7 +343,8 @@ export async function createPendingOrder(
         intent.cartRevision ?? null,
         intent.sessionExpiresAt,
         at,
-        at
+        at,
+        email
       ),
     db
       .prepare(
