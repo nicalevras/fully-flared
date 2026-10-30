@@ -69,6 +69,18 @@ type CollectionRow = {
 };
 
 type ProductOption = { id: string; title: string; status: string; image_key: string | null };
+const idsOf = (products: readonly ProductOption[]) => products.map((product) => product.id);
+const withIds = (ids: readonly string[], products: readonly ProductOption[]) => [
+  ...ids,
+  ...idsOf(products).filter((id) => !ids.includes(id)),
+];
+const withProducts = (
+  known: Readonly<Record<string, ProductOption>>,
+  products: readonly ProductOption[]
+): Record<string, ProductOption> => ({
+  ...known,
+  ...Object.fromEntries(products.map((product) => [product.id, product])),
+});
 const featuredRankOf = (value: string) => (value.trim() ? Number(value) : null);
 
 const getData = createServerFn({ method: 'GET' })
@@ -212,31 +224,24 @@ function AdminCollections() {
       return n;
     });
 
-  const [knownProducts, setKnownProducts] = useState<Record<string, ProductOption>>({});
+  const [knownProducts, setKnownProducts] = useState(() =>
+    withProducts({}, [...memberProducts, ...products])
+  );
   const [resultIds, setResultIds] = useState<string[]>([]);
   const [resultQuery, setResultQuery] = useState('');
+  const [loadedProducts, setLoadedProducts] = useState(products);
+  if (loadedProducts !== products) {
+    setLoadedProducts(products);
+    setKnownProducts((prev) => withProducts(prev, [...memberProducts, ...products]));
+    if (paletteFor !== null) {
+      setResultIds((prev) =>
+        resultQuery === search.q ? withIds(prev, products) : idsOf(products)
+      );
+      setResultQuery(search.q);
+    }
+  }
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadingMoreRef = useRef(false);
-
-  useEffect(() => {
-    setKnownProducts((prev) => {
-      const next = { ...prev };
-      for (const product of [...memberProducts, ...products]) next[product.id] = product;
-      return next;
-    });
-  }, [memberProducts, products]);
-
-  useEffect(() => {
-    if (paletteFor === null) return;
-    loadingMoreRef.current = false;
-    setResultIds((prev) => {
-      const base = resultQuery === search.q ? prev : [];
-      const merged = [...base];
-      for (const product of products) if (!merged.includes(product.id)) merged.push(product.id);
-      return merged.length === prev.length && base === prev ? prev : merged;
-    });
-    if (resultQuery !== search.q) setResultQuery(search.q);
-  }, [products, paletteFor, search.q, resultQuery]);
 
   useEffect(() => {
     if (paletteFor === null) return;
@@ -245,11 +250,12 @@ function AdminCollections() {
       if (q !== search.q) void navigate({ search: { q, cq: search.cq, pcursor: '' } });
     }, 300);
     return () => clearTimeout(timer);
-  }, [productQuery, paletteFor, search.q, navigate]);
+  }, [productQuery, paletteFor, search.q, search.cq, navigate]);
 
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || paletteFor === null) return;
+    loadingMoreRef.current = false;
     const observer = new IntersectionObserver((entries) => {
       if (entries[0]?.isIntersecting && nextCursor && !loadingMoreRef.current) {
         loadingMoreRef.current = true;
@@ -258,7 +264,7 @@ function AdminCollections() {
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, [paletteFor, nextCursor, search.q, navigate]);
+  }, [paletteFor, nextCursor, search.q, search.cq, navigate]);
 
   const toggleProduct = (c: CollectionRow, id: string) => {
     const current = memberOf(c);
@@ -480,7 +486,7 @@ function AdminCollections() {
                     <button
                       type="button"
                       onClick={() => {
-                        setResultIds([]);
+                        setResultIds(idsOf(products));
                         setResultQuery(search.q);
                         if (search.pcursor)
                           void navigate({ search: { q: search.q, cq: search.cq, pcursor: '' } });
