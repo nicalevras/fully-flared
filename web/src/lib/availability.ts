@@ -89,6 +89,11 @@ function seededReader(seed: AvailabilitySeed | null, read: AvailabilityReader): 
   };
 }
 
+function idsFromKey(key: string): string[] {
+  const parsed: unknown = JSON.parse(key);
+  return Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string') : [];
+}
+
 export function useAvailability(
   ids: string[],
   mode: AvailabilityMode = 'products',
@@ -107,7 +112,7 @@ export function useAvailability(
   useEffect(
     () =>
       loadPageAvailability(
-        JSON.parse(key) as string[],
+        idsFromKey(key),
         mode,
         (value) => setState({ scope, value }),
         seededReader(seed, read)
