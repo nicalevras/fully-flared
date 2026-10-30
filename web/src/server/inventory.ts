@@ -43,6 +43,32 @@ export function restockOrderStatements(
   ];
 }
 
+/** Restock exactly the items and quantities of one return, once per return
+ *  item: the ledger row id is derived from the return item, and the counter
+ *  update skips items whose ledger row already exists. */
+export function restockReturnStatements(
+  db: D1Database,
+  returnId: string,
+  gate: { sql: string; values: (string | number | null)[] }
+): D1PreparedStatement[] {
+  const timestamp = new Date().toISOString();
+  const pending = `ri.return_id=? AND NOT EXISTS(SELECT 1 FROM stock_ledger WHERE id='return-item-'||ri.id) AND ${gate.sql}`;
+  return [
+    db
+      .prepare(
+        `UPDATE stock SET on_hand=on_hand+(SELECT SUM(ri.qty) FROM return_items ri WHERE ri.sku=stock.sku AND ${pending}),updated_at=?
+      WHERE sku IN(SELECT ri.sku FROM return_items ri WHERE ${pending})`
+      )
+      .bind(returnId, ...gate.values, timestamp, returnId, ...gate.values),
+    db
+      .prepare(
+        `INSERT INTO stock_ledger(id,sku,delta_on_hand,reason,ref_type,ref_id,created_at)
+      SELECT 'return-item-'||ri.id,ri.sku,ri.qty,'return','return',ri.return_id,? FROM return_items ri WHERE ${pending}`
+      )
+      .bind(timestamp, returnId, ...gate.values),
+  ];
+}
+
 /** Release all current holds under the caller's transaction claim. */
 export function releaseOrderHoldsStmts(
   db: D1Database,

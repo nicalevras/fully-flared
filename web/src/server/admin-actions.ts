@@ -500,8 +500,8 @@ export async function runAdminAction(
         await db.batch([
           db
             .prepare(
-              `INSERT INTO discounts (id, code, type, value, status, min_purchase_cents, usage_limit, starts_at, expires_at, created_at)
-           VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)`
+              `INSERT INTO discounts (id, code, type, value, status, min_purchase_cents, usage_limit, usage_per_customer, max_discount_cents, starts_at, expires_at, created_at)
+           VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)`
             )
             .bind(
               discountId,
@@ -510,6 +510,8 @@ export async function runAdminAction(
               f.value,
               f.minPurchaseCents,
               f.usageLimit ?? null,
+              f.usagePerCustomer,
+              f.maxDiscountCents ?? null,
               f.startsAt ?? null,
               f.expiresAt ?? null,
               now()
@@ -534,7 +536,7 @@ export async function runAdminAction(
         const [updated] = await db.batch([
           db
             .prepare(
-              `UPDATE discounts SET code = ?, type = ?, value = ?, min_purchase_cents = ?, usage_limit = ?, expires_at = ? WHERE id = ?`
+              `UPDATE discounts SET code = ?, type = ?, value = ?, min_purchase_cents = ?, usage_limit = ?, usage_per_customer = ?, max_discount_cents = ?, starts_at = ?, expires_at = ? WHERE id = ?`
             )
             .bind(
               f.code.toUpperCase(),
@@ -542,6 +544,9 @@ export async function runAdminAction(
               f.value,
               f.minPurchaseCents,
               f.usageLimit ?? null,
+              f.usagePerCustomer,
+              f.maxDiscountCents ?? null,
+              f.startsAt ?? null,
               f.expiresAt ?? null,
               f.discountId
             ),
@@ -729,7 +734,7 @@ export async function runAdminAction(
           env,
           ret.order_id,
           f.amountCents,
-          false,
+          f.restock,
           `return-${ret.id}-${prior?.n ?? 0}`,
           ret.id
         );

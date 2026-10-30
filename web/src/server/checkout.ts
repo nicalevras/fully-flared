@@ -1,3 +1,4 @@
+import * as z from 'zod';
 import { cancelOrdersStatements } from './order-cancellation';
 import { recoveryContext, webhookDue, type RecoveryContext } from './recovery-eligibility';
 import { resolvePaymentOrder } from './payment-order';
@@ -88,6 +89,10 @@ export async function calculateDiscount(
   amount = Math.max(0, Math.min(amount, subtotalCents));
   return { id: d.id, code: d.code, type: d.type, value: d.value, amountCents: amount };
 }
+
+const recoveryReasonRow = z.object({
+  reason: z.enum(['currency_changed', 'capacity_unavailable']),
+});
 
 export class CheckoutError extends Error {
   constructor(
@@ -1128,22 +1133,21 @@ export async function markOrderPaid(
       .bind(at, order.id, order.id, transition)
   );
   // Capture why this transaction rejected recovery before another request changes settings.
-  statements.push(
-    db
-      .prepare(
-        "SELECT CASE WHEN currency!=COALESCE((SELECT value FROM settings WHERE key='currency'),'USD') THEN 'currency_changed' ELSE 'capacity_unavailable' END AS reason FROM orders WHERE id=?"
-      )
-      .bind(order.id)
-  );
+  const reasonIdx =
+    statements.push(
+      db
+        .prepare(
+          "SELECT CASE WHEN currency!=COALESCE((SELECT value FROM settings WHERE key='currency'),'USD') THEN 'currency_changed' ELSE 'capacity_unavailable' END AS reason FROM orders WHERE id=?"
+        )
+        .bind(order.id)
+    ) - 1;
   const result = await commitWithEmails(db, statements, [`receipt-${order.id}`]);
   if ((result[0]?.meta.changes ?? 0) > 0) {
     const { broadcastAdminRealtime } = await import('./realtime');
     await broadcastAdminRealtime('order.paid', { sessionId, at: now() });
     return;
   }
-  const recoveryReason = (
-    result.at(-1)!.results[0] as { reason: 'currency_changed' | 'capacity_unavailable' }
-  ).reason;
+  const recoveryReason = recoveryReasonRow.parse(result[reasonIdx]?.results[0]).reason;
   const current = await db
     .prepare('SELECT status, payment_status FROM orders WHERE id = ?')
     .bind(order.id)

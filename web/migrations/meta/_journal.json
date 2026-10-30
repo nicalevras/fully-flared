@@ -260,6 +260,13 @@
       "when": 1793385346720,
       "tag": "0036_catalog_invalidations_scope_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1793387682010,
+      "tag": "0037_commerce_revision_variants_scope",
+      "breakpoints": true
     }
   ]
 }

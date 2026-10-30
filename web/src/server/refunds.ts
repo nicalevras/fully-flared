@@ -1,4 +1,8 @@
-import { releaseOrderHoldsStmts, restockOrderStatements } from './inventory';
+import {
+  releaseOrderHoldsStmts,
+  restockOrderStatements,
+  restockReturnStatements,
+} from './inventory';
 import { resolvePaymentOrder } from './payment-order';
 import type { PaymentProvider } from './payments';
 import { nextRetryIso } from './retry';
@@ -84,9 +88,15 @@ export async function settleRefund(
       )
       .bind(row.order_id, row.order_id, row.order_id),
     ...restockOrderStatements(db, row.order_id, {
-      sql: `EXISTS(SELECT 1 FROM orders WHERE id=? AND ${total}>=total_cents) AND EXISTS(SELECT 1 FROM refunds WHERE order_id=? AND restock=1 AND status='succeeded')`,
+      sql: `EXISTS(SELECT 1 FROM orders WHERE id=? AND ${total}>=total_cents) AND EXISTS(SELECT 1 FROM refunds WHERE order_id=? AND restock=1 AND status='succeeded' AND purpose!='return')`,
       values: [row.order_id, row.order_id],
     }),
+    ...(row.return_id
+      ? restockReturnStatements(db, row.return_id, {
+          sql: "EXISTS(SELECT 1 FROM refunds WHERE id=? AND restock=1 AND status='succeeded')",
+          values: [refundId],
+        })
+      : []),
     db
       .prepare(
         `UPDATE returns SET status='refunded' WHERE id=? AND status IN ('requested','approved','refund_failed') AND EXISTS(SELECT 1 FROM refunds WHERE id=? AND status='succeeded')`
