@@ -39,7 +39,7 @@ import {
   dataTableControlClassName,
 } from '../../components/ui/data-table';
 import type { DataTableFeatures } from '../../components/data-table-features';
-import { isPageSize, pageSizeOptions } from '../../schemas/pagination';
+import { isPageSize, pageSizeOptions } from '../../lib/search-params';
 import {
   Select,
   SelectContent,

@@ -30,7 +30,8 @@ import type { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-tab
 import { DataTable, DataTableSearch } from '../../components/ui/data-table';
 import { ftsPhrase, ftsUsable } from '../../lib/fts-search';
 import type { DataTableFeatures } from '../../components/data-table-features';
-import { isPageSize, pageSizeOptions, pageSizeSchema } from '../../schemas/pagination';
+import { isPageSize, pageSizeOptions } from '../../lib/search-params';
+import { pageSizeSchema } from '../../schemas/pagination';
 import { uploadMedia } from '../../lib/upload';
 import {
   Button,
