@@ -26,6 +26,7 @@ export type PricedLine = CartLine & {
   continueSelling: boolean;
   priceCents: number;
   productTitle: string;
+  variantTitle: string;
   available: number;
   cover: MediaSource | null;
 };
@@ -254,6 +255,7 @@ export async function priceCartLines(db: D1Database, lines: CartLine[]): Promise
           weightGrams: variantsT.weightGrams,
           continueSelling: variantsT.continueSelling,
           productTitle: productsT.title,
+          variantTitle: variantsT.title,
           available: sql<number>`COALESCE(${stockT.onHand} - ${stockT.reserved}, 0)`,
           coverKey: sql<
             string | null

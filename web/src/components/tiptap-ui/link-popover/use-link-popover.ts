@@ -98,23 +98,23 @@ export function shouldShowLinkButton(props: {
   return true;
 }
 
+function activeLinkUrl(editor: Editor | null): string | null {
+  if (!editor || !isLinkActive(editor)) return null;
+  const { href } = editor.getAttributes('link');
+  return href || '';
+}
+
 /**
  * Custom hook for handling link operations in a Tiptap editor
  */
 export function useLinkHandler(props: LinkHandlerProps) {
   const { editor, onSetLink } = props;
-  const [url, setUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!editor) return;
-
-    // Get URL immediately on mount
-    const { href } = editor.getAttributes('link');
-
-    if (isLinkActive(editor) && url === null) {
-      setUrl(href || '');
-    }
-  }, [editor, url]);
+  const [url, setUrl] = useState<string | null>(() => activeLinkUrl(editor));
+  const [urlEditor, setUrlEditor] = useState(editor);
+  if (urlEditor !== editor) {
+    setUrlEditor(editor);
+    if (url === null) setUrl(activeLinkUrl(editor));
+  }
 
   useEffect(() => {
     if (!editor) return;
@@ -146,7 +146,7 @@ export function useLinkHandler(props: LinkHandlerProps) {
 
     chain.run();
 
-    setUrl(null);
+    setUrl(activeLinkUrl(editor));
 
     onSetLink?.();
   }, [editor, onSetLink, url]);

@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { createServerFn } from '@tanstack/react-start';
 import { staffMiddleware } from '../server/staff-middleware';
+import { requireStaffPermission } from '../server/session';
 import { validateServerInput } from '../server/function-boundary';
 import { idString } from '../schemas/common';
 import { XIcon } from 'lucide-react';
@@ -34,7 +35,8 @@ type PageRow = {
 export const getPageDetail = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
   .validator(validateServerInput(idString))
-  .handler(async ({ data: pageId }): Promise<PageRow | null> => {
+  .handler(async ({ data: pageId, context }): Promise<PageRow | null> => {
+    requireStaffPermission(context.staff, 'page', 'view');
     const { env } = await import('cloudflare:workers');
     const row = await env.DB.prepare(
       'SELECT id, slug, title, content_html, seo_title, seo_description, updated_at FROM pages WHERE id = ?'
@@ -200,14 +202,13 @@ function EditorForm({
   );
   const [openSections, setOpenSections] = useState<string[]>(['details']);
   const [contentHtml, setContentHtml] = useState(form.contentHtml);
-  const initialRef = useRef(form);
+  const [initial] = useState(form);
   const dirty =
-    JSON.stringify(form) !== JSON.stringify(initialRef.current) ||
-    contentHtml !== initialRef.current.contentHtml;
+    JSON.stringify(form) !== JSON.stringify(initial) || contentHtml !== initial.contentHtml;
   useEffect(() => {
     onDirtyChange(dirty);
   });
-  saveRef.current = async () => {
+  const save = async () => {
     const result = await adminAction('page.save', {
       id: form.id,
       slug: form.slug,
@@ -222,6 +223,7 @@ function EditorForm({
       onSaved();
     } else onFeedback({ kind: 'error', message: result.error ?? 'Failed' });
   };
+  useImperativeHandle(saveRef, () => save);
 
   return (
     <>

@@ -73,10 +73,30 @@ const sections: readonly NavSection[] = [
   {
     label: 'Catalog',
     items: [
-      { link: nav('/admin/products'), label: 'Products', Icon: BagIcon },
-      { link: nav('/admin/collections'), label: 'Collections', Icon: LayersIcon },
-      { link: nav('/admin/discounts'), label: 'Discounts', Icon: TagIcon },
-      { link: nav('/admin/inventory'), label: 'Inventory', Icon: OrdersIcon },
+      {
+        link: nav('/admin/products'),
+        label: 'Products',
+        Icon: BagIcon,
+        requires: ['product', 'view'],
+      },
+      {
+        link: nav('/admin/collections'),
+        label: 'Collections',
+        Icon: LayersIcon,
+        requires: ['collection', 'view'],
+      },
+      {
+        link: nav('/admin/discounts'),
+        label: 'Discounts',
+        Icon: TagIcon,
+        requires: ['discount', 'view'],
+      },
+      {
+        link: nav('/admin/inventory'),
+        label: 'Inventory',
+        Icon: OrdersIcon,
+        requires: ['stock', 'view'],
+      },
     ],
   },
   {
@@ -94,15 +114,25 @@ const sections: readonly NavSection[] = [
         Icon: UserIcon,
         requires: ['user', 'list'],
       },
-      { link: nav('/admin/shipping'), label: 'Shipping', Icon: TruckIcon },
+      {
+        link: nav('/admin/shipping'),
+        label: 'Shipping',
+        Icon: TruckIcon,
+        requires: ['shipping', 'view'],
+      },
     ],
   },
   {
     label: 'Content',
     items: [
-      { link: nav('/admin/articles'), label: 'Articles', Icon: PenIcon },
-      { link: nav('/admin/pages'), label: 'Pages', Icon: FileIcon },
-      { link: nav('/admin/media'), label: 'Media', Icon: ImageIcon },
+      {
+        link: nav('/admin/articles'),
+        label: 'Articles',
+        Icon: PenIcon,
+        requires: ['post', 'view'],
+      },
+      { link: nav('/admin/pages'), label: 'Pages', Icon: FileIcon, requires: ['page', 'view'] },
+      { link: nav('/admin/media'), label: 'Media', Icon: ImageIcon, requires: ['media', 'view'] },
     ],
   },
   {
@@ -182,8 +212,9 @@ export function AdminNav({
   logo?: MediaSource | null;
   role: string | null | undefined;
 }) {
-  const [open, setOpen] = useState(false);
   const location = useLocation();
+  const [openAt, setOpenAt] = useState<string | null>(null);
+  const open = openAt === location.href;
   const railRef = useRef<HTMLElement>(null);
   const visible = (item: NavItem) =>
     !item.requires || roleCan(role, item.requires[0], item.requires[1]);
@@ -192,11 +223,10 @@ export function AdminNav({
     .filter((section) => section.items.length > 0);
   const settings = visible(settingsItem) ? settingsItem : null;
 
-  useEffect(() => setOpen(false), [location.href]);
   useEffect(() => {
     const media = window.matchMedia('(min-width: 640px)');
     const closeOnRail = () => {
-      if (media.matches) setOpen(false);
+      if (media.matches) setOpenAt(null);
     };
     media.addEventListener('change', closeOnRail);
     closeOnRail();
@@ -233,7 +263,12 @@ export function AdminNav({
         <NavigationLinks sections={visibleSections} settings={settings} />
       </aside>
       <div className="flex h-[62px] items-center gap-2 border-b border-zinc-100 bg-white px-4 sm:hidden">
-        <Drawer instant swipeDirection="left" open={open} onOpenChange={setOpen}>
+        <Drawer
+          instant
+          swipeDirection="left"
+          open={open}
+          onOpenChange={(next) => setOpenAt(next ? location.href : null)}
+        >
           <DrawerTrigger
             render={
               <Button variant="ghost" size="icon-sm" aria-label="Open admin navigation">
@@ -271,7 +306,7 @@ export function AdminNav({
             <NavigationLinks
               sections={visibleSections}
               settings={settings}
-              onNavigate={() => setOpen(false)}
+              onNavigate={() => setOpenAt(null)}
             />
           </DrawerContent>
         </Drawer>

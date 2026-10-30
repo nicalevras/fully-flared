@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { staffMiddleware } from '../../../server/staff-middleware';
+import { requireStaffPermission } from '../../../server/session';
 import { useStoreCurrency } from '../../../lib/use-store-currency';
 import {
   Link,
@@ -63,7 +64,8 @@ import type { DataTableFeatures } from '../../../components/data-table-features'
 const getData = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
   .validator(validateServerInput(productDiscoveryInputSchema))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    requireStaffPermission(context.staff, 'product', 'view');
     const { env } = await import('cloudflare:workers');
     return adminProductDiscovery(env.DB, data);
   });
@@ -88,14 +90,15 @@ export const Route = createFileRoute('/admin/products/')({
     status,
     sort,
     cursor,
-    edit,
+    edit: edit ?? '',
   }),
   loader: async ({ deps: { edit, ...list } }) => {
-    const [discovery, detail] = await Promise.all([
+    const [data, detail] = await Promise.all([
       getData({ data: list }),
+      // A missing or unreadable product opens the not-found drawer.
       edit ? getProductDetail({ data: edit }).catch(() => null) : null,
     ]);
-    return { ...discovery, detail };
+    return { ...data, detail };
   },
   pendingComponent: () => (
     <p className="p-5 text-sm" role="status">
@@ -513,7 +516,7 @@ function AdminProducts() {
           </DrawerContent>
         </Drawer>
       ) : null}
-      {search.edit && detail ? (
+      {search.edit && detail?.id === search.edit ? (
         <ProductEditor
           key={detail.id}
           product={detail}

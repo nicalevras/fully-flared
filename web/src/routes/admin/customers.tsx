@@ -1,14 +1,14 @@
-import { useState } from 'react';
+import { createContext, useContext, useState } from 'react';
 import { staffMiddleware } from '../../server/staff-middleware';
 import { requireStaffPermission } from '../../server/session';
 import { adminCustomers } from '../../server/admin-lists';
 import { pageInputSchema } from '../../schemas/pagination';
 import * as z from 'zod';
 import { contactHistory, lookupContact } from '../../server/admin-contacts';
-import { btnPrimary } from '../../components/ui';
+import { btnPrimary, btnSmall } from '../../components/ui';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { validateServerInput } from '../../server/function-boundary';
-import type { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table';
+import type { CellContext, ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table';
 import { DataTable, DataTableSearch } from '../../components/ui/data-table';
 import type { DataTableFeatures } from '../../components/data-table-features';
 import { formatDate } from '../../lib/format';
@@ -58,6 +58,69 @@ export const Route = createFileRoute('/admin/customers')({
   component: AdminCustomers,
 });
 
+type CustomerRow = Awaited<ReturnType<typeof getData>>['customers'][number];
+type RoleControlState = {
+  canManage: boolean;
+  staged: Record<string, string>;
+  busyId: string;
+  stage: (customer: CustomerRow, role: string) => void;
+  requestSave: (customer: CustomerRow, role: string) => void;
+};
+const RoleControls = createContext<RoleControlState | null>(null);
+
+// A module-level cell keeps its identity across renders, so staging a role
+// does not remount the select and the keyboard keeps its place.
+function RoleCell({ row }: CellContext<DataTableFeatures, CustomerRow>) {
+  const controls = useContext(RoleControls);
+  const c = row.original;
+  if (!controls?.canManage)
+    return <Badge tone={c.role === 'customer' ? 'gray' : 'green'}>{c.role}</Badge>;
+  const staged = controls.staged[c.id];
+  const busy = controls.busyId === c.id;
+  return (
+    <span className="flex items-center gap-2">
+      <label className="sr-only" htmlFor={`role-${c.id}`}>
+        Role for {c.email}
+      </label>
+      <select
+        id={`role-${c.id}`}
+        className={`${inputCls} h-9 w-36`}
+        value={staged ?? c.role}
+        disabled={busy}
+        onChange={(e) => controls.stage(c, e.target.value)}
+      >
+        {ROLES.map((r) => (
+          <option key={r} value={r}>
+            {r}
+          </option>
+        ))}
+      </select>
+      {staged ? (
+        <>
+          <button
+            type="button"
+            className={btnSmall}
+            aria-label={`Save role for ${c.email}`}
+            disabled={busy}
+            onClick={() => controls.requestSave(c, staged)}
+          >
+            Save
+          </button>
+          <button
+            type="button"
+            className={btnSmall}
+            aria-label={`Discard role change for ${c.email}`}
+            disabled={busy}
+            onClick={() => controls.stage(c, c.role)}
+          >
+            Discard
+          </button>
+        </>
+      ) : null}
+    </span>
+  );
+}
+
 function AdminCustomers() {
   const adminAction = useAdminAction();
 
@@ -70,6 +133,32 @@ function AdminCustomers() {
   const [msg, setMsg] = useState('');
   const [busyId, setBusyId] = useState('');
   const canManageRoles = myRole === 'owner' || myRole === 'admin';
+  const [stagedRoles, setStagedRoles] = useState<Record<string, string>>({});
+  const [roleChange, setRoleChange] = useState<{ customer: CustomerRow; role: string } | null>(
+    null
+  );
+
+  async function saveRole({ customer, role }: NonNullable<typeof roleChange>) {
+    setBusyId(customer.id);
+    const r = await adminAction('user.setRole', { userId: customer.id, role });
+    setBusyId('');
+    setStagedRoles(({ [customer.id]: _saved, ...rest }) => rest);
+    if (r.ok) {
+      setMsg(`${customer.email} is now ${role}.`);
+      router.invalidate();
+    } else setMsg(r.error ?? 'Failed');
+  }
+
+  const roleControls: RoleControlState = {
+    canManage: canManageRoles,
+    staged: stagedRoles,
+    busyId,
+    stage: (customer, role) =>
+      setStagedRoles(({ [customer.id]: _previous, ...rest }) =>
+        role === customer.role ? rest : { ...rest, [customer.id]: role }
+      ),
+    requestSave: (customer, role) => setRoleChange({ customer, role }),
+  };
 
   const customerColumns: ColumnDef<DataTableFeatures, (typeof customers)[number]>[] = [
     {
@@ -102,43 +191,7 @@ function AdminCustomers() {
       id: 'role',
       accessorKey: 'role',
       header: 'Role',
-      cell: ({ row }) => {
-        const c = row.original;
-        return canManageRoles ? (
-          <span className="flex items-center gap-2">
-            <label className="sr-only" htmlFor={`role-${c.id}`}>
-              Role for {c.email}
-            </label>
-            <select
-              id={`role-${c.id}`}
-              className={`${inputCls} h-9 w-36`}
-              defaultValue={c.role}
-              disabled={busyId === c.id}
-              onChange={async (e) => {
-                const role = e.target.value;
-                setBusyId(c.id);
-                const r = await adminAction('user.setRole', { userId: c.id, role });
-                setBusyId('');
-                if (r.ok) {
-                  setMsg(`${c.email} is now ${role}.`);
-                  router.invalidate();
-                } else {
-                  setMsg(r.error ?? 'Failed');
-                  e.target.value = c.role;
-                }
-              }}
-            >
-              {ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
-            </select>
-          </span>
-        ) : (
-          <Badge tone={c.role === 'customer' ? 'gray' : 'green'}>{c.role}</Badge>
-        );
-      },
+      cell: RoleCell,
     },
     {
       id: 'orders',
@@ -368,24 +421,26 @@ function AdminCustomers() {
       ) : null}
 
       <section className="mt-6">
-        <DataTable
-          caption="Customers and staff"
-          emptyMessage={search.q ? 'No accounts match this search.' : 'No accounts yet.'}
-          columns={customerColumns}
-          data={customers}
-          pageIndex={page - 1}
-          pageSize={200}
-          rowCount={total}
-          onPaginationChange={handlePaginationChange}
-          toolbar={
-            <DataTableSearch
-              value={search.q}
-              onSearch={(q) => void navigate({ search: { page: 1, q, email: '' } })}
-              placeholder="ada@example.com"
-              ariaLabel="Find a contact by email"
-            />
-          }
-        />
+        <RoleControls.Provider value={roleControls}>
+          <DataTable
+            caption="Customers and staff"
+            emptyMessage={search.q ? 'No accounts match this search.' : 'No accounts yet.'}
+            columns={customerColumns}
+            data={customers}
+            pageIndex={page - 1}
+            pageSize={200}
+            rowCount={total}
+            onPaginationChange={handlePaginationChange}
+            toolbar={
+              <DataTableSearch
+                value={search.q}
+                onSearch={(q) => void navigate({ search: { page: 1, q, email: '' } })}
+                placeholder="ada@example.com"
+                ariaLabel="Find a contact by email"
+              />
+            }
+          />
+        </RoleControls.Provider>
       </section>
       <section className={`${cardCls} mt-6 p-4`} aria-label="Staff accounts on this page">
         <h2 className="text-sm font-medium text-zinc-950">Staff on this page</h2>
@@ -412,6 +467,30 @@ function AdminCustomers() {
         </p>
       ) : null}
 
+      <ConfirmDialog
+        request={
+          roleChange
+            ? roleChange.role === 'owner'
+              ? {
+                  title: 'Make this account an owner?',
+                  body: `${roleChange.customer.email} will be able to change every setting and every role, including yours.`,
+                  confirmLabel: 'Make owner',
+                }
+              : {
+                  title: 'Change this role?',
+                  body: `Change ${roleChange.customer.email} from ${roleChange.customer.role} to ${roleChange.role}?`,
+                  confirmLabel: `Make ${roleChange.role}`,
+                }
+            : null
+        }
+        busy={!!busyId}
+        onCancel={() => setRoleChange(null)}
+        onConfirm={() => {
+          const change = roleChange;
+          setRoleChange(null);
+          if (change) void saveRole(change);
+        }}
+      />
       <ConfirmDialog
         request={
           deleteTarget

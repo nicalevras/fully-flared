@@ -10,7 +10,7 @@ import {
 } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import { getStorefrontLayout } from '../server/catalog-read';
-import { cartCountFromCookie } from '../lib/cart-cookie';
+import { CART_COUNT_SIGNAL, cartChangedCount, cartCountFromCookie } from '../lib/cart-cookie';
 import { mediaUrl } from '../lib/media-url';
 import { BagIcon, MenuIcon, SearchIcon, UserIcon } from '../components/icons';
 import { XIcon } from 'lucide-react';
@@ -121,15 +121,21 @@ function CartCount() {
   // public HTML renders the same badge for every shopper.
   const [count, setCount] = useState(0);
   useEffect(() => {
-    setCount(cartCountFromCookie(document.cookie));
-  }, []);
-  useEffect(() => {
+    const readCookie = () => setCount(cartCountFromCookie(document.cookie));
     const onChanged = (e: Event) => {
-      const next = (e as CustomEvent<{ count?: number }>).detail?.count;
-      if (typeof next === 'number') setCount(next);
+      const next = cartChangedCount(e);
+      if (next !== undefined) setCount(next);
     };
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === CART_COUNT_SIGNAL) readCookie();
+    };
+    readCookie();
     window.addEventListener('cart-changed', onChanged);
-    return () => window.removeEventListener('cart-changed', onChanged);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener('cart-changed', onChanged);
+      window.removeEventListener('storage', onStorage);
+    };
   }, []);
   if (count === 0) return null;
   return (
@@ -344,9 +350,6 @@ export function StorefrontLayout() {
             ) : (
               <p className="text-base font-normal tracking-tight text-zinc-950">{storeName}</p>
             )}
-            <p className="mt-3 max-w-xs text-sm leading-6 text-zinc-400">
-              Considered goods, honest prices, and shipping you can track from our door to yours.
-            </p>
           </div>
           <nav aria-label="Shop">
             <p className="text-sm font-medium text-zinc-950">Shop</p>
@@ -422,11 +425,6 @@ export function StorefrontLayout() {
               <li>
                 <Link to="/pages/$slug" params={{ slug: 'terms' }} className="hover:text-zinc-950">
                   Terms of service
-                </Link>
-              </li>
-              <li>
-                <Link to="/admin" className="hover:text-zinc-950">
-                  Store admin
                 </Link>
               </li>
             </ul>

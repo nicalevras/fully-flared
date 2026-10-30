@@ -110,6 +110,15 @@ export async function readSettings(db: D1Database): Promise<StoreSettings> {
   };
 }
 
+/** When each stored setting last changed, the version a settings save
+ * must still match. */
+export async function settingVersions(db: D1Database): Promise<Record<string, string>> {
+  const rows = await getDb(db)
+    .select({ key: settingsT.key, updatedAt: settingsT.updatedAt })
+    .from(settingsT);
+  return Object.fromEntries(rows.map((r) => [r.key, r.updatedAt]));
+}
+
 export async function setSetting(db: D1Database, key: string, value: string) {
   validateSetting(key, value);
   const now = new Date().toISOString();

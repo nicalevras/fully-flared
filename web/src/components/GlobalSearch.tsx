@@ -62,13 +62,7 @@ export function GlobalSearchDialog() {
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const run = useServerFn(searchFn);
-  const {
-    active,
-    reset,
-    onKeyDown: paletteKeyDown,
-  } = usePaletteNavigation((index) => {
-    listRef.current?.querySelectorAll('a')[index]?.click();
-  });
+  const { active, reset, onKeyDown: paletteKeyDown } = usePaletteNavigation();
 
   const close = () => {
     gate.current.invalidate();
@@ -114,14 +108,8 @@ export function GlobalSearchDialog() {
 
   useEffect(() => {
     queryRef.current = q;
-    if (!open) return;
     const query = q.trim();
-    if (query.length < 2) {
-      gate.current.invalidate();
-      setResult(null);
-      setSearchError(null);
-      return;
-    }
+    if (!open || query.length < 2) return;
     const timer = setTimeout(async () => {
       try {
         const outcome = await runLatestSearch(
@@ -141,7 +129,7 @@ export function GlobalSearchDialog() {
       }
     }, 250);
     return () => clearTimeout(timer);
-  }, [open, q, run]);
+  }, [open, q, run, reset]);
 
   if (!open) return null;
   const linkCount =
@@ -170,10 +158,20 @@ export function GlobalSearchDialog() {
           autoFocus
           value={q}
           placeholder="Search products, orders, customers"
-          onChange={(e) => setQ(e.target.value)}
+          onChange={(e) => {
+            setQ(e.target.value);
+            if (e.target.value.trim().length < 2) {
+              gate.current.invalidate();
+              setResult(null);
+              setSearchError(null);
+            }
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Escape') close();
-            else paletteKeyDown(e, linkCount);
+            else
+              paletteKeyDown(e, linkCount, (index) => {
+                listRef.current?.querySelectorAll('a')[index]?.click();
+              });
           }}
         />
         {searchError ? (

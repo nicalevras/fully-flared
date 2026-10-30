@@ -9,14 +9,17 @@ import {
 } from '../../components/ui/table';
 import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router';
 import { createServerFn, useServerFn } from '@tanstack/react-start';
-import * as z from 'zod';
 import { ChevronDownIcon, ChevronRightIcon, MinusIcon, PlusIcon, XIcon } from 'lucide-react';
 import { staffMiddleware } from '../../server/staff-middleware';
+import { requireStaffPermission } from '../../server/session';
 import { validateServerInput } from '../../server/function-boundary';
 import { useAdminAction } from '../../components/AdminNav';
 import {
+  adminInventoryDetail,
   adminInventoryList,
   inventoryListInputSchema,
+  skuDetailInputSchema,
+  type InventoryDetail,
   type InventoryProductGroup,
   type InventorySkuRow,
 } from '../../server/admin-inventory';
@@ -61,62 +64,18 @@ import { Switch } from '@/components/ui/switch';
 const getList = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
   .validator(validateServerInput(inventoryListInputSchema))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    requireStaffPermission(context.staff, 'stock', 'view');
     const { env } = await import('cloudflare:workers');
     return adminInventoryList(env.DB, data);
   });
 
-type InventoryDetail = {
-  sku: string;
-  variantTitle: string;
-  productId: string;
-  productTitle: string;
-  onHand: number;
-  reserved: number;
-  available: number;
-  history: Array<{
-    id: string;
-    delta_on_hand: number;
-    delta_reserved: number;
-    reason: string;
-    created_at: string;
-  }>;
-};
-
-const skuDetailInput = z.object({ sku: z.string().max(100) });
-
 const getSkuDetail = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
-  .validator(validateServerInput(skuDetailInput))
-  .handler(async ({ data }): Promise<InventoryDetail | null> => {
+  .validator(validateServerInput(skuDetailInputSchema))
+  .handler(async ({ data, context }) => {
     const { env } = await import('cloudflare:workers');
-    const db = env.DB;
-    const head = await db
-      .prepare(
-        `SELECT v.sku, v.title AS variantTitle, v.product_id AS productId, p.title AS productTitle,
-                COALESCE(s.on_hand, 0) AS onHand, COALESCE(s.reserved, 0) AS reserved
-         FROM variants v
-         JOIN products p ON p.id = v.product_id
-         LEFT JOIN stock s ON s.sku = v.sku
-         WHERE v.sku = ?`
-      )
-      .bind(data.sku.trim())
-      .first<{
-        sku: string;
-        variantTitle: string;
-        productId: string;
-        productTitle: string;
-        onHand: number;
-        reserved: number;
-      }>();
-    if (!head) return null;
-    const history = await db
-      .prepare(
-        'SELECT id, delta_on_hand, delta_reserved, reason, created_at FROM stock_ledger WHERE sku = ? ORDER BY created_at DESC, id DESC LIMIT 50'
-      )
-      .bind(head.sku)
-      .all<InventoryDetail['history'][number]>();
-    return { ...head, available: head.onHand - head.reserved, history: history.results };
+    return adminInventoryDetail(env.DB, context.staff, data.sku);
   });
 
 export const Route = createFileRoute('/admin/inventory')({
@@ -201,6 +160,8 @@ function StockStepper({
   );
 }
 
+const NONE_EXPANDED: Readonly<Record<string, boolean>> = {};
+
 function AdminInventory() {
   const adminAction = useAdminAction();
   const router = useRouter();
@@ -208,12 +169,17 @@ function AdminInventory() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const navigateAll = useNavigate();
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const view = JSON.stringify([search.q, search.page, search.low]);
+  const [expansion, setExpansion] = useState<{
+    view: string;
+    rows: Readonly<Record<string, boolean>>;
+  }>({ view, rows: {} });
+  const expanded = expansion.view === view ? expansion.rows : NONE_EXPANDED;
+  const toggleExpanded = (groupId: string) =>
+    setExpansion({ view, rows: { ...expanded, [groupId]: !(expanded[groupId] ?? false) } });
   const [staged, setStaged] = useState<Record<string, StagedAdjustment>>({});
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<AdminActionFeedbackState>(null);
-
-  useEffect(() => setExpanded({}), [search.q, search.page, search.low]);
 
   const skuRows = useMemo(() => {
     const map = new Map<string, InventorySkuRow>();
@@ -327,7 +293,7 @@ function AdminInventory() {
               type="button"
               aria-expanded={open}
               aria-label={`${open ? 'Collapse' : 'Expand'} ${group.title}`}
-              onClick={() => setExpanded((current) => ({ ...current, [group.id]: !open }))}
+              onClick={() => toggleExpanded(group.id)}
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-950/5 hover:text-zinc-950"
             >
               {open ? (
@@ -440,8 +406,7 @@ function AdminInventory() {
 
   const handleRowClick = (row: InventoryTableRow) => {
     if (row.kind === 'product') {
-      const group = row.group;
-      setExpanded((current) => ({ ...current, [group.id]: !(current[group.id] ?? false) }));
+      toggleExpanded(row.group.id);
       return;
     }
     void navigate({

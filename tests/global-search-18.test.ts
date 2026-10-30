@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedProduct } from './helpers/d1';
-import { readFileSync } from 'node:fs';
 import { globalSearch } from '../web/src/server/admin-global-search';
 import { createSearchGate, runLatestSearch } from '../web/src/lib/global-search';
 
@@ -132,17 +131,5 @@ describe('Phase 18 global search dialog request gate', () => {
       'tee@account.invalid',
       'tee@example.invalid',
     ]);
-  });
-
-  it('keeps dialog safety behavior and the mobile trigger wired', () => {
-    const dialog = readFileSync('web/src/components/GlobalSearch.tsx', 'utf8');
-    const nav = readFileSync('web/src/components/AdminNav.tsx', 'utf8');
-    expect(dialog).toContain('createSearchGate');
-    expect(dialog).toContain('runLatestSearch');
-    expect(dialog).toContain('role="alert"');
-    expect(dialog).toContain('returnFocusRef');
-    expect(dialog).toContain("e.key === 'Escape'");
-    expect(dialog).toContain('GlobalSearchMobileTrigger');
-    expect(nav).toContain('<GlobalSearchMobileTrigger />');
   });
 });

@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { createServerFn } from '@tanstack/react-start';
 import { Link } from '@tanstack/react-router';
 import { EllipsisIcon, PlusIcon, XIcon } from 'lucide-react';
 import { staffMiddleware } from '../server/staff-middleware';
+import { requireStaffPermission } from '../server/session';
 import { validateServerInput } from '../server/function-boundary';
 import { idString } from '../schemas/common';
 import { ExpandableEditor } from './ExpandableEditor';
@@ -49,7 +50,8 @@ type PostRow = {
 export const getPostDetail = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
   .validator(validateServerInput(idString))
-  .handler(async ({ data: postId }): Promise<PostRow | null> => {
+  .handler(async ({ data: postId, context }): Promise<PostRow | null> => {
+    requireStaffPermission(context.staff, 'post', 'view');
     const { env } = await import('cloudflare:workers');
     const row = await env.DB.prepare(
       `SELECT p.id, p.slug, p.title, p.status, p.excerpt, p.content_html, p.content_json,
@@ -320,16 +322,16 @@ function EditorForm({
       if (stagedCover) URL.revokeObjectURL(stagedCover.url);
     };
   }, [stagedCover]);
-  const initialRef = useRef(form);
+  const [initial] = useState(form);
   const dirty =
-    JSON.stringify(form) !== JSON.stringify(initialRef.current) ||
-    contentHtml !== initialRef.current.contentHtml ||
+    JSON.stringify(form) !== JSON.stringify(initial) ||
+    contentHtml !== initial.contentHtml ||
     contentJson !== (post?.content_json ?? '') ||
     stagedCover !== null;
   useEffect(() => {
     onDirtyChange(dirty);
   });
-  saveRef.current = async () => {
+  const save = async () => {
     let coverMediaId = form.coverMediaId;
     if (stagedCover) {
       try {
@@ -364,6 +366,7 @@ function EditorForm({
       onSaved();
     } else onFeedback({ kind: 'error', message: result.error });
   };
+  useImperativeHandle(saveRef, () => save);
 
   return (
     <>

@@ -18,7 +18,7 @@ const discountId = async (code: string) =>
   (await db.prepare('SELECT id FROM discounts WHERE code = ?').bind(code).first<{ id: string }>())
     ?.id ?? '';
 
-async function useOnce(id: string, orderId: string) {
+async function recordUsage(id: string, orderId: string) {
   await db
     .prepare(
       "INSERT INTO discount_usage (id, discount_id, order_id, customer_email, amount_cents, created_at) VALUES (?, ?, ?, 'buyer@example.com', 100, '2026-10-30T00:00:00.000Z')"
@@ -36,9 +36,9 @@ it('create stores usage_per_customer=3 and checkout allows 3', async () => {
   });
   expect(created.ok).toBe(true);
   const id = await discountId('THRICE');
-  for (const order of ['o1', 'o2']) await useOnce(id, order);
+  for (const order of ['o1', 'o2']) await recordUsage(id, order);
   expect(await calculateDiscount(db, 'THRICE', 2000, 'buyer@example.com')).not.toBeNull();
-  await useOnce(id, 'o3');
+  await recordUsage(id, 'o3');
   expect(await calculateDiscount(db, 'THRICE', 2000, 'buyer@example.com')).toBeNull();
 });
 

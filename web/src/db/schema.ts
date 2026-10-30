@@ -200,6 +200,7 @@ export const variants = sqliteTable(
       .notNull()
       .default('active'),
     continueSelling: integer('continue_selling', { mode: 'boolean' }).notNull().default(false),
+    version: integer('version').notNull().default(0),
     createdAt: text('created_at').notNull(),
   },
   (t) => [index('variants_product_idx').on(t.productId)]

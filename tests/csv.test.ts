@@ -26,6 +26,10 @@ describe('RFC 4180 CSV parser', () => {
     expect(csv).toContain("'=SUM(1,2)");
     expect(parseCsv(csv)[1]).toEqual(['A, B', "'=SUM(1,2)"]);
   });
+
+  it('tab and CR prefixes are escaped', () => {
+    expect(parseCsv(toCsv([{ tab: '\t=1+2', cr: '\r=1+2' }]))[1]).toEqual(["'\t=1+2", "'\r=1+2"]);
+  });
 });
 
 describe('CSV product import with per-row errors', () => {

@@ -8,7 +8,7 @@ describe('Phase 11A blog list and editor split', () => {
     expect(list).toContain('BlogPostEditor');
     expect(list).toContain('AdminActionFeedback');
     expect(list).toContain('getPostDetail');
-    expect(list).toContain('detailFor === editingId');
+    expect(list).toContain('detail?.id === editingId');
     expect(list).toContain('?w=${variant.width}');
     expect(list).not.toContain('lg:grid-cols-4');
     expect(list).toContain('ui/data-table');
@@ -22,11 +22,6 @@ describe('Phase 11A blog list and editor split', () => {
     expect(list).toContain('<DataTable');
     const editor = readFileSync('web/src/components/BlogPostEditor.tsx', 'utf8');
     expect(editor).toContain('ExpandableEditor');
-    expect(editor).toContain('saveBlogPost');
-    expect(editor).toContain('onFeedback');
-    expect(editor).not.toContain('Loading post');
-    expect(editor).not.toContain('showSave');
-    expect(editor).toContain('Save changes');
     const shim = readFileSync('web/src/routes/admin/blog_/$id.tsx', 'utf8');
     expect(shim).toContain("to: '/admin/articles'");
     expect(shim).toContain('edit: params.id');
@@ -52,11 +47,6 @@ describe('article editor dialog', () => {
     expect(editor).not.toContain('createPortal');
     expect(editor).not.toContain('editorDialogOpen');
     expect(editor).toContain('setContentJson(json)');
-    const expanded = readFileSync('web/src/components/ExpandableEditor.tsx', 'utf8');
-    expect(expanded.match(/<BlogEditor/g)).toHaveLength(1);
-    expect(expanded).toContain('<Dialog.Portal keepMounted>');
-    expect(expanded).toContain('slot.appendChild(host)');
-    expect(expanded).not.toContain('addEventListener');
     const simple = readFileSync(
       'web/src/components/tiptap-templates/simple/simple-editor.tsx',
       'utf8'

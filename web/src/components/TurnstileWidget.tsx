@@ -1,4 +1,4 @@
-import { useEffect, useRef, type MutableRefObject } from 'react';
+import { useEffect, useEffectEvent, useRef, type MutableRefObject } from 'react';
 
 type TurnstileApi = {
   render: (
@@ -50,8 +50,7 @@ export function TurnstileWidget({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetIdRef = useRef<string | null>(null);
-  const tokenRef = useRef(onToken);
-  tokenRef.current = onToken;
+  const reportToken = useEffectEvent((token: string) => onToken(token));
 
   useEffect(() => {
     if (!siteKey || !containerRef.current) return;
@@ -62,9 +61,9 @@ export function TurnstileWidget({
         widgetIdRef.current = window.turnstile.render(containerRef.current, {
           sitekey: siteKey,
           action,
-          callback: (token) => tokenRef.current(token),
-          'expired-callback': () => tokenRef.current(''),
-          'error-callback': () => tokenRef.current(''),
+          callback: (token) => reportToken(token),
+          'expired-callback': () => reportToken(''),
+          'error-callback': () => reportToken(''),
         });
         if (resetRef) {
           resetRef.current = () => {
@@ -73,7 +72,7 @@ export function TurnstileWidget({
           };
         }
       })
-      .catch(() => tokenRef.current(''));
+      .catch(() => reportToken(''));
 
     return () => {
       cancelled = true;

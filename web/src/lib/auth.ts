@@ -242,7 +242,22 @@ export function createAuth(
     plugins: [
       adminPlugin,
       ...(turnstileSecretKey
-        ? [captcha({ provider: 'cloudflare-turnstile', secretKey: turnstileSecretKey })]
+        ? [
+            captcha({
+              provider: 'cloudflare-turnstile',
+              secretKey: turnstileSecretKey,
+              // Setting endpoints replaces the defaults, so the list repeats them.
+              endpoints: [
+                '/sign-up/email',
+                '/sign-in/email',
+                '/request-password-reset',
+                '/sign-in/magic-link',
+                '/send-verification-email',
+              ],
+              allowedHostnames: [new URL(baseURL).hostname],
+              expectedAction: 'auth',
+            }),
+          ]
         : []),
       twoFactor({ issuer: appName }),
       trustedDeviceMarker(db),

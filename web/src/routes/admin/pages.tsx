@@ -1,13 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { staffMiddleware } from '../../server/staff-middleware';
+import { requireStaffPermission } from '../../server/session';
 import { createFileRoute, useRouter, type SearchSchemaInput } from '@tanstack/react-router';
-import { createServerFn, useServerFn } from '@tanstack/react-start';
+import { createServerFn } from '@tanstack/react-start';
 import { PlusIcon, XIcon } from 'lucide-react';
 import {
   AdminActionFeedback,
   type AdminActionFeedbackState,
 } from '../../components/AdminActionFeedback';
-import { PageEditor, getPageDetail, type PageDetail } from '../../components/PageEditor';
+import { PageEditor, getPageDetail } from '../../components/PageEditor';
 import {
   Drawer,
   DrawerClose,
@@ -64,7 +65,8 @@ const getData = createServerFn({ method: 'GET' })
       })
     )
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    requireStaffPermission(context.staff, 'page', 'view');
     const { env } = await import('cloudflare:workers');
     const q = data.q.trim();
     // < 3 chars cannot hit the trigram index; return nothing rather than scan.
@@ -102,13 +104,25 @@ export const Route = createFileRoute('/admin/pages')({
         : 1,
     size: isPageSize(search.size) ? search.size : undefined,
   }),
-  loaderDeps: ({ search }) => ({ q: search.q ?? '', page: search.page, size: search.size ?? 25 }),
-  loader: async ({ deps }) => getData({ data: deps }),
+  loaderDeps: ({ search }) => ({
+    q: search.q ?? '',
+    page: search.page,
+    size: search.size ?? 25,
+    edit: search.edit && search.edit !== 'new' ? search.edit : '',
+  }),
+  loader: async ({ deps: { edit, ...list } }) => {
+    const [data, detail] = await Promise.all([
+      getData({ data: list }),
+      // A missing or unreadable item opens the not-found drawer.
+      edit ? getPageDetail({ data: edit }).catch(() => null) : null,
+    ]);
+    return { ...data, detail };
+  },
   component: AdminPages,
 });
 
 function AdminPages() {
-  const { pages, total, page, pageSize } = Route.useLoaderData();
+  const { pages, total, page, pageSize, detail } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
@@ -116,34 +130,6 @@ function AdminPages() {
   const [createOpen, setCreateOpen] = useState(false);
 
   const editingId = search.edit && search.edit !== 'new' ? search.edit : null;
-  const detailFn = useServerFn(getPageDetail);
-  const [detail, setDetail] = useState<PageDetail | null>(null);
-  const [detailFor, setDetailFor] = useState('');
-  useEffect(() => {
-    if (!editingId) {
-      setDetail(null);
-      setDetailFor('');
-      return;
-    }
-    let cancelled = false;
-    setDetailFor('');
-    detailFn({ data: editingId })
-      .then((row) => {
-        if (!cancelled) {
-          setDetail(row);
-          setDetailFor(editingId);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setDetail(null);
-          setDetailFor(editingId);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [editingId]);
   const openEditor = (id: string) =>
     void navigate({ search: { q: search.q, page: search.page, size: search.size, edit: id } });
   const closeDrawer = () => {
@@ -227,7 +213,7 @@ function AdminPages() {
           onSaved={handleSaved}
         />
       ) : null}
-      {editingId && detail && detailFor === editingId ? (
+      {editingId && detail?.id === editingId ? (
         <PageEditor
           key={detail.id}
           page={detail}
@@ -236,7 +222,7 @@ function AdminPages() {
           onSaved={handleSaved}
         />
       ) : null}
-      {editingId && detailFor === editingId && !detail ? (
+      {editingId && !detail ? (
         <Drawer
           instant
           swipeDirection="right"

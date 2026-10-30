@@ -1,18 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { staffMiddleware } from '../../server/staff-middleware';
+import { requireStaffPermission } from '../../server/session';
 import { createFileRoute, useRouter, type SearchSchemaInput } from '@tanstack/react-router';
-import { createServerFn, useServerFn } from '@tanstack/react-start';
+import { createServerFn } from '@tanstack/react-start';
 import { PlusIcon, XIcon } from 'lucide-react';
 import { StatusBadge } from '../../components/StatusBadge';
 import {
   AdminActionFeedback,
   type AdminActionFeedbackState,
 } from '../../components/AdminActionFeedback';
-import {
-  BlogPostEditor,
-  getPostDetail,
-  type BlogPostDetail,
-} from '../../components/BlogPostEditor';
+import { BlogPostEditor, getPostDetail } from '../../components/BlogPostEditor';
 import {
   Drawer,
   DrawerClose,
@@ -126,7 +123,8 @@ const getData = createServerFn({ method: 'GET' })
       })
     )
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    requireStaffPermission(context.staff, 'post', 'view');
     const { env } = await import('cloudflare:workers');
     const q = data.q.trim();
     // < 3 chars cannot hit the trigram index; return nothing rather than scan.
@@ -172,8 +170,20 @@ export const Route = createFileRoute('/admin/articles')({
         : 1,
     size: isPageSize(search.size) ? search.size : undefined,
   }),
-  loaderDeps: ({ search }) => ({ q: search.q ?? '', page: search.page, size: search.size ?? 25 }),
-  loader: async ({ deps }) => getData({ data: deps }),
+  loaderDeps: ({ search }) => ({
+    q: search.q ?? '',
+    page: search.page,
+    size: search.size ?? 25,
+    edit: search.edit && search.edit !== 'new' ? search.edit : '',
+  }),
+  loader: async ({ deps: { edit, ...list } }) => {
+    const [data, detail] = await Promise.all([
+      getData({ data: list }),
+      // A missing or unreadable item opens the not-found drawer.
+      edit ? getPostDetail({ data: edit }).catch(() => null) : null,
+    ]);
+    return { ...data, detail };
+  },
   component: AdminBlog,
 });
 
@@ -194,7 +204,7 @@ function coverVariants(row: PostRow): Array<{ width: number; url: string }> | un
 }
 
 function AdminBlog() {
-  const { posts, total, page, pageSize } = Route.useLoaderData();
+  const { posts, total, page, pageSize, detail } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
@@ -202,34 +212,6 @@ function AdminBlog() {
   const [createOpen, setCreateOpen] = useState(false);
 
   const editingId = search.edit && search.edit !== 'new' ? search.edit : null;
-  const detailFn = useServerFn(getPostDetail);
-  const [detail, setDetail] = useState<BlogPostDetail | null>(null);
-  const [detailFor, setDetailFor] = useState('');
-  useEffect(() => {
-    if (!editingId) {
-      setDetail(null);
-      setDetailFor('');
-      return;
-    }
-    let cancelled = false;
-    setDetailFor('');
-    detailFn({ data: editingId })
-      .then((row) => {
-        if (!cancelled) {
-          setDetail(row);
-          setDetailFor(editingId);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setDetail(null);
-          setDetailFor(editingId);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [editingId]);
   const openEditor = (id: string) =>
     void navigate({ search: { q: search.q, page: search.page, size: search.size, edit: id } });
   const closeDrawer = () => {
@@ -312,7 +294,7 @@ function AdminBlog() {
           onSaved={handleSaved}
         />
       ) : null}
-      {editingId && detail && detailFor === editingId ? (
+      {editingId && detail?.id === editingId ? (
         <BlogPostEditor
           key={detail.id}
           post={detail}
@@ -321,7 +303,7 @@ function AdminBlog() {
           onSaved={handleSaved}
         />
       ) : null}
-      {editingId && detailFor === editingId && !detail ? (
+      {editingId && !detail ? (
         <Drawer
           instant
           swipeDirection="right"

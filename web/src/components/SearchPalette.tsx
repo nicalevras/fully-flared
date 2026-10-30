@@ -86,6 +86,8 @@ export function SearchPaletteDialog() {
     card,
   }));
 
+  const { active, setActive, reset, onKeyDown } = usePaletteNavigation();
+
   const close = () => {
     gate.current.invalidate();
     setOpen(false);
@@ -102,7 +104,6 @@ export function SearchPaletteDialog() {
     close();
   };
 
-  const { active, setActive, reset, onKeyDown } = usePaletteNavigation(activate);
   const activeIndex = items.length > 0 ? Math.min(active, items.length - 1) : 0;
 
   useEffect(() => {
@@ -147,19 +148,7 @@ export function SearchPaletteDialog() {
   }, [open, runSuggestions, reset]);
 
   useEffect(() => {
-    queryRef.current = q;
-    if (!open) return;
-    if (query.length < 3) {
-      gate.current.invalidate();
-      setQueryState(null);
-      return;
-    }
-    const cached = cache.current.get(query.toLowerCase());
-    if (cached) {
-      setQueryState({ query, kind: 'result', value: cached });
-      reset();
-      return;
-    }
+    if (!open || query.length < 3 || cache.current.has(query.toLowerCase())) return;
     const timer = setTimeout(async () => {
       try {
         const outcome = await runLatestSearch(
@@ -178,12 +167,9 @@ export function SearchPaletteDialog() {
       }
     }, 250);
     return () => clearTimeout(timer);
-  }, [open, q, query, run, reset]);
+  }, [open, query, run, reset]);
 
-  let flatIndex = -1;
-  const renderItem = (item: PaletteItem) => {
-    flatIndex += 1;
-    const index = flatIndex;
+  const renderItem = (item: PaletteItem, index: number) => {
     const selected = index === activeIndex;
     return (
       <li key={item.key} role="option" id={`search-palette-item-${index}`} aria-selected={selected}>
@@ -261,12 +247,17 @@ export function SearchPaletteDialog() {
               value={q}
               placeholder="Search products…"
               onChange={(e) => {
+                const next = e.target.value;
+                const nextQuery = next.trim();
+                const cached =
+                  nextQuery.length >= 3 ? cache.current.get(nextQuery.toLowerCase()) : undefined;
                 gate.current.invalidate();
-                queryRef.current = e.target.value;
-                setQ(e.target.value);
+                queryRef.current = next;
+                setQ(next);
+                setQueryState(cached ? { query: nextQuery, kind: 'result', value: cached } : null);
                 reset();
               }}
-              onKeyDown={(e) => onKeyDown(e, items.length)}
+              onKeyDown={(e) => onKeyDown(e, items.length, activate)}
               className="min-w-0 flex-1 bg-transparent py-1.5 text-sm outline-none placeholder:text-muted-foreground"
             />
             <Dialog.Close

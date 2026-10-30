@@ -10,6 +10,7 @@ import {
 } from './ui/table';
 import { createServerFn } from '@tanstack/react-start';
 import { staffMiddleware } from '../server/staff-middleware';
+import { requireStaffPermission } from '../server/session';
 import { uploadMedia } from '../lib/upload';
 import { getRouteApi } from '@tanstack/react-router';
 import { AdminActionFeedback, type AdminActionFeedbackState } from './AdminActionFeedback';
@@ -63,7 +64,8 @@ import { ChevronDownIcon, MinusIcon, PlusIcon, XIcon } from 'lucide-react';
 
 export const getCollectionOptions = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
-  .handler(async (): Promise<Array<{ id: string; title: string }>> => {
+  .handler(async ({ context }): Promise<Array<{ id: string; title: string }>> => {
+    requireStaffPermission(context.staff, 'product', 'view');
     const { env } = await import('cloudflare:workers');
     const rows = await env.DB.prepare('SELECT id, title FROM collections ORDER BY title').all<{
       id: string;
@@ -116,9 +118,11 @@ export function ProductCreateDrawer({
   const [busy, setBusy] = useState(false);
   const [uploadPending, setUploadPending] = useState(false);
   const [openSections, setOpenSections] = useState<string[]>(['product-details']);
-  useEffect(() => {
+  const [shownOpen, setShownOpen] = useState(open);
+  if (shownOpen !== open) {
+    setShownOpen(open);
     if (open) setOpenSections(['product-details']);
-  }, [open]);
+  }
   const [useOptions, setUseOptions] = useState(false);
   const [groups, setGroups] = useState<VariantOptionGroup[]>([
     { name: 'Size', valuesText: 'Small, Medium, Large' },

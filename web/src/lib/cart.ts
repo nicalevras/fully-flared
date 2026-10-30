@@ -3,12 +3,14 @@ import { useServerFn } from '@tanstack/react-start';
 import { addCartLineFn, clearCartFn, getCart, setCartLineFn, type CartView } from './cartFns';
 import type { PricedLine, ShippingZoneView } from '../server/cart';
 import { formatMoney } from './format';
+import { signalCartCount } from './cart-cookie';
 
 // Client cart state is a mirror of the server cart (D1 + capability
 // cookie). Loaders seed the first render with priced lines, mutations go
 // through server functions, and the header badge updates from the
-// `cart-changed` event each mutation dispatches. There is no localStorage
-// cart any more, so SSR and the browser can never disagree.
+// `cart-changed` event each mutation dispatches; other tabs hear the count
+// through a localStorage signal. The cart itself never lives in
+// localStorage, so SSR and the browser can never disagree.
 export type { CartView, PricedLine, ShippingZoneView };
 export type ZoneRate = ShippingZoneView['rates'][number];
 export type Zone = ShippingZoneView;
@@ -24,6 +26,7 @@ function dispatchCartChanged(view: CartView) {
   mutationRevision++;
   recentView = { view, at: Date.now() };
   window.dispatchEvent(new CustomEvent('cart-changed', { detail: { count: view.count, view } }));
+  signalCartCount(view.count);
 }
 
 export class CartLockUnavailableError extends Error {

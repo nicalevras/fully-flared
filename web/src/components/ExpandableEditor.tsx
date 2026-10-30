@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Dialog } from '@base-ui/react/dialog';
 import { Maximize2Icon } from 'lucide-react';
@@ -37,12 +37,15 @@ export function ExpandableEditor({
   const [dialogSlot, setDialogSlot] = useState<HTMLDivElement | null>(null);
   const popupRef = useRef<HTMLDivElement>(null);
 
-  useLayoutEffect(() => {
+  const attachInlineSlot = useCallback((slot: HTMLDivElement) => {
+    inlineSlot.current = slot;
     const node = document.createElement('div');
     node.className = 'h-full';
+    slot.appendChild(node);
     setHost(node);
     return () => {
       node.remove();
+      inlineSlot.current = null;
     };
   }, []);
 
@@ -67,7 +70,7 @@ export function ExpandableEditor({
             Expand
           </Dialog.Trigger>
         </div>
-        <div ref={inlineSlot} />
+        <div ref={attachInlineSlot} />
       </div>
       <Dialog.Portal keepMounted>
         <Dialog.Backdrop className="fixed inset-0 z-50 bg-zinc-950/40 data-closed:hidden" />
