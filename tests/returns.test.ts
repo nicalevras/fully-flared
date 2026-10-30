@@ -167,3 +167,65 @@ it('a later full refund does not restock units that were never returned', async 
   expect(await onHand('TEE-1')).toBe(9);
   await expectLedgerMatchesCounters(db, 'TEE-1');
 });
+
+async function refundOrder(orderId: string, amountCents: number) {
+  const result = await runAdminAction(db, {}, owner, 'order.refund', {
+    requestId: `staff-${orderId}-${amountCents}`,
+    orderId,
+    amountCents,
+    restock: true,
+  });
+  expect(result.ok).toBe(true);
+  const refund = await db
+    .prepare(
+      "SELECT id FROM refunds WHERE order_id = ? AND purpose != 'return' AND status = 'pending'"
+    )
+    .bind(orderId)
+    .first<{ id: string }>();
+  return refund?.id ?? '';
+}
+
+it('a full refund after a restocked partial return restocks only the units not yet returned', async () => {
+  const o = await paidOrder('rest', [
+    { sku: 'TEE-1', qty: 2 },
+    { sku: 'MUG-1', qty: 1 },
+  ]);
+  await refundReturn(await approvedReturn(o.orderId, [{ sku: 'TEE-1', qty: 1 }]), 2000, true);
+  await settleRefund(db, await refundOrder(o.orderId, o.totalCents - 2000), 'succeeded');
+  expect(await onHand('TEE-1')).toBe(10);
+  expect(await onHand('MUG-1')).toBe(10);
+  await expectLedgerMatchesCounters(db, 'TEE-1');
+  await expectLedgerMatchesCounters(db, 'MUG-1');
+});
+
+it('a return that completes a restocking refund counts its returned units once', async () => {
+  const o = await paidOrder('completes', [
+    { sku: 'TEE-1', qty: 2 },
+    { sku: 'MUG-1', qty: 1 },
+  ]);
+  await settleRefund(db, await refundOrder(o.orderId, 1000), 'succeeded');
+  await refundReturn(
+    await approvedReturn(o.orderId, [{ sku: 'TEE-1', qty: 1 }]),
+    o.totalCents - 1000,
+    true
+  );
+  expect(await onHand('TEE-1')).toBe(10);
+  expect(await onHand('MUG-1')).toBe(10);
+  await expectLedgerMatchesCounters(db, 'TEE-1');
+  await expectLedgerMatchesCounters(db, 'MUG-1');
+});
+
+it('a return refund never restocks units an earlier full refund already restocked', async () => {
+  const o = await paidOrder('restocked', [{ sku: 'TEE-1', qty: 1 }]);
+  const staff = await refundOrder(o.orderId, o.totalCents);
+  await settleRefund(db, staff, 'succeeded');
+  await settleRefund(db, staff, 'failed');
+  expect(await onHand('TEE-1')).toBe(10);
+  await refundReturn(
+    await approvedReturn(o.orderId, [{ sku: 'TEE-1', qty: 1 }]),
+    o.totalCents,
+    true
+  );
+  expect(await onHand('TEE-1')).toBe(10);
+  await expectLedgerMatchesCounters(db, 'TEE-1');
+});
