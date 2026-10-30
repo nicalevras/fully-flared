@@ -30,6 +30,16 @@ export default tseslint.config(
     },
   },
   {
+    // D-14: application code proves types instead of asserting them.
+    // Vendored tiptap template code is excluded; `as const` stays allowed.
+    files: ['web/src/**/*.ts', 'web/src/**/*.tsx'],
+    ignores: ['web/src/components/tiptap-*/**', 'web/src/lib/tiptap-utils.ts'],
+    rules: {
+      '@typescript-eslint/consistent-type-assertions': ['error', { assertionStyle: 'never' }],
+      '@typescript-eslint/no-non-null-assertion': 'error',
+    },
+  },
+  {
     // Node CLI scripts (web): Node globals, console allowed.
     files: ['**/scripts/**/*.mjs', '**/scripts/**/*.js'],
     languageOptions: { globals: { ...globals.node } },
