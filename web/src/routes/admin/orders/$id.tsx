@@ -23,7 +23,8 @@ import {
   refundStatusLabel,
   refundedQtyBefore,
 } from '../../../lib/order-actions';
-import { roles, type StaffRole } from '../../../lib/permissions';
+import { roleFor } from '../../../lib/permissions';
+import { formatAddress } from '../../../lib/format';
 import {
   btnPrimary,
   btnSecondary,
@@ -138,13 +139,13 @@ const getData = createServerFn({ method: 'GET' })
             .all<
               NonNullable<OrderDetail>['returns'][number]['items'][number] & { return_id: string }
             >()
-        : { results: [] as Array<never> };
+        : { results: [] };
     const itemsByReturn = new Map<string, NonNullable<OrderDetail>['returns'][number]['items']>();
     for (const row of returnItemRows.results) {
       const { return_id, ...item } = row;
       itemsByReturn.set(return_id, [...(itemsByReturn.get(return_id) ?? []), item]);
     }
-    const role = roles[context.staff.role as StaffRole];
+    const role = roleFor(context.staff.role);
     return {
       ...order,
       items: items.results,
@@ -164,21 +165,6 @@ export const Route = createFileRoute('/admin/orders/$id')({
   loader: async ({ params }) => getData({ data: params.id }),
   component: OrderPage,
 });
-
-function formatAddress(json: string | null): string[] {
-  if (!json) return [];
-  try {
-    const a = JSON.parse(json) as Record<string, string | undefined>;
-    return [
-      a.line1,
-      a.line2,
-      [a.city, a.state, a.postal_code].filter(Boolean).join(', '),
-      a.country,
-    ].filter(Boolean) as string[];
-  } catch {
-    return [json];
-  }
-}
 
 function OrderPage() {
   const adminAction = useAdminAction();
@@ -500,14 +486,14 @@ function OrderPage() {
                           {formatMoney(refundedAmountFor(r.id), order.currency)}
                         </span>
                       ) : null}
-                      {order.refunds.find((f) => f.return_id === r.id) ? (
-                        <span className="block">
-                          Refund:{' '}
-                          {refundStatusLabel(
-                            order.refunds.find((f) => f.return_id === r.id)!.status
-                          )}
-                        </span>
-                      ) : null}
+                      {order.refunds
+                        .filter((f) => f.return_id === r.id)
+                        .slice(0, 1)
+                        .map((refund) => (
+                          <span key={refund.id} className="block">
+                            Refund: {refundStatusLabel(refund.status)}
+                          </span>
+                        ))}
                     </span>
                     <span className="text-zinc-400">
                       <LocalDate value={r.created_at} />
