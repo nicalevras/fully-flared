@@ -1,3 +1,7 @@
+/** Sends after the first: 60 s doubling to the one-hour cap, about 2 h in all. */
+export const MAX_EMAIL_ATTEMPTS = 8;
+export const OUTBOX_ALERT_PREFIX = 'outbox-alert-';
+
 export type EmailMessage = {
   to: string;
   subject: string;
@@ -44,7 +48,7 @@ export async function commitWithEmails(
     try {
       const rows = await db
         .prepare(
-          `SELECT id FROM outbox WHERE id IN (${page.map(() => '?').join(',')}) AND status IN ('pending','failed') AND attempts<3 AND (retry_after IS NULL OR retry_after<=?)`
+          `SELECT id FROM outbox WHERE id IN (${page.map(() => '?').join(',')}) AND status IN ('pending','failed') AND attempts<${MAX_EMAIL_ATTEMPTS} AND (retry_after IS NULL OR retry_after<=?)`
         )
         .bind(...page, new Date().toISOString())
         .all<{ id: string }>();

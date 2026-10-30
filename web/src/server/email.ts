@@ -7,6 +7,13 @@ export {
 } from './outbox';
 import { and, eq, lt, or, sql } from 'drizzle-orm';
 import { nextRetryIso } from './retry';
+import {
+  commitWithEmails,
+  emailStatement,
+  MAX_EMAIL_ATTEMPTS,
+  OUTBOX_ALERT_PREFIX,
+  operationalRecipients,
+} from './outbox';
 import { getDb } from '../db/client';
 import { outbox } from '../db/schema';
 import { getSettings } from './settings';
@@ -89,7 +96,7 @@ export async function processOutboxRow(db: D1Database, outboxId: string): Promis
     .where(
       and(
         eq(outbox.id, outboxId),
-        lt(outbox.attempts, 3),
+        lt(outbox.attempts, MAX_EMAIL_ATTEMPTS),
         or(sql`${outbox.retryAfter} IS NULL`, sql`${outbox.retryAfter} <= ${claimNow}`),
         or(eq(outbox.status, 'pending'), eq(outbox.status, 'failed'))
       )
@@ -111,7 +118,7 @@ export async function processOutboxRow(db: D1Database, outboxId: string): Promis
           eq(outbox.id, outboxId),
           eq(outbox.status, 'sending'),
           lt(outbox.claimedAt, staleSendingBefore),
-          lt(outbox.attempts, 3)
+          lt(outbox.attempts, MAX_EMAIL_ATTEMPTS)
         )
       )
       .run();
@@ -133,16 +140,39 @@ export async function processOutboxRow(db: D1Database, outboxId: string): Promis
       );
     return true;
   } catch (error) {
-    await d
-      .update(outbox)
-      .set({
-        status: 'failed',
-        attempts: sql`${outbox.attempts} + 1`,
-        retryAfter: nextRetryIso(row.attempts + 1),
-      })
-      .where(
-        and(eq(outbox.id, row.id), eq(outbox.status, 'sending'), eq(outbox.claimedAt, claimNow))
-      );
+    const attempts = row.attempts + 1;
+    const exhausted = attempts >= MAX_EMAIL_ATTEMPTS && !row.id.startsWith(OUTBOX_ALERT_PREFIX);
+    const alerts = (exhausted ? await operationalRecipients(db) : []).map((to) => ({
+      to,
+      id: `${OUTBOX_ALERT_PREFIX}${row.id}-${to}`,
+    }));
+    await commitWithEmails(
+      db,
+      [
+        db
+          .prepare(
+            "UPDATE outbox SET status='failed', attempts=attempts+1, retry_after=? WHERE id=? AND status='sending' AND claimed_at=?"
+          )
+          .bind(nextRetryIso(attempts), row.id, claimNow),
+        ...alerts.map(({ to, id }) =>
+          emailStatement(
+            db,
+            id,
+            {
+              to,
+              subject: 'Store email delivery failed permanently',
+              text: `Outbox email ${row.id} failed ${MAX_EMAIL_ATTEMPTS} times and will not be retried. Check the email provider.`,
+              html: `<p>Outbox email ${row.id} failed ${MAX_EMAIL_ATTEMPTS} times and will not be retried. Check the email provider.</p>`,
+            },
+            {
+              sql: `EXISTS(SELECT 1 FROM outbox WHERE id=? AND status='failed' AND attempts>=${MAX_EMAIL_ATTEMPTS})`,
+              values: [row.id],
+            }
+          )
+        ),
+      ],
+      alerts.map(({ id }) => id)
+    );
     const code =
       error instanceof Error && 'code' in error && typeof error.code === 'string'
         ? error.code
@@ -228,4 +258,14 @@ export async function enqueueOutboxRecoveryPage(
     next = { createdAt: row.created_at, id: row.id };
   }
   return { queued, cursor: next, done: rows.results.length < 25, retry: false };
+}
+
+/** Emails that used every attempt and will not be sent without staff action. */
+export async function failedEmailCount(db: D1Database): Promise<number> {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM outbox WHERE status='failed' AND attempts>=${MAX_EMAIL_ATTEMPTS}`
+    )
+    .first<{ n: number }>();
+  return row?.n ?? 0;
 }
