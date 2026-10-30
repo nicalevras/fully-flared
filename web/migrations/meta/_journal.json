@@ -218,6 +218,13 @@
       "when": 1793312000000,
       "tag": "0030_refunds_lookup_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1793381408524,
+      "tag": "0031_fts_update_guards",
+      "breakpoints": true
     }
   ]
 }

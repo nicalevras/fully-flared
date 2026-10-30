@@ -31,12 +31,12 @@ describe('fts-trigger-writes', () => {
       .run();
   });
 
-  it('an orders status update writes 1 row and leaves orders_fts unchanged', async () => {
+  it('an orders status update writes 2 rows (the row and orders_status_idx) and leaves orders_fts unchanged', async () => {
     const before = await ftsData('orders_fts');
     const result = await db
       .prepare("UPDATE orders SET status = 'processing' WHERE id = 'o1'")
       .run();
-    expect(result.meta.rows_written).toBe(1);
+    expect(result.meta.rows_written).toBe(2);
     expect(await ftsData('orders_fts')).toEqual(before);
     expect(await matches('orders_fts', 'ORD-1001')).toBe(1);
   });
