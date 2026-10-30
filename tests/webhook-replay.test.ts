@@ -5,6 +5,8 @@ import { runAdminAction } from '../web/src/server/admin-actions';
 import { processInboxEvent } from '../web/src/server/checkout';
 import { actionFailure } from './helpers/json';
 import { fakeProvider } from './helpers/payments';
+import { fakeQueue, messageBatch, queueMessage } from './helpers/queue';
+import { gatewayContext } from './helpers/gateway';
 
 // Phase 6 guarded staff replay: owner/admin re-enqueue a quarantined
 // webhook under its original event identity; support/manager cannot,
@@ -28,19 +30,29 @@ vi.mock('../web/src/server/payments', async (original) => {
   };
 });
 
-let db: D1Database, dispose: () => Promise<void>;
-let queue: Array<Record<string, unknown>> = [];
+let db: D1Database, bindings: Cloudflare.Env, dispose: () => Promise<void>;
+let queue: unknown[] = [];
+let jobs: Queue, notifications: Queue;
+const recording = () => fakeQueue((message) => void queue.push(message));
+/** The JOBS producer, both in the env passed to the handler and in the module env it reads. */
+function useJobs(producer: Queue) {
+  jobs = producer;
+  env.JOBS = producer;
+}
+const workerBindings = (): Cloudflare.Env => ({
+  ...bindings,
+  JOBS: jobs,
+  NOTIFICATIONS: notifications,
+  CATALOG_JOBS: notifications,
+});
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env: bindings, dispose } = await createTestDb());
   queue = [];
   env.DB = db;
-  env.JOBS = {
-    send: async (msg: Record<string, unknown>) => {
-      queue.push(msg);
-    },
-  };
-  env.NOTIFICATIONS = env.JOBS;
-  env.CATALOG_JOBS = env.JOBS;
+  notifications = recording();
+  useJobs(notifications);
+  env.NOTIFICATIONS = notifications;
+  env.CATALOG_JOBS = notifications;
 });
 afterEach(async () => {
   queueProvider.current = null;
@@ -79,7 +91,7 @@ it('rejects unprivileged roles, unknown and processed events', async () => {
   await seedDeadRefundEvent();
   const support = await runAdminAction(
     db,
-    env as never,
+    workerBindings(),
     { id: 's1', role: 'support' },
     'webhook.replay',
     {
@@ -89,7 +101,7 @@ it('rejects unprivileged roles, unknown and processed events', async () => {
   expect(support.ok).toBe(false);
   const manager = await runAdminAction(
     db,
-    env as never,
+    workerBindings(),
     { id: 's2', role: 'manager' },
     'webhook.replay',
     {
@@ -100,7 +112,9 @@ it('rejects unprivileged roles, unknown and processed events', async () => {
   const owner = { id: 's3', role: 'owner' };
   expect(
     actionFailure(
-      await runAdminAction(db, env as never, owner, 'webhook.replay', { eventId: 'evt_missing' })
+      await runAdminAction(db, workerBindings(), owner, 'webhook.replay', {
+        eventId: 'evt_missing',
+      })
     ).status
   ).toBe(404);
   await db
@@ -108,7 +122,9 @@ it('rejects unprivileged roles, unknown and processed events', async () => {
     .run();
   expect(
     actionFailure(
-      await runAdminAction(db, env as never, owner, 'webhook.replay', { eventId: 'evt_replay_1' })
+      await runAdminAction(db, workerBindings(), owner, 'webhook.replay', {
+        eventId: 'evt_replay_1',
+      })
     ).status
   ).toBe(409);
   expect(queue).toHaveLength(0);
@@ -117,7 +133,7 @@ it('rejects unprivileged roles, unknown and processed events', async () => {
 it('replays a dead event exactly once and audits the action', async () => {
   await seedDeadRefundEvent();
   const owner = { id: 's3', role: 'owner' };
-  const replayed = await runAdminAction(db, env as never, owner, 'webhook.replay', {
+  const replayed = await runAdminAction(db, workerBindings(), owner, 'webhook.replay', {
     eventId: 'evt_replay_1',
   });
   expect(replayed.ok).toBe(true);
@@ -143,12 +159,12 @@ it('replays a dead event exactly once and audits the action', async () => {
 it('queue failure leaves the event quarantined; a later replay recovers it', async () => {
   await seedDeadRefundEvent();
   const owner = { id: 's3', role: 'owner' };
-  env.JOBS = {
-    send: async () => {
+  useJobs(
+    fakeQueue(() => {
       throw new Error('queue unavailable');
-    },
-  };
-  const failed = await runAdminAction(db, env as never, owner, 'webhook.replay', {
+    })
+  );
+  const failed = await runAdminAction(db, workerBindings(), owner, 'webhook.replay', {
     eventId: 'evt_replay_1',
   });
   expect(actionFailure(failed).status).toBe(503);
@@ -157,14 +173,13 @@ it('queue failure leaves the event quarantined; a later replay recovers it', asy
     .first<{ status: string }>();
   expect(still?.status).toBe('dead');
 
-  env.JOBS = {
-    send: async (msg: Record<string, unknown>) => {
-      queue.push(msg);
-    },
-  };
+  useJobs(recording());
   expect(
-    (await runAdminAction(db, env as never, owner, 'webhook.replay', { eventId: 'evt_replay_1' }))
-      .ok
+    (
+      await runAdminAction(db, workerBindings(), owner, 'webhook.replay', {
+        eventId: 'evt_replay_1',
+      })
+    ).ok
   ).toBe(true);
   await processInboxEvent(db, 'evt_replay_1', provider);
   const refund = await db
@@ -190,15 +205,11 @@ it('a webhook job whose Stripe lookup hangs gives up at the provider deadline an
   vi.spyOn(console, 'error').mockImplementation(() => {});
   const started = Date.now();
   const delivered = worker.queue(
-    {
-      queue: 'money',
-      messages: [{ body: { type: 'webhook.process', eventId: 'evt_hung' }, ack, retry }],
-    } as never,
-    {
-      ...env,
-      QUEUE_NAMES: { JOBS: 'money', NOTIFICATIONS: 'mail', CATALOG_JOBS: 'catalog' },
-    } as never,
-    {} as never
+    messageBatch(bindings.QUEUE_NAMES.JOBS, [
+      queueMessage({ type: 'webhook.process', eventId: 'evt_hung' }, { ack, retry }),
+    ]),
+    workerBindings(),
+    gatewayContext()
   );
   const outcome = await Promise.race([
     delivered.then(() => 'returned'),
