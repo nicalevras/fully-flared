@@ -1,4 +1,6 @@
+import * as z from 'zod';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { imageVariantsSchema } from './catalog-models';
 import { getDb } from '../db/client';
 import {
   media as mediaT,
@@ -126,18 +128,17 @@ export async function listProducts(
   }));
 }
 
-export type CollectionRule =
-  | { type: 'title_contains'; value: string }
-  | { type: 'price_lte'; value: number }
-  | { type: 'price_gte'; value: number };
+const collectionRuleSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('title_contains'), value: z.string() }),
+  z.object({ type: z.literal('price_lte'), value: z.number() }),
+  z.object({ type: z.literal('price_gte'), value: z.number() }),
+]);
+export type CollectionRule = z.infer<typeof collectionRuleSchema>;
 
 export function parseRule(ruleJson: string | null): CollectionRule | null {
   if (!ruleJson) return null;
   try {
-    const r = JSON.parse(ruleJson) as CollectionRule;
-    if (r.type === 'title_contains' && typeof r.value === 'string') return r;
-    if ((r.type === 'price_lte' || r.type === 'price_gte') && typeof r.value === 'number') return r;
-    return null;
+    return collectionRuleSchema.safeParse(JSON.parse(ruleJson)).data ?? null;
   } catch {
     return null;
   }
@@ -158,13 +159,10 @@ export async function listPublishedProductsByIds(
       .groupBy(productsT.id)
       .orderBy(desc(productsT.createdAt), desc(productsT.id));
     out.push(
-      ...rows.map(
-        ({ available: _ignored, imageVariantsJson, ...card }) =>
-          ({
-            ...card,
-            imageVariants: JSON.parse(imageVariantsJson ?? '[]'),
-          }) as PublishedProductCard
-      )
+      ...rows.map(({ available: _ignored, imageVariantsJson, ...card }): PublishedProductCard => ({
+        ...card,
+        imageVariants: imageVariantsSchema.parse(JSON.parse(imageVariantsJson ?? '[]')),
+      }))
     );
   }
   return out;

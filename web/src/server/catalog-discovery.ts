@@ -5,7 +5,7 @@ import {
   readCollectionMeta,
   type CatalogKv,
 } from './catalog-read';
-import { ALL_LISTING, RAIL_SIZE } from './catalog-models';
+import { ALL_LISTING, RAIL_SIZE, catalogCardSchema } from './catalog-models';
 
 // Discovery readers over the partitioned catalog (Phase 3B). Search
 // matches through the D1 products_fts index and fetches only matching
@@ -42,7 +42,7 @@ async function fetchCards(db: D1Database, ids: string[]): Promise<PublishedProdu
     .all<{ card_json: string }>();
   const byId = new Map(
     cards.results.map((r) => {
-      const card = JSON.parse(r.card_json) as PublishedProductCard;
+      const card: PublishedProductCard = catalogCardSchema.parse(JSON.parse(r.card_json));
       return [card.id, card];
     })
   );
