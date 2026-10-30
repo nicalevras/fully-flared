@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkoutResponseSchema } from '../web/src/schemas/checkout';
+import { parseCheckoutResponse } from '../web/src/lib/checkout-intent';
 
 const quote = {
   subtotalCents: 1000,
@@ -27,13 +27,23 @@ describe('checkout response boundary', () => {
       { checkoutUrl: 'https://checkout.stripe.com/x' },
       { error: 'Your cart changed.', code: 'STALE_ATTEMPT' },
     ]) {
-      expect(() => checkoutResponseSchema.parse(body)).not.toThrow();
+      expect(() => parseCheckoutResponse(body)).not.toThrow();
     }
+  });
+
+  it('drops a null quote hash so the review is not offered', () => {
+    expect(parseCheckoutResponse({ state: 'review_ready', quote, quoteHash: null }).quoteHash).toBe(
+      undefined
+    );
+  });
+
+  it('rejects a body that is not an object', () => {
+    expect(() => parseCheckoutResponse(null)).toThrow();
   });
 
   it('rejects a malformed quote instead of rendering it', () => {
     expect(() =>
-      checkoutResponseSchema.parse({ state: 'review_ready', quote: { totalCents: 'NaN' } })
+      parseCheckoutResponse({ state: 'review_ready', quote: { totalCents: 'NaN' } })
     ).toThrow();
   });
 });

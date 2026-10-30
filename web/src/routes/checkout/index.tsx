@@ -4,7 +4,7 @@ import { Link, createFileRoute } from '@tanstack/react-router';
 import { checkoutQuoteFn, validateDiscountFn } from '../../lib/shopFns';
 import { validateServerInput } from '../../server/function-boundary';
 import { confirmCheckoutFn } from '../../lib/checkoutFns';
-import { checkoutResponseSchema, type ReviewQuote } from '../../schemas/checkout';
+import type { ReviewQuote } from '../../server/authorized-checkout';
 import { createServerFn, useServerFn } from '@tanstack/react-start';
 import * as z from 'zod';
 import { formatMoney } from '../../components/ProductCard';
@@ -201,6 +201,7 @@ function CheckoutPage() {
         classifyCheckoutResponse,
         ensureGuestBootstrap,
         getCheckoutIntent,
+        parseCheckoutResponse,
         resetCheckoutIntent,
       } = await import('../../lib/checkout-intent');
       const confirmed = quote
@@ -269,7 +270,7 @@ function CheckoutPage() {
           turnstileToken: turnstileToken || undefined,
         }),
       });
-      const data = checkoutResponseSchema.parse(await res.json());
+      const data = parseCheckoutResponse(await res.json());
       if (controller.signal.aborted) return;
       if (submittedDetails !== latestDetailsKey.current) {
         setError('Checkout details changed. Prepare a fresh review.');

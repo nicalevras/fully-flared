@@ -2,7 +2,9 @@
 // digest live in sessionStorage — never email, provider payloads or
 // capability secrets (the guest capability is an HttpOnly cookie).
 
+import type { ReviewQuote } from '../server/authorized-checkout';
 import { sha256Hex } from './hash';
+import { isRecord, stringField } from './is-record';
 
 export type IntentStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
@@ -114,6 +116,56 @@ export type CheckoutResponseAction =
   | { kind: 'paid'; orderId: string }
   | { kind: 'pending'; orderId?: string }
   | { kind: 'error'; message: string; terminal: boolean };
+
+export type CheckoutResponse = {
+  checkoutUrl?: string | undefined;
+  state?: string | undefined;
+  error?: string | undefined;
+  code?: string | undefined;
+  orderId?: string | undefined;
+  orderUrl?: string | undefined;
+  intentId?: string | undefined;
+  quoteHash?: string | undefined;
+  quote?: ReviewQuote | undefined;
+};
+
+function reviewQuote(value: unknown): ReviewQuote | undefined {
+  if (value === undefined) return undefined;
+  const malformed = () => new Error('Checkout returned a malformed quote.');
+  if (!isRecord(value)) throw malformed();
+  const cents = (key: string) => {
+    const amount = value[key];
+    if (typeof amount !== 'number' || !Number.isInteger(amount)) throw malformed();
+    return amount;
+  };
+  const currency = stringField(value, 'currency');
+  if (currency === undefined) throw malformed();
+  return {
+    subtotalCents: cents('subtotalCents'),
+    discountCents: cents('discountCents'),
+    shippingCents: cents('shippingCents'),
+    taxCents: cents('taxCents'),
+    totalCents: cents('totalCents'),
+    currency,
+  };
+}
+
+/** Read a /api/checkout response body. A body that is not an object, or a
+ *  quote that is not a whole-cent quote, throws instead of rendering. */
+export function parseCheckoutResponse(body: unknown): CheckoutResponse {
+  if (!isRecord(body)) throw new Error('Checkout returned a malformed response.');
+  return {
+    checkoutUrl: stringField(body, 'checkoutUrl'),
+    state: stringField(body, 'state'),
+    error: stringField(body, 'error'),
+    code: stringField(body, 'code'),
+    orderId: stringField(body, 'orderId'),
+    orderUrl: stringField(body, 'orderUrl'),
+    intentId: stringField(body, 'intentId'),
+    quoteHash: stringField(body, 'quoteHash'),
+    quote: reviewQuote(body.quote),
+  };
+}
 
 /** Map a typed /api/checkout response to the page's next step. Terminal
  *  outcomes (conflict, ended attempt) tell the caller to reset the

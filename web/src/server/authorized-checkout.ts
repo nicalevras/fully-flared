@@ -1,6 +1,6 @@
 import * as z from 'zod';
 import { sha256Hex } from '../lib/hash';
-import { reviewQuoteSchema, shippingAddressSchema, type ReviewQuote } from '../schemas/checkout';
+import { shippingAddressSchema } from '../schemas/checkout';
 import { loadIntent, requireIntent, type CheckoutIntentRow } from './checkout-intents';
 import { acquireCheckoutPermit, type AdmissionStub } from './checkout-admission';
 import {
@@ -31,6 +31,16 @@ const eventMetadataSchema = z.object({
   order_id: z.string().optional(),
 });
 const providerPayloadSchema = z.object({ automaticTax: z.boolean().optional() });
+const reviewQuoteSchema = z.object({
+  subtotalCents: z.number().int(),
+  discountCents: z.number().int(),
+  shippingCents: z.number().int(),
+  taxCents: z.number().int(),
+  totalCents: z.number().int(),
+  currency: z.string(),
+});
+
+export type ReviewQuote = z.infer<typeof reviewQuoteSchema>;
 
 /** The frozen quote as stored, or null when the stored JSON is not a quote. */
 function storedQuote(json: string): ReviewQuote | null {
