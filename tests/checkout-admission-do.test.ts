@@ -5,6 +5,14 @@ import {
   Miniflare,
   convertV4MiniflareOptions,
 } from '../web/node_modules/miniflare/dist/src/index.js';
+import { at } from './helpers/fixtures';
+import { z } from './helpers/json';
+
+const permitBody = z.object({
+  ok: z.boolean(),
+  permitId: z.string().optional(),
+  retryAfterSeconds: z.number().optional(),
+});
 
 // Real-DO coverage (Phase 5 gap): the controller itself — SQLite-backed
 // bucket + permits inside workerd — not the fake namespace the route
@@ -19,7 +27,7 @@ async function makeAdmission(settings: Record<string, string>) {
     external: ['cloudflare:workers'],
   });
   const script =
-    bundle.outputFiles[0]!.text +
+    at(bundle.outputFiles, 0).text +
     `
     export default { async fetch(request, env) {
       const stub = env.CHECKOUT_ADMISSION.getByName('store');
@@ -52,7 +60,7 @@ async function makeAdmission(settings: Record<string, string>) {
       .run();
   const call = async (path: string) => {
     const res = await mf.dispatchFetch(`http://local${path}`);
-    return res.json() as Promise<{ ok: boolean; permitId?: string; retryAfterSeconds?: number }>;
+    return permitBody.parse(await res.json());
   };
   return { mf, call };
 }

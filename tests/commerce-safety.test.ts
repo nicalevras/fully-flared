@@ -14,8 +14,9 @@ import {
 } from '../web/src/server/stripe-events';
 import { handledStripeSchemas } from '../web/src/schemas/webhook';
 import { heldOrder } from './helpers/pending-intent';
+import { present } from './helpers/fixtures';
 
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, env: Env, dispose: () => Promise<void>;
 const provider: payments.PaymentProvider = {
   async createCheckout() {
     return { sessionId: 'cs_test', url: 'https://stripe.test' };
@@ -31,6 +32,7 @@ const provider: payments.PaymentProvider = {
 beforeAll(async () => {
   const t = await createTestDb();
   db = t.db;
+  env = t.env;
   dispose = t.dispose;
   await seedProduct(db, { onHand: 100 });
 });
@@ -255,7 +257,7 @@ it('return refund permission cannot be bypassed; pending returns remain retryabl
     .run();
   const denied = await runAdminAction(
     db,
-    {} as never,
+    env,
     { id: 'support', role: 'support' },
     'return.refund',
     { returnId: 'safety-return', amountCents: 100 }
@@ -265,7 +267,7 @@ it('return refund permission cannot be bypassed; pending returns remain retryabl
   try {
     expect(
       (
-        await runAdminAction(db, {} as never, { id: 'owner', role: 'owner' }, 'return.approve', {
+        await runAdminAction(db, env, { id: 'owner', role: 'owner' }, 'return.approve', {
           returnId: 'safety-return',
         })
       ).ok
@@ -279,30 +281,36 @@ it('return refund permission cannot be bypassed; pending returns remain retryabl
     ).toBe('approved');
     expect(
       (
-        await runAdminAction(db, {} as never, { id: 'owner', role: 'owner' }, 'return.refund', {
+        await runAdminAction(db, env, { id: 'owner', role: 'owner' }, 'return.refund', {
           returnId: 'safety-return',
           amountCents: 100,
         })
       ).ok
     ).toBe(true);
-    const refund = await db
-      .prepare("SELECT id FROM refunds WHERE return_id='safety-return'")
-      .first<{ id: string }>();
-    await settleRefund(db, refund!.id, 'failed');
+    const refund = present(
+      await db
+        .prepare("SELECT id FROM refunds WHERE return_id='safety-return'")
+        .first<{ id: string }>(),
+      'the first refund'
+    );
+    await settleRefund(db, refund.id, 'failed');
     expect(
       (
-        await runAdminAction(db, {} as never, { id: 'owner', role: 'owner' }, 'return.refund', {
+        await runAdminAction(db, env, { id: 'owner', role: 'owner' }, 'return.refund', {
           returnId: 'safety-return',
           amountCents: 100,
         })
       ).ok
     ).toBe(true);
-    const retry = await db
-      .prepare("SELECT id FROM refunds WHERE return_id='safety-return' AND status='pending'")
-      .first<{ id: string }>();
-    expect(retry!.id).not.toBe(refund!.id);
-    await settleRefund(db, retry!.id, 'succeeded');
-    await settleRefund(db, retry!.id, 'succeeded');
+    const retry = present(
+      await db
+        .prepare("SELECT id FROM refunds WHERE return_id='safety-return' AND status='pending'")
+        .first<{ id: string }>(),
+      'the retried refund'
+    );
+    expect(retry.id).not.toBe(refund.id);
+    await settleRefund(db, retry.id, 'succeeded');
+    await settleRefund(db, retry.id, 'succeeded');
     expect(
       (
         await db
@@ -386,9 +394,9 @@ it('private state is stripped before public rendering and cookie-setting respons
         headers: { accept: 'text/html', [key]: 'private-value' },
       })
     );
-    expect(forwarded).not.toBeNull();
-    expect(forwarded!.headers.has('cookie')).toBe(false);
-    expect(forwarded!.headers.has('authorization')).toBe(false);
+    const { headers } = present(forwarded, 'the forwarded request');
+    expect(headers.has('cookie')).toBe(false);
+    expect(headers.has('authorization')).toBe(false);
   }
   expect(
     privateResponse(
@@ -414,16 +422,10 @@ it('return approval moves no money, does not restock, and support can approve', 
   const before = (await expectLedgerMatchesCounters(db, 'TEE-1')).on_hand;
   const payload = { returnId: 'no-refund-return' };
   expect(
-    await runAdminAction(
-      db,
-      {} as never,
-      { id: 'support', role: 'support' },
-      'return.approve',
-      payload
-    )
+    await runAdminAction(db, env, { id: 'support', role: 'support' }, 'return.approve', payload)
   ).toMatchObject({ ok: true });
   expect((await expectLedgerMatchesCounters(db, 'TEE-1')).on_hand).toBe(before);
-  await runAdminAction(db, {} as never, { id: 'owner', role: 'owner' }, 'return.approve', payload);
+  await runAdminAction(db, env, { id: 'owner', role: 'owner' }, 'return.approve', payload);
   expect((await expectLedgerMatchesCounters(db, 'TEE-1')).on_hand).toBe(before);
   expect(
     (await db.prepare('SELECT COUNT(*) AS n FROM refunds WHERE order_id=?').bind(o.orderId).first())
@@ -440,11 +442,11 @@ it('return approval moves no money, does not restock, and support can approve', 
 });
 it('zero-stock backorders can complete payment with a matching negative inventory ledger', async () => {
   await db.prepare("UPDATE variants SET continue_selling=1 WHERE sku='TEE-1'").run();
-  const stock = await db
-    .prepare("SELECT on_hand FROM stock WHERE sku='TEE-1'")
-    .first<{ on_hand: number }>();
+  const stock = present(
+    await db.prepare("SELECT on_hand FROM stock WHERE sku='TEE-1'").first<{ on_hand: number }>()
+  );
   const { adjustStock } = await import('../web/src/server/inventory');
-  await adjustStock(db, 'TEE-1', -stock!.on_hand, 'correction');
+  await adjustStock(db, 'TEE-1', -stock.on_hand, 'correction');
   const o = await paid('backorder-paid');
   expect((await expectLedgerMatchesCounters(db, 'TEE-1')).on_hand).toBe(-1);
   expect(
