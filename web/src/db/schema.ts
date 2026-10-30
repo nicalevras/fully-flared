@@ -441,7 +441,12 @@ export const catalogBuilds = sqliteTable(
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },
-  (t) => [index('catalog_builds_cleanup_idx').on(t.state, t.updatedAt, t.id)]
+  (t) => [
+    index('catalog_builds_cleanup_idx').on(t.state, t.updatedAt, t.id),
+    index('catalog_builds_active_idx')
+      .on(t.state)
+      .where(sql`${t.state} NOT IN ('done','acknowledged','failed','canceled')`),
+  ]
 );
 
 // Per-listing build progress in rows (never catalog-sized checkpoint

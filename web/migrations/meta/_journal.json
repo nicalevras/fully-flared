@@ -232,6 +232,13 @@
       "when": 1793381582127,
       "tag": "0032_variants_sku_nocase_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1793385000190,
+      "tag": "0034_catalog_builds_active_idx",
+      "breakpoints": true
     }
   ]
 }
