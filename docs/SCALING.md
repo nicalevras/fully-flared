@@ -279,8 +279,9 @@ There is no automated backup export. Recovery is D1 Time Travel only (30
 days on Paid, 7 days on Free, always on, in-place restore undoable via the
 returned bookmark; see "Backups and recovery" in the root README). Off-site
 per-table `wrangler d1 export` copies are records, not a restore mechanism:
-a whole-database export cannot handle the `products_fts` virtual table, and
-exported rows cannot be imported into a migrated database. Store size does
+a whole-database export fails on the seven FTS5 virtual tables, a table export
+carries no indexes or triggers, and exported rows cannot be imported into a
+migrated database. Store size does
 not affect recovery: Time Travel has no row or SQL-size cap of ours to hit.
 
 Local tests cover races, a realistic catalog fixture, restore, HTTP boundaries
