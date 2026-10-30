@@ -3,9 +3,10 @@
 ## Read and publication paths
 
 D1 is authoritative. KV holds content-addressed pages: 24 product cards on
-home, 48 in collections, 48 collection summaries on discovery, and 50 post
-summaries in the journal. Product, collection metadata and editorial documents
-are immutable, with small mutable pointers. Layout holds at most eight
+home and in the `all` listing behind /shop (`HOME_PAGE_SIZE`, so 4,167 pages at
+100k products), 48 in collections, 48 collection summaries on discovery, and 50
+post summaries in the journal. Product, collection metadata and editorial
+documents are immutable, with small mutable pointers. Layout holds at most eight
 navigation collections, four collection teasers and three post previews.
 Stock is never in catalog KV. Availability uses its separate short cache below.
 Readers validate schema, requested identity and complete artifact hashes. A KV
@@ -74,9 +75,10 @@ normalized 60-second cache policy. For classified public HTML, the gateway
 strips cookies and authorization before rendering; those private headers cannot
 personalize a shared response. Private routes, server-function endpoints and
 cookie-setting responses bypass storage and carry no-store headers.
-Cart counts are no longer rendered into public SSR HTML (the
-badge hydrates from a private server function), so a cached page never
-freezes one shopper's cart.
+Cart counts are no longer rendered into public SSR HTML. The badge reads the
+nonsecret cart-count cookie in the browser (`cartCountFromCookie` in
+`__root.tsx`) and makes no request, so a cached page never freezes one
+shopper's cart.
 
 Invalidation is scoped: catalog changes record `Cache-Tag` targets and
 the purges execute inside the cache-owning entrypoint, because Workers
@@ -302,9 +304,10 @@ before claiming it and again before deleting its D1 mirror.
 Inventory, root enumeration, mark expansion and sweeping use persisted keyset
 cursors and pages of at most 100 rows. A directory expansion visits one bounded
 128-entry node. Shared content-addressed nodes are marked once per sweep. The
-work uses the same 40-statement/800-KV/900-combined/5,000-row/8-MiB/90-bind
-invocation limits as publication; KV list operations count too. KV enumeration
-uses `list_complete`, including empty pages with a continuation cursor.
+work uses the same 400-statement/800-KV/900-combined/5,000-row/8-MiB/90-bind
+invocation limits as publication (`CATALOG_BUDGET_LIMITS` in `catalog-exec.ts`).
+KV list operations count too. KV enumeration uses `list_complete`, including
+empty pages with a continuation cursor.
 
 Current references and their reachable pages/directories/documents remain roots.
 Superseded reference history remains a root for seven days. After the last
@@ -424,8 +427,9 @@ persists a created_at/id cursor for a fixed coverage cutoff. It never loops back
 while already queued mail remains pending. The consumer retains existing send
 claims, retry caps and ten-minute stale-send recovery. Delivery is not exactly once.
 
-Prepared migration 0017 adds retry/age/attempt/claim indexes. EXPLAIN QUERY PLAN,
-rows-read measurements, focused recovery tests, clean CI/build verification and
-local migration application remain pending. See the
+Migration 0017 adds retry/age/attempt/claim indexes. It applies locally: the
+whole local chain applies cleanly and records `0017_due_recovery_indexes.sql` in
+`d1_migrations`. EXPLAIN QUERY PLAN, rows-read measurements and focused recovery
+tests remain pending. See the
 [checkpoint ledger](archive/RECOVERY-WATCHDOG.md). No savings or deployed capacity
 claim follows from these source changes alone.
