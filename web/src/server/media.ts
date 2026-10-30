@@ -1,4 +1,5 @@
-import { MEDIA_MAX_BYTES } from '../schemas/account';
+/** Largest original image an upload may carry. */
+export const MEDIA_MAX_BYTES = 5 * 1024 * 1024;
 
 /** Multipart boundaries, part headers, and the variant fields around the file. */
 const MULTIPART_FRAMING_BYTES = 64 * 1024;

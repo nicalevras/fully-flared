@@ -1,5 +1,6 @@
 import * as z from 'zod';
 import { emailString, idString } from './common';
+import { MEDIA_MAX_BYTES } from '../server/media';
 
 const addressFields = {
   name: z.string().trim().min(1).max(200),
@@ -30,8 +31,6 @@ export const reportQuerySchema = z.object({
   format: z.enum(['json', 'csv']).optional().default('json'),
 });
 export type ReportQuery = z.infer<typeof reportQuerySchema>;
-
-export const MEDIA_MAX_BYTES = 5 * 1024 * 1024;
 
 export const mediaUploadMetaSchema = z.object({
   filename: z.string().min(1).max(255),
