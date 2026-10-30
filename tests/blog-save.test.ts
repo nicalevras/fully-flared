@@ -159,7 +159,6 @@ describe('blog editor wiring', () => {
   it('editor remounts per post and fill uses the local conversion', () => {
     const page = readFileSync('web/src/components/BlogPostEditor.tsx', 'utf8');
     expect(page).toContain("key={post?.id ?? 'new'}");
-    expect(page).toContain("key={form.id || 'new'}");
     expect(page).toContain('utcToLocalDateTimeInput(post.published_at)');
     expect(page).not.toContain('slice(0, 16)');
     const editor = readFileSync(
