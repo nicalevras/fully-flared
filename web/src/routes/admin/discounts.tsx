@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { staffMiddleware } from '../../server/staff-middleware';
+import { requireStaffPermission } from '../../server/session';
 import { useStoreCurrency } from '../../lib/use-store-currency';
 import { formatDate } from '../../lib/format';
 import { pageWindow } from '../../lib/catalog-page';
@@ -67,7 +68,8 @@ const getData = createServerFn({ method: 'GET' })
       })
     )
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    requireStaffPermission(context.staff, 'discount', 'view');
     const { env } = await import('cloudflare:workers');
     const q = data.q.trim().toUpperCase();
     // >= 3 chars: trigram FTS (substring, index-served). Shorter: prefix LIKE.

@@ -3,6 +3,7 @@ import { createServerFn } from '@tanstack/react-start';
 import { Link } from '@tanstack/react-router';
 import { EllipsisIcon, PlusIcon, XIcon } from 'lucide-react';
 import { staffMiddleware } from '../server/staff-middleware';
+import { requireStaffPermission } from '../server/session';
 import { validateServerInput } from '../server/function-boundary';
 import { idString } from '../schemas/common';
 import { ExpandableEditor } from './ExpandableEditor';
@@ -49,7 +50,8 @@ type PostRow = {
 export const getPostDetail = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
   .validator(validateServerInput(idString))
-  .handler(async ({ data: postId }): Promise<PostRow | null> => {
+  .handler(async ({ data: postId, context }): Promise<PostRow | null> => {
+    requireStaffPermission(context.staff, 'post', 'view');
     const { env } = await import('cloudflare:workers');
     const row = await env.DB.prepare(
       `SELECT p.id, p.slug, p.title, p.status, p.excerpt, p.content_html, p.content_json,

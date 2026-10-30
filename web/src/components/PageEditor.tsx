@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createServerFn } from '@tanstack/react-start';
 import { staffMiddleware } from '../server/staff-middleware';
+import { requireStaffPermission } from '../server/session';
 import { validateServerInput } from '../server/function-boundary';
 import { idString } from '../schemas/common';
 import { XIcon } from 'lucide-react';
@@ -34,7 +35,8 @@ type PageRow = {
 export const getPageDetail = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
   .validator(validateServerInput(idString))
-  .handler(async ({ data: pageId }): Promise<PageRow | null> => {
+  .handler(async ({ data: pageId, context }): Promise<PageRow | null> => {
+    requireStaffPermission(context.staff, 'page', 'view');
     const { env } = await import('cloudflare:workers');
     const row = await env.DB.prepare(
       'SELECT id, slug, title, content_html, seo_title, seo_description, updated_at FROM pages WHERE id = ?'

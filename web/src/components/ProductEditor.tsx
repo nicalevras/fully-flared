@@ -5,6 +5,7 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { SeoPreview } from './SeoPreview';
 import { validateServerInput } from '../server/function-boundary';
 import { staffMiddleware } from '../server/staff-middleware';
+import { requireStaffPermission } from '../server/session';
 import { idString } from '../schemas/common';
 import { useAdminAction, type AdminPayload } from './AdminNav';
 import { AdminActionFeedback, type AdminActionFeedbackState } from './AdminActionFeedback';
@@ -75,7 +76,8 @@ export type ProductDetail = {
 export const getProductDetail = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
   .validator(validateServerInput(idString))
-  .handler(async ({ data: productId }): Promise<ProductDetail | null> => {
+  .handler(async ({ data: productId, context }): Promise<ProductDetail | null> => {
+    requireStaffPermission(context.staff, 'product', 'view');
     const { env } = await import('cloudflare:workers');
     const db = env.DB;
     const product = await db

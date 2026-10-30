@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { staffMiddleware } from '../../server/staff-middleware';
+import { requireStaffPermission } from '../../server/session';
 import { createFileRoute, useRouter, type SearchSchemaInput } from '@tanstack/react-router';
 import { createServerFn, useServerFn } from '@tanstack/react-start';
 import { PlusIcon, XIcon } from 'lucide-react';
@@ -126,7 +127,8 @@ const getData = createServerFn({ method: 'GET' })
       })
     )
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    requireStaffPermission(context.staff, 'post', 'view');
     const { env } = await import('cloudflare:workers');
     const q = data.q.trim();
     // < 3 chars cannot hit the trigram index; return nothing rather than scan.

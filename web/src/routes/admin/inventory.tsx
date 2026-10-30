@@ -12,6 +12,7 @@ import { createServerFn, useServerFn } from '@tanstack/react-start';
 import * as z from 'zod';
 import { ChevronDownIcon, ChevronRightIcon, MinusIcon, PlusIcon, XIcon } from 'lucide-react';
 import { staffMiddleware } from '../../server/staff-middleware';
+import { requireStaffPermission } from '../../server/session';
 import { validateServerInput } from '../../server/function-boundary';
 import { useAdminAction } from '../../components/AdminNav';
 import {
@@ -60,7 +61,8 @@ import { Switch } from '@/components/ui/switch';
 const getList = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
   .validator(validateServerInput(inventoryListInputSchema))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    requireStaffPermission(context.staff, 'stock', 'view');
     const { env } = await import('cloudflare:workers');
     return adminInventoryList(env.DB, data);
   });
@@ -87,7 +89,8 @@ const skuDetailInput = z.object({ sku: z.string().max(100) });
 const getSkuDetail = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
   .validator(validateServerInput(skuDetailInput))
-  .handler(async ({ data }): Promise<InventoryDetail | null> => {
+  .handler(async ({ data, context }): Promise<InventoryDetail | null> => {
+    requireStaffPermission(context.staff, 'stock', 'view');
     const { env } = await import('cloudflare:workers');
     const db = env.DB;
     const head = await db

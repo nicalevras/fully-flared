@@ -73,10 +73,30 @@ const sections: readonly NavSection[] = [
   {
     label: 'Catalog',
     items: [
-      { link: nav('/admin/products'), label: 'Products', Icon: BagIcon },
-      { link: nav('/admin/collections'), label: 'Collections', Icon: LayersIcon },
-      { link: nav('/admin/discounts'), label: 'Discounts', Icon: TagIcon },
-      { link: nav('/admin/inventory'), label: 'Inventory', Icon: OrdersIcon },
+      {
+        link: nav('/admin/products'),
+        label: 'Products',
+        Icon: BagIcon,
+        requires: ['product', 'view'],
+      },
+      {
+        link: nav('/admin/collections'),
+        label: 'Collections',
+        Icon: LayersIcon,
+        requires: ['collection', 'view'],
+      },
+      {
+        link: nav('/admin/discounts'),
+        label: 'Discounts',
+        Icon: TagIcon,
+        requires: ['discount', 'view'],
+      },
+      {
+        link: nav('/admin/inventory'),
+        label: 'Inventory',
+        Icon: OrdersIcon,
+        requires: ['stock', 'view'],
+      },
     ],
   },
   {
@@ -94,15 +114,25 @@ const sections: readonly NavSection[] = [
         Icon: UserIcon,
         requires: ['user', 'list'],
       },
-      { link: nav('/admin/shipping'), label: 'Shipping', Icon: TruckIcon },
+      {
+        link: nav('/admin/shipping'),
+        label: 'Shipping',
+        Icon: TruckIcon,
+        requires: ['shipping', 'view'],
+      },
     ],
   },
   {
     label: 'Content',
     items: [
-      { link: nav('/admin/articles'), label: 'Articles', Icon: PenIcon },
-      { link: nav('/admin/pages'), label: 'Pages', Icon: FileIcon },
-      { link: nav('/admin/media'), label: 'Media', Icon: ImageIcon },
+      {
+        link: nav('/admin/articles'),
+        label: 'Articles',
+        Icon: PenIcon,
+        requires: ['post', 'view'],
+      },
+      { link: nav('/admin/pages'), label: 'Pages', Icon: FileIcon, requires: ['page', 'view'] },
+      { link: nav('/admin/media'), label: 'Media', Icon: ImageIcon, requires: ['media', 'view'] },
     ],
   },
   {
