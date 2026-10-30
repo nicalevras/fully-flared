@@ -53,6 +53,7 @@ type VariantRow = {
   status: string;
   weight_grams: number | null;
   continue_selling: number;
+  version: number;
   on_hand: number;
   reserved: number;
 };
@@ -90,7 +91,7 @@ export const getProductDetail = createServerFn({ method: 'GET' })
     const [variants, media, cols, allCols] = await Promise.all([
       db
         .prepare(
-          `SELECT v.id, v.sku, v.title, v.price_cents, v.compare_at_cents, v.status, v.weight_grams, v.continue_selling,
+          `SELECT v.id, v.sku, v.title, v.price_cents, v.compare_at_cents, v.status, v.weight_grams, v.continue_selling, v.version,
                 COALESCE(s.on_hand, 0) AS on_hand, COALESCE(s.reserved, 0) AS reserved
          FROM variants v LEFT JOIN stock s ON s.sku = v.sku WHERE v.product_id = ? ORDER BY v.created_at`
         )
@@ -214,6 +215,7 @@ export function ProductEditor({
 
   const detailsDirty = changedFields.length > 0;
   const [edits, setEdits] = useState<VariantEdits<VariantRow>>({});
+  const [editVersions, setEditVersions] = useState<Record<string, number>>({});
   const variants = applyVariantEdits(product.variants, edits);
   const visibleVariants = variants.filter((v) => !deletedVariantIds.includes(v.id));
   const stockDirtyIds = Object.keys(stockDelta).filter((id) => {
@@ -256,12 +258,22 @@ export function ProductEditor({
     enableBeforeUnload: false,
     withResolver: true,
   });
-  const editVariant = (id: string, patch: Partial<VariantRow>) =>
+  const editVariant = (id: string, patch: Partial<VariantRow>) => {
     setEdits((current) => ({ ...current, [id]: { ...current[id], ...patch } }));
-  const discardEdits = (ids: readonly string[]) =>
+    // An edit stays tied to the version it started from, so a reload that
+    // brings in another session's save cannot make the stale edit current.
+    const loaded = product.variants.find((v) => v.id === id)?.version;
+    if (loaded !== undefined)
+      setEditVersions((current) => (id in current ? current : { ...current, [id]: loaded }));
+  };
+  const discardEdits = (ids: readonly string[]) => {
     setEdits((current) =>
       Object.fromEntries(Object.entries(current).filter(([id]) => !ids.includes(id)))
     );
+    setEditVersions((current) =>
+      Object.fromEntries(Object.entries(current).filter(([id]) => !ids.includes(id)))
+    );
+  };
 
   async function runAction(action: string, payload: AdminPayload) {
     return adminAction(action, payload);
@@ -276,6 +288,7 @@ export function ProductEditor({
     revokeStaged(mediaDraft);
     setForm(initialForm);
     setEdits({});
+    setEditVersions({});
     setStockDelta({});
     setStagedNewVariants([]);
     setDeletedVariantIds([]);
@@ -333,11 +346,13 @@ export function ProductEditor({
           compareAtCents: v.compare_at_cents,
           weightGrams: v.weight_grams,
           continueSelling: Boolean(v.continue_selling),
+          expectedVersion: editVersions[v.id] ?? v.version,
         });
         if (r.ok) {
           anyOk = true;
           discardEdits([v.id]);
         } else {
+          if ('conflict' in r && r.conflict === true) setConflict(true);
           failedVariantIds.add(v.id);
           fail('Variants', r.error);
         }
@@ -504,6 +519,8 @@ export function ProductEditor({
     } else {
       setFeedback({ kind: 'status', message: 'Saved; publication pending.' });
       setEdits({});
+      setEditVersions({});
+      setEditVersions({});
       setStockDelta({});
       setStagedNewVariants([]);
       setDeletedVariantIds([]);
@@ -1367,7 +1384,14 @@ export function ProductEditor({
                   <p className="text-sm text-red-700" role="alert">
                     The saved version changed. Your edits are still here.
                   </p>
-                  <button type="button" className={btnSmall} onClick={() => void refresh()}>
+                  <button
+                    type="button"
+                    className={btnSmall}
+                    onClick={() => {
+                      setEditVersions({});
+                      void refresh();
+                    }}
+                  >
                     Reload current version
                   </button>
                 </div>

@@ -73,6 +73,7 @@ export const adminActionSchema = z.discriminatedUnion('action', [
     compareAtCents: nullableCents,
     continueSelling: z.boolean().optional().default(false),
     weightGrams: z.number().int().min(0).max(1_000_000).nullable().optional().default(null),
+    expectedVersion: z.number().int().min(0).optional(),
   }),
   z.object({ action: z.literal('variant.delete'), variantId: idString }),
   z.object({

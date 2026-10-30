@@ -1206,7 +1206,7 @@ export async function runAdminAction(
           if (priceCents != null) {
             stmts.push(
               db
-                .prepare('UPDATE variants SET price_cents = ? WHERE id = ?')
+                .prepare('UPDATE variants SET price_cents = ?, version = version + 1 WHERE id = ?')
                 .bind(priceCents, variantIds[i]),
               // Abort the whole batch if this variant disappeared after
               // validation (batch_guard has CHECK (0): any insert fails).
@@ -1365,34 +1365,65 @@ export async function runAdminAction(
           .first();
         if (skuClash) return { ok: false, error: `SKU ${sku} is already in use` };
         if (variantId) {
+          const expectedVersion = f.expectedVersion;
+          if (expectedVersion === undefined)
+            return {
+              ok: false,
+              error: 'Reload the product before editing this variant',
+              status: 400,
+            };
           const existing = await db
-            .prepare('SELECT sku FROM variants WHERE id = ?')
-            .bind(variantId)
-            .first<{ sku: string }>();
-          if (existing && existing.sku !== sku) {
+            .prepare('SELECT sku, version FROM variants WHERE id = ? AND product_id = ?')
+            .bind(variantId, f.productId)
+            .first<{ sku: string; version: number }>();
+          if (!existing) return { ok: false, error: 'Variant not found', status: 404 };
+          const staleVariant: AdminActionResult = {
+            ok: false,
+            error:
+              'This variant changed in another session since you opened it. Reload to see the latest values before saving.',
+            conflict: true,
+            status: 409,
+          };
+          if (existing.version !== expectedVersion) return staleVariant;
+          if (existing.sku !== sku) {
             return {
               ok: false,
               error:
                 'SKU cannot be changed after creation, because stock and orders are tracked by SKU. Add a new variant with the new SKU instead.',
             };
           }
-          await db.batch([
-            db
-              .prepare(
-                'UPDATE variants SET sku = ?, title = ?, price_cents = ?, compare_at_cents = ?, continue_selling = ?, weight_grams = ? WHERE id = ?'
-              )
-              .bind(
-                sku,
-                f.title || 'Default',
-                priceCents,
-                f.compareAtCents ?? null,
-                f.continueSelling ? 1 : 0,
-                f.weightGrams,
-                variantId
-              ),
-            auditStmt(db, actor.id, 'variant.save', 'variant', variantId),
-          ]);
-          return { ok: true, data: { variantId } };
+          try {
+            const [updated] = await db.batch<{ id: string }>([
+              db
+                .prepare(
+                  'UPDATE variants SET sku = ?, title = ?, price_cents = ?, compare_at_cents = ?, continue_selling = ?, weight_grams = ?, version = version + 1 WHERE id = ? AND product_id = ? AND version = ? RETURNING id'
+                )
+                .bind(
+                  sku,
+                  f.title || 'Default',
+                  priceCents,
+                  f.compareAtCents ?? null,
+                  f.continueSelling ? 1 : 0,
+                  f.weightGrams,
+                  variantId,
+                  f.productId,
+                  expectedVersion
+                ),
+              // A save that lands after the version check above leaves
+              // nothing to update; abort the batch so no audit row claims it.
+              db.prepare('INSERT INTO batch_guard SELECT 1 WHERE changes() = 0'),
+              auditStmt(db, actor.id, 'variant.save', 'variant', variantId),
+            ]);
+            if (updated?.results.length !== 1) return staleVariant;
+          } catch (error) {
+            const current = await db
+              .prepare('SELECT version FROM variants WHERE id = ? AND product_id = ?')
+              .bind(variantId, f.productId)
+              .first<{ version: number }>();
+            if (current?.version !== expectedVersion) return staleVariant;
+            throw error;
+          }
+          return { ok: true, data: { variantId, version: expectedVersion + 1 } };
         }
         const newId = id();
         await db.batch([
