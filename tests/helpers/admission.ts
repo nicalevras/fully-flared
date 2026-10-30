@@ -6,7 +6,7 @@ import {
 import type { AdmissionConfig } from '../../web/src/lib/settings-definitions';
 
 function admissionObject(config: AdmissionConfig) {
-  const bucket = { tokens: null as number | null, updatedAtMs: 0 };
+  const bucket: { tokens: number | null; updatedAtMs: number } = { tokens: null, updatedAtMs: 0 };
   const permits = new Map<string, number>();
   const storage: AdmissionStorage = {
     readBucket: () =>

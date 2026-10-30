@@ -95,19 +95,54 @@ export function withTransportRetry(db: D1Database): D1Database {
   });
 }
 
-export async function createTestDb(
-  opts: { skipFiles?: string[]; through?: string; transportRetry?: boolean } = {}
-): Promise<{ db: D1Database; dispose: () => Promise<void> }> {
-  const mf = new Miniflare(
+const WORKER_SCRIPT = `export default { fetch() { return new Response('ok'); } };
+export class RealtimeDO { fetch() { return new Response('not under test', { status: 501 }); } }
+export class CheckoutAdmissionDO { fetch() { return new Response('not under test', { status: 501 }); } }`;
+
+/** Every binding in wrangler.jsonc, served by Miniflare, so a test passes a real `Cloudflare.Env`
+ *  and replaces only the bindings it observes (see `withOverrides`). The Durable Object classes
+ *  answer 501: a test that reaches one passes its own namespace. */
+function testWorker() {
+  return new Miniflare(
     convertV4MiniflareOptions({
       name: 'test-db',
       compatibilityDate: '2026-10-17',
       modules: true,
-      script: 'export default { fetch() { return new Response("ok"); } }',
+      script: WORKER_SCRIPT,
       d1Databases: ['DB'],
+      kvNamespaces: ['CATALOG_KV'],
+      r2Buckets: ['MEDIA'],
+      queueProducers: {
+        JOBS: { queueName: 'store-jobs' },
+        NOTIFICATIONS: { queueName: 'store-notifications' },
+        CATALOG_JOBS: { queueName: 'store-catalog' },
+      },
+      ratelimits: {
+        CHECKOUT_LIMITER: { namespace_id: '1001', simple: { limit: 30, period: 60 } },
+        AUTH_LIMITER: { namespace_id: '1002', simple: { limit: 20, period: 60 } },
+        STOREFRONT_LIMITER: { namespace_id: '1003', simple: { limit: 30, period: 60 } },
+      },
+      email: { send_email: [{ name: 'EMAIL' }] },
+      durableObjects: { REALTIME: 'RealtimeDO', CHECKOUT_ADMISSION: 'CheckoutAdmissionDO' },
+      bindings: {
+        OWNER_EMAIL: '',
+        BETTER_AUTH_URL: 'REPLACE_WITH_STORE_URL',
+        QUEUE_NAMES: {
+          JOBS: 'store-jobs',
+          NOTIFICATIONS: 'store-notifications',
+          CATALOG_JOBS: 'store-catalog',
+          DLQ: 'store-jobs-dlq',
+        },
+      },
     })
   );
-  const db = (await mf.getD1Database('DB')) as unknown as D1Database;
+}
+
+export async function createTestDb(
+  opts: { skipFiles?: string[]; through?: string; transportRetry?: boolean } = {}
+): Promise<{ db: D1Database; env: Cloudflare.Env; dispose: () => Promise<void> }> {
+  const mf = testWorker();
+  const bindings = await mf.getBindings<Cloudflare.Env>();
   const dir = join(process.cwd(), 'web', 'migrations');
   // `through` builds a historical fixture: apply migrations up to and
   // including that file (sorted names compare correctly), instead of
@@ -118,9 +153,10 @@ export async function createTestDb(
     .filter((f) => !opts.through || f <= opts.through)
     .filter((f) => !(opts.skipFiles ?? []).includes(f));
   for (const file of files) {
-    await applyMigrationFile(db, file);
+    await applyMigrationFile(bindings.DB, file);
   }
-  return { db: opts.transportRetry ? withTransportRetry(db) : db, dispose: () => mf.dispose() };
+  const db = opts.transportRetry ? withTransportRetry(bindings.DB) : bindings.DB;
+  return { db, env: { ...bindings, DB: db }, dispose: () => mf.dispose() };
 }
 
 export async function seedProduct(
