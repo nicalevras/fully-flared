@@ -110,7 +110,7 @@ function reviewResponse() {
 }
 
 const fetchMock = vi.fn<typeof fetch>();
-const commits: Array<{ email: string; review: boolean }> = [];
+const commits: Array<{ email: string; review: boolean; canReview: boolean }> = [];
 
 beforeEach(() => {
   commits.length = 0;
@@ -138,6 +138,8 @@ function recordCommit() {
   commits.push({
     email: email instanceof HTMLInputElement ? email.value : '',
     review: screen.queryByText('Review your order') !== null,
+    canReview:
+      screen.queryByRole('button', { name: /^Review order/ })?.hasAttribute('disabled') === false,
   });
 }
 
@@ -189,6 +191,22 @@ it('editing email hides the review in the same render', async () => {
   expect(commits.length).toBeGreaterThan(0);
   expect(commits.filter((c) => c.email === 'other@example.com' && c.review)).toEqual([]);
   expect(screen.queryByText('Review your order')).toBeNull();
+});
+
+it('editing email drops the old quote in the same render', async () => {
+  await renderCheckout();
+  await fillDetails();
+
+  commits.length = 0;
+  type('Email', 'other@example.com');
+
+  expect(commits.length).toBeGreaterThan(0);
+  expect(commits.filter((c) => c.email === 'other@example.com' && c.canReview)).toEqual([]);
+  expect(fns.quote).toHaveBeenCalledTimes(1);
+  await waitFor(() => expect(fns.quote).toHaveBeenCalledTimes(2));
+  expect(fns.quote).toHaveBeenLastCalledWith(
+    expect.objectContaining({ data: expect.objectContaining({ email: 'other@example.com' }) })
+  );
 });
 
 it('submit after a details change is rejected', async () => {
