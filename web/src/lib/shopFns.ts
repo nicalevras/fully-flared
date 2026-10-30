@@ -7,6 +7,7 @@ import {
   checkoutQuoteSchema,
 } from '../schemas/checkout';
 import { normalizeNetwork } from '../server/network';
+import { storefrontLimited } from '../server/storefront-limit';
 import { calculateDiscount, quoteOrder } from '../server/checkout';
 import { AuthError, getRequestAuth, getSessionUser } from '../server/session';
 import { accountActionSchema } from '../schemas/account';
@@ -72,13 +73,28 @@ export const validateDiscountFn = createServerFn({ method: 'POST' })
     return { valid: true as const, code: discount.code, amountCents: discount.amountCents };
   });
 
+/** Every quote spends the storefront budget; a quote with a code also spends the discount-guess budget. */
+export async function quoteLimitError(
+  env: { AUTH_LIMITER?: RateLimiterBinding; STOREFRONT_LIMITER?: RateLimiterBinding },
+  request: Request,
+  discountCode: string | undefined
+): Promise<string | null> {
+  if (await storefrontLimited(env.STOREFRONT_LIMITER, 'quote', request))
+    return 'Too many checkout requests';
+  const network = normalizeNetwork(request.headers.get('CF-Connecting-IP') ?? 'unknown');
+  if (discountCode && (await discountAttemptLimited(env, network)))
+    return 'Too many discount attempts';
+  return null;
+}
+
 export const checkoutQuoteFn = createServerFn({ method: 'POST' })
   .validator(validateServerInput(checkoutQuoteSchema))
   .handler(async ({ data }) => {
     const { env } = await import('cloudflare:workers');
-    if (data.discountCode && (await discountAttemptLimited(env, discountNetworkIdentity()))) {
+    const limited = await quoteLimitError(env, getRequest(), data.discountCode);
+    if (limited) {
       setResponseStatus(429);
-      throw new Error('Too many discount attempts');
+      throw new Error(limited);
     }
     const user = data.discountCode ? await getSessionUser(env.DB, getRequest()) : null;
     return quoteOrder(env.DB, { ...data, discountUsageEmail: user?.email ?? null });

@@ -3,13 +3,13 @@ import { normalizeNetwork } from './network';
 type Limiter = { limit(options: { key: string }): Promise<{ success: boolean }> };
 
 /** Per-network budget for storefront reads that reach D1 past the edge
- *  cache: product slugs missing from KV and searches with terms. Keyed
- *  on the IPv6 /64 or IPv4 address, the only identity a cookie-free
- *  public request has. Fails open: a missing or failing binding never
+ *  cache: product slugs missing from KV, searches with terms, and checkout
+ *  quotes. Keyed on the IPv6 /64 or IPv4 address, the only identity a
+ *  cookie-free public request has. Fails open: a missing or failing binding never
  *  turns shoppers away. */
 export async function storefrontLimited(
   limiter: Limiter | undefined,
-  kind: 'product' | 'search',
+  kind: 'product' | 'search' | 'quote',
   request: Request
 ): Promise<boolean> {
   if (!limiter) return false;
