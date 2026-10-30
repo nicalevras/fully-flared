@@ -11,6 +11,8 @@ import { calculateDiscount, quoteOrder } from '../server/checkout';
 import { AuthError, getRequestAuth, getSessionUser } from '../server/session';
 import { accountActionSchema } from '../schemas/account';
 import { saveAddress } from '../server/account-addresses';
+import { APIError } from 'better-auth/api';
+import type { Auth } from './auth';
 
 type RateLimiterBinding = { limit: (opts: { key: string }) => Promise<{ success: boolean }> };
 
@@ -138,14 +140,20 @@ export const accountActionFn = createServerFn({ method: 'POST' })
     if (data.confirmEmail !== user.email) {
       return { ok: false as const, error: 'Type your account email to confirm deletion' };
     }
-    const auth = await getRequestAuth(db, request);
-    try {
-      await auth.api.deleteUser({ headers: request.headers, body: {} });
-    } catch (err) {
-      return {
-        ok: false as const,
-        error: err instanceof Error ? err.message : 'Account deletion failed',
-      };
-    }
-    return { ok: true as const };
+    return deleteSignedInAccount(await getRequestAuth(db, request), request.headers);
   });
+
+/** Better Auth deletes without a password only from a session younger than freshAge. */
+export async function deleteSignedInAccount(
+  auth: Auth,
+  headers: Headers
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await auth.api.deleteUser({ headers, body: {} });
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof APIError && err.body?.code === 'SESSION_EXPIRED')
+      return { ok: false, error: 'Sign in again to delete your account' };
+    return { ok: false, error: err instanceof Error ? err.message : 'Account deletion failed' };
+  }
+}
