@@ -39,6 +39,8 @@ import {
   DIRECTORY_FANOUT,
   FEATURED_INDEX,
   ARTIFACT_BYTE_LIMIT,
+  catalogCardSchema,
+  documentPointerSchema,
   type CatalogCard,
   type DirectoryNode,
   type ListingPage,
@@ -46,6 +48,7 @@ import {
   type ProductDocument,
 } from './catalog-models';
 import { MAX_RAILS } from '../lib/catalog-limits';
+import { z } from 'zod';
 
 // Partitioned catalog publisher (Phase 3A). Builds the D1 read-model
 // projections and the versioned KV namespace alongside the live
@@ -347,18 +350,20 @@ type PublishedIndex = typeof COLLECTION_INDEX | typeof POSTS_INDEX;
 const metadataChangedSql = `EXISTS(SELECT 1 FROM collections c JOIN catalog_documents d ON d.key='${collectionMetaKey('').slice(0, -5)}'||c.slug||':meta'
   WHERE c.id=b.listing_id AND NOT EXISTS(SELECT 1 FROM catalog_ref_state r JOIN catalog_ref_documents rd ON rd.ref_key=r.ref_key AND rd.publication_seq=r.committed_seq
     WHERE r.ref_key='listing:'||b.listing_id AND rd.document_key=json_extract(d.payload_json,'$.key')))`;
-type IndexProgress = {
-  stage: 'scan' | 'directory' | 'activate';
-  generation: number;
-  page: number;
-  total: number;
-  seen: number;
-  cursorId: string;
-  cursorTitle: string;
-  cursorDate: string | null;
-  started: boolean;
-  at: string;
-};
+const isPublishedIndex = (id: string | null): id is PublishedIndex =>
+  id === COLLECTION_INDEX || id === POSTS_INDEX;
+const indexProgressSchema = z.object({
+  stage: z.enum(['scan', 'directory', 'activate']),
+  generation: z.number(),
+  page: z.number(),
+  total: z.number(),
+  seen: z.number(),
+  cursorId: z.string(),
+  cursorTitle: z.string(),
+  cursorDate: z.string().nullable(),
+  started: z.boolean(),
+  at: z.string(),
+});
 
 function publishedIndexSchedule(db: D1Database, listingId: PublishedIndex): D1PreparedStatement {
   return db
@@ -389,7 +394,7 @@ async function processPublishedIndex(
   if (build?.state === 'done') return true;
   let state =
     build?.state_json && build.state_json !== '{}'
-      ? (JSON.parse(build.state_json) as IndexProgress)
+      ? indexProgressSchema.parse(JSON.parse(build.state_json))
       : null;
   if (!state) {
     const at = now();
@@ -646,7 +651,9 @@ async function commitListingPublication(
           )
           .bind(collectionMetaKey('').slice(0, -5), pub.listingId)
           .first<{ payload_json: string }>();
-  const metadataKey = meta ? (JSON.parse(meta.payload_json) as { key?: string }).key : undefined;
+  const metadataKey = meta
+    ? documentPointerSchema.parse(JSON.parse(meta.payload_json)).key
+    : undefined;
   // The exact pending delivery is committed with the publication so
   // an interrupted delivery retries the identical payload.
   const pendingPayload = JSON.stringify({
@@ -798,6 +805,7 @@ export async function repairPendingDeliveries(
       delivered_seq: number;
       root_hash: string | null;
       pending_payload: string | null;
+      last_write_at: string | null;
     }>();
   let repaired = 0;
   for (const row of lagging.results) {
@@ -807,7 +815,7 @@ export async function repairPendingDeliveries(
     // Per-key write timing (KV allows ~1 write/second/key): a key
     // written moments ago keeps its pending delivery for the next
     // unit instead of burning a rejected write.
-    const lastWrite = (row as { last_write_at?: string | null }).last_write_at;
+    const lastWrite = row.last_write_at;
     if (lastWrite && Date.now() - Date.parse(lastWrite) < 1000) continue;
     let payload = row.pending_payload;
     if (!payload && row.ref_key.startsWith('listing:')) {
@@ -894,58 +902,35 @@ export type CatalogBuildStep = {
 // page, root and delivery progress lives in catalog_build_listings,
 // catalog_build_pages and catalog_ref_state rows — never in
 // catalog-sized arrays inside state_json.
-type BuildState = {
-  cardsCursor: string;
-  products: number;
-  cardsChanged: number;
-  docsChanged: number;
-  kvPuts: number;
-  li: number;
-  memCursorC: string;
-  memCursorI: string;
-  memPos: number;
-  memStarted: boolean;
-  generation: number;
-  nextPage: number;
-  pageCount: number;
-  total: number;
-  pagesTotal: number;
-  layoutDone: boolean;
-  layoutChanged: boolean;
-  layoutRevision: string;
-  seq: number;
-  editorialCursor: string;
-  editorialKind: number;
-  indexKind: number;
-  workCursor: string;
-};
+const buildStateSchema = z.object({
+  cardsCursor: z.string().default(''),
+  products: z.number().default(0),
+  cardsChanged: z.number().default(0),
+  docsChanged: z.number().default(0),
+  kvPuts: z.number().default(0),
+  li: z.number().default(0),
+  memCursorC: z.string().default(''),
+  memCursorI: z.string().default(''),
+  memPos: z.number().default(0),
+  memStarted: z.boolean().default(false),
+  generation: z.number().default(0),
+  nextPage: z.number().default(1),
+  pageCount: z.number().default(1),
+  total: z.number().default(0),
+  pagesTotal: z.number().default(0),
+  layoutDone: z.boolean().default(false),
+  layoutChanged: z.boolean().default(false),
+  layoutRevision: z.string().default(''),
+  seq: z.number().default(0),
+  editorialCursor: z.string().default(''),
+  editorialKind: z.number().default(0),
+  indexKind: z.number().default(0),
+  workCursor: z.string().default(''),
+});
+type BuildState = z.infer<typeof buildStateSchema>;
 
 function freshBuildState(): BuildState {
-  return {
-    cardsCursor: '',
-    products: 0,
-    cardsChanged: 0,
-    docsChanged: 0,
-    kvPuts: 0,
-    li: 0,
-    memCursorC: '',
-    memCursorI: '',
-    memPos: 0,
-    memStarted: false,
-    generation: 0,
-    nextPage: 1,
-    pageCount: 1,
-    total: 0,
-    pagesTotal: 0,
-    layoutDone: false,
-    layoutChanged: false,
-    layoutRevision: '',
-    seq: 0,
-    editorialCursor: '',
-    editorialKind: 0,
-    indexKind: 0,
-    workCursor: '',
-  };
+  return buildStateSchema.parse({});
 }
 
 type BuildListingRow = {
@@ -1049,7 +1034,7 @@ export async function processCatalogBuild(
     if (countBudget) budget.tickOp(n);
   };
 
-  let build = await db
+  const found = await db
     .prepare(
       "SELECT id, kind, state, phase, state_json, scope_listing_id FROM catalog_builds WHERE state IN ('building', 'pending_delivery') AND kind NOT IN ('fanout','replica','index') ORDER BY created_at ASC LIMIT 1"
     )
@@ -1062,7 +1047,7 @@ export async function processCatalogBuild(
       scope_listing_id: string | null;
     }>();
   tick();
-  if (!build) {
+  const startBuild = async () => {
     const id = crypto.randomUUID();
     const at = now();
     const scoped = opts.scopeListingId ?? null;
@@ -1095,7 +1080,7 @@ export async function processCatalogBuild(
         .run();
       tick();
     }
-    build = {
+    return {
       id,
       kind: scoped ? 'listing' : (opts.kind ?? 'full'),
       state: 'building',
@@ -1103,19 +1088,16 @@ export async function processCatalogBuild(
       state_json: scoped ? JSON.stringify({ ...freshBuildState(), layoutDone: true }) : '{}',
       scope_listing_id: scoped,
     };
-  }
-  const kind = (['repair', 'source-rebuild'].includes(build.kind) ? 'repair' : 'full') as
-    'full' | 'repair';
-  const state: BuildState = {
-    ...freshBuildState(),
-    ...(JSON.parse(build.state_json) as Partial<BuildState>),
   };
+  const build = found ?? (await startBuild());
+  const kind = ['repair', 'source-rebuild'].includes(build.kind) ? 'repair' : 'full';
+  const state = buildStateSchema.parse(JSON.parse(build.state_json));
   let phase = build.phase;
   let listingsCache: BuildListingRow[] | null = null;
   let cachedListingIndex = -1;
   const buildListings = async (): Promise<BuildListingRow[]> => {
     if (cachedListingIndex !== state.li || !listingsCache) {
-      listingsCache = await loadBuildListings(db, build!.id, state.li);
+      listingsCache = await loadBuildListings(db, build.id, state.li);
       cachedListingIndex = state.li;
     }
     return listingsCache;
@@ -1137,7 +1119,7 @@ export async function processCatalogBuild(
   const save = async () => {
     await db
       .prepare('UPDATE catalog_builds SET phase = ?, state_json = ?, updated_at = ? WHERE id = ?')
-      .bind(phase, JSON.stringify(state), now(), build!.id)
+      .bind(phase, JSON.stringify(state), now(), build.id)
       .run();
   };
   const finish = async (): Promise<CatalogBuildStep> => {
@@ -1145,11 +1127,11 @@ export async function processCatalogBuild(
       .prepare(
         "UPDATE catalog_builds SET state = 'done', phase = 'done', state_json = ?, updated_at = ? WHERE id = ?"
       )
-      .bind(JSON.stringify(state), now(), build!.id)
+      .bind(JSON.stringify(state), now(), build.id)
       .run();
     return {
       done: true,
-      buildId: build!.id,
+      buildId: build.id,
       phase: 'done',
       opsUsed: ops,
       result: {
@@ -1168,14 +1150,14 @@ export async function processCatalogBuild(
       // is nearly spent, checkpoint and let a continuation resume.
       if (ops > 0 && (budget.spent() || !budget.fits(BUILD_STEP_STATEMENTS))) {
         await save();
-        return { done: false, buildId: build!.id, phase, opsUsed: ops };
+        return { done: false, buildId: build.id, phase, opsUsed: ops };
       }
       // A started chunk finishes, so stop early enough that one
       // chunk (<= ~8 counted ops outside the cards phase, which
       // guards its own large batches) cannot overshoot the budget.
       if (ops > 0 && ops + Math.max(4, Math.min(32, Math.floor(maxOps / 10))) > maxOps) {
         await save();
-        return { done: false, buildId: build!.id, phase, opsUsed: ops };
+        return { done: false, buildId: build.id, phase, opsUsed: ops };
       }
       if (build.state === 'pending_delivery' || phase === 'deliver') {
         phase = 'deliver';
@@ -1226,7 +1208,7 @@ export async function processCatalogBuild(
         await save();
         return {
           done: false,
-          buildId: build!.id,
+          buildId: build.id,
           phase,
           opsUsed: ops,
           ...(delivered === 0 ? { retryAfterSeconds: DELIVERY_RETRY_SECONDS } : {}),
@@ -1334,7 +1316,7 @@ export async function processCatalogBuild(
         }
         if (ops > 0 && ops + ids.length * 3 + 8 > maxOps) {
           await save();
-          return { done: false, buildId: build!.id, phase, opsUsed: ops };
+          return { done: false, buildId: build.id, phase, opsUsed: ops };
         }
         const docMirrors: { key: string; revision: string; payload: string }[] = [];
         const renamedScopes: { scope: string; scopeId: string }[] = [];
@@ -1342,7 +1324,7 @@ export async function processCatalogBuild(
         await captureBuildWork(db, build.id, 'media', ids, true);
         const cardRows = await listPublishedProductsByIds(db, ids);
         tick(Math.ceil(ids.length / 90));
-        const cardsById = new Map(cardRows.map((c) => [c.id, c as CatalogCard]));
+        const cardsById = new Map(cardRows.map((c) => [c.id, c]));
         const docs = await buildProductDocuments(db, ids, budget);
         tick(Math.ceil(ids.length / 90) * 3);
         const existingById = new Map<
@@ -1433,7 +1415,7 @@ export async function processCatalogBuild(
         if (changedRows.length) {
           if (ops > 0 && ops + changedRows.length > maxOps) {
             await save();
-            return { done: false, buildId: build!.id, phase, opsUsed: ops };
+            return { done: false, buildId: build.id, phase, opsUsed: ops };
           }
           // Bulk upsert: one statement per 100 rows via json_each,
           // not one statement per product.
@@ -1503,7 +1485,7 @@ export async function processCatalogBuild(
             .all<{ product_id: string; card_json: string }>();
           tick();
           for (const r of cardRows.results)
-            cardsById.set(r.product_id, JSON.parse(r.card_json) as CatalogCard);
+            cardsById.set(r.product_id, catalogCardSchema.parse(JSON.parse(r.card_json)));
         }
         let memberIds: string[] = [];
         if (listing.kind === 'all') memberIds = ids;
@@ -1661,7 +1643,7 @@ export async function processCatalogBuild(
             .all<{ product_id: string; card_json: string }>();
           tick();
           for (const r of cardRows.results)
-            byId.set(r.product_id, JSON.parse(r.card_json) as CatalogCard);
+            byId.set(r.product_id, catalogCardSchema.parse(JSON.parse(r.card_json)));
         }
         // Active generation's revisions for this page range (no-op
         // skip), in one query.
@@ -1765,7 +1747,7 @@ export async function processCatalogBuild(
           2;
         if (ops > 0 && ops + estNodes + 4 > maxOps) {
           await save();
-          return { done: false, buildId: build!.id, phase, opsUsed: ops };
+          return { done: false, buildId: build.id, phase, opsUsed: ops };
         }
         const rootHash = await buildDirectory(
           db,
@@ -2015,10 +1997,10 @@ export async function processCatalogBuild(
         return { done: false, buildId: build.id, phase, opsUsed: ops };
       }
 
-      return { done: false, buildId: build!.id, phase, opsUsed: ops };
+      return { done: false, buildId: build.id, phase, opsUsed: ops };
     }
     await save();
-    return { done: false, buildId: build!.id, phase, opsUsed: ops };
+    return { done: false, buildId: build.id, phase, opsUsed: ops };
   } catch (error) {
     if (error instanceof BudgetExhausted) {
       await budget.finalize(save).catch(() => undefined);
@@ -2095,6 +2077,9 @@ export async function runCatalogUnit(
       )
       .first<{ id: string; kind: string; scope_listing_id: string | null }>();
     if (open?.kind === 'index') {
+      const listingId = open.scope_listing_id;
+      if (!isPublishedIndex(listingId))
+        throw new Error(`Index build ${open.id} names an unknown index ${listingId}`);
       await processPublishedIndex(
         cdb,
         kv,
@@ -2102,7 +2087,7 @@ export async function runCatalogUnit(
           if (kv) await kv.put(key, value);
         },
         open.id,
-        open.scope_listing_id as PublishedIndex,
+        listingId,
         null
       );
       return { done: false, busy: false };
@@ -2231,7 +2216,7 @@ async function buildLayoutModel(db: D1Database, settings: Awaited<ReturnType<typ
     .bind(now(), now())
     .all<{ slug: string; title: string; excerpt: string; published_at: string | null }>();
   return {
-    limits: settings.limits as unknown as Record<string, number>,
+    limits: settings.limits,
     storeName: settings.storeName,
     logo: brandImages.get(settings.logoMediaId) ?? null,
     hero: brandImages.get(settings.heroMediaId) ?? null,
@@ -2551,7 +2536,8 @@ async function listingCardsByIds(db: D1Database, ids: string[]): Promise<Map<str
       )
       .bind(...chunk)
       .all<{ product_id: string; card_json: string }>();
-    for (const r of rows.results) out.set(r.product_id, JSON.parse(r.card_json) as CatalogCard);
+    for (const r of rows.results)
+      out.set(r.product_id, catalogCardSchema.parse(JSON.parse(r.card_json)));
   }
   return out;
 }
@@ -2728,6 +2714,13 @@ async function refreshAffectedListing(
   return true;
 }
 
+const workCheckpointSchema = z.object({
+  stage: z.enum(['listings', 'publication', 'editorial', 'layout']),
+  lastListing: z.string(),
+  cardChanged: z.boolean(),
+});
+const fanoutCursorSchema = z.object({ cursor: z.string().optional() });
+
 export async function processCatalogWork(
   db: D1Database,
   kv: KvLike | undefined,
@@ -2787,11 +2780,7 @@ export async function processCatalogWork(
       : null;
     const progress =
       checkpoint && checkpoint.source_revision === claimed[0]!.target_revision
-        ? (JSON.parse(checkpoint.state_json) as {
-            stage: 'listings' | 'publication' | 'editorial' | 'layout';
-            lastListing: string;
-            cardChanged: boolean;
-          })
+        ? workCheckpointSchema.parse(JSON.parse(checkpoint.state_json))
         : null;
     const invalidations: InvalidationEntry[] = [];
     // Checkpoints record the invalidations gathered so far: replayed work
@@ -2917,7 +2906,7 @@ export async function processCatalogWork(
           .first<{ id: string; state_json: string; source_revision: number | null }>();
         const cursor =
           fanout && fanout.source_revision === row.target_revision
-            ? ((JSON.parse(fanout.state_json) as { cursor?: string }).cursor ?? '')
+            ? (fanoutCursorSchema.parse(JSON.parse(fanout.state_json)).cursor ?? '')
             : '';
         const linked = await db
           .prepare(
@@ -2974,7 +2963,7 @@ export async function processCatalogWork(
       ? await listPublishedProductsByIds(db, affectedIdList)
       : [];
     const cardsById = new Map(
-      freshCards.filter((c) => c.status === 'active').map((c) => [c.id, c as CatalogCard])
+      freshCards.filter((c) => c.status === 'active').map((c) => [c.id, c])
     );
     let productsPublished = 0;
     const cardChangedIds = new Set<string>();
@@ -3152,26 +3141,29 @@ export async function processCatalogWork(
       ['page', pageIds],
     ] as const) {
       for (const id of editorialIds ? ids : []) {
-        const row =
+        const post =
           kind === 'post'
             ? await db
                 .prepare(
                   `SELECT slug, title, excerpt, content_html, seo_title, seo_description, published_at, status,${POST_METADATA_FIELDS} FROM posts source WHERE id = ?`
                 )
                 .bind(id)
-                .first<{
-                  slug: string;
-                  title: string;
-                  excerpt: string;
-                  content_html: string;
-                  seo_title: string | null;
-                  seo_description: string | null;
-                  published_at: string | null;
-                  status: string;
-                  cover_key: string | null;
-                  author_name: string | null;
-                  tags: string | null;
-                }>()
+                .first<
+                  {
+                    slug: string;
+                    title: string;
+                    excerpt: string;
+                    content_html: string;
+                    seo_title: string | null;
+                    seo_description: string | null;
+                    published_at: string | null;
+                    status: string;
+                  } & PostMetadata
+                >()
+            : null;
+        const row =
+          kind === 'post'
+            ? post
             : await db
                 .prepare(
                   'SELECT slug, title, content_html, seo_title, seo_description FROM pages WHERE id = ?'
@@ -3195,19 +3187,6 @@ export async function processCatalogWork(
           }
           continue;
         }
-        const post =
-          kind === 'post'
-            ? (row as {
-                slug: string;
-                title: string;
-                excerpt: string;
-                content_html: string;
-                seo_title: string | null;
-                seo_description: string | null;
-                published_at: string | null;
-                status: string;
-              } & PostMetadata)
-            : null;
         const publishable =
           kind === 'page' ||
           (post?.status === 'published' &&
