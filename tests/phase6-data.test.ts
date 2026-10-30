@@ -71,7 +71,7 @@ async function count(sql: string, ...values: unknown[]) {
 }
 
 describe('M3: account deletion removes the email from side tables', () => {
-  it('scrubs discount_usage, outbox, terminal webhook_inbox and verification rows', async () => {
+  it('scrubs discount_usage, outbox, processed webhook_inbox and verification rows; dead letters keep their payload until the 90-day retention', async () => {
     const email = 'una@example.com';
     await user('u1', email);
     await order('o1', email, 'u1');
@@ -89,7 +89,7 @@ describe('M3: account deletion removes the email from side tables', () => {
       .prepare(
         "INSERT INTO webhook_inbox(id,event_id,type,payload_json,status,received_at) VALUES('wh-done','evt_1','checkout.session.completed',?,'processed',?),('wh-dead','evt_2','checkout.session.completed',?,'dead',?),('wh-pending','evt_3','checkout.session.completed',?,'pending',?)"
       )
-      .bind(event, iso(), event, iso(), event, iso())
+      .bind(event, iso(), event, iso(91 * day), event, iso())
       .run();
     const expires = Date.now() + day;
     await db
@@ -112,17 +112,22 @@ describe('M3: account deletion removes the email from side tables', () => {
         "SELECT COUNT(*) AS c FROM outbox WHERE id='ob-pending' AND (status IN ('pending','sending') OR (status='failed' AND attempts<3))"
       )
     ).toBe(0);
-    expect(
-      await count(
-        "SELECT COUNT(*) AS c FROM webhook_inbox WHERE id IN ('wh-done','wh-dead') AND payload_json!='{}'"
-      )
-    ).toBe(0);
-    expect(
-      (await db.prepare("SELECT payload_json FROM webhook_inbox WHERE id='wh-pending'").first())
-        ?.payload_json
-    ).toBe(event);
+    const inbox = await db
+      .prepare('SELECT id, payload_json FROM webhook_inbox ORDER BY id')
+      .all<{ id: string; payload_json: string }>();
+    expect(inbox.results).toEqual([
+      { id: 'wh-dead', payload_json: event },
+      { id: 'wh-done', payload_json: '{}' },
+      { id: 'wh-pending', payload_json: event },
+    ]);
     expect((await db.prepare('SELECT id FROM verification ORDER BY id').all()).results).toEqual([
       { id: 'v-other' },
+    ]);
+
+    await pruneRetention(db);
+    expect((await db.prepare('SELECT id FROM webhook_inbox ORDER BY id').all()).results).toEqual([
+      { id: 'wh-done' },
+      { id: 'wh-pending' },
     ]);
   });
 
