@@ -67,6 +67,7 @@ export type ProviderCallOptions = { timeoutMs: number };
 export interface PaymentProvider {
   withinDeadline?<T>(options: ProviderCallOptions, action: () => Promise<T>): Promise<T>;
   createCheckoutCustomer?(req: CheckoutRequest, options: ProviderCallOptions): Promise<string>;
+  deleteCustomer?(id: string): Promise<void>;
   retrievePaymentIntent?(id: string, options: ProviderCallOptions): Promise<PaymentIntentDetails>;
   capturePaymentIntent?(
     id: string,
@@ -434,6 +435,20 @@ export class StripeProvider implements PaymentProvider {
           typeof s.payment_intent === 'string' ? s.payment_intent : (s.payment_intent?.id ?? null),
       })),
     };
+  }
+
+  async deleteCustomer(id: string): Promise<void> {
+    try {
+      await this.bounded(undefined, () => this.stripe.customers.del(id));
+    } catch (error) {
+      if (
+        error instanceof Stripe.errors.StripeInvalidRequestError &&
+        error.statusCode === 404 &&
+        error.code === 'resource_missing'
+      )
+        return;
+      throw error;
+    }
   }
 
   async retrieveCheckoutSession(

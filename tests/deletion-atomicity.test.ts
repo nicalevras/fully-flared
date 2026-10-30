@@ -2,20 +2,24 @@ import { afterEach, beforeEach, expect, it } from 'vitest';
 import { createTestDb } from './helpers/d1';
 import { createAuth } from '../web/src/lib/auth';
 import { runAdminAction } from '../web/src/server/admin-actions';
+import { at, present } from './helpers/fixtures';
 
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, env: Env, dispose: () => Promise<void>;
 let auth: ReturnType<typeof createAuth>, cookie: string, userId: string;
 const base = 'http://localhost:8799';
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env, dispose } = await createTestDb());
   auth = createAuth(db, base, 'deletion-regression-secret-at-least-32-characters');
   await auth.api.signUpEmail({
     body: { name: 'Target', email: 'delete@example.invalid', password: 'password123' },
   });
   await db.prepare("UPDATE user SET email_verified=1 WHERE email='delete@example.invalid'").run();
-  userId = (await db
-    .prepare("SELECT id FROM user WHERE email='delete@example.invalid'")
-    .first<{ id: string }>())!.id;
+  userId = present(
+    await db
+      .prepare("SELECT id FROM user WHERE email='delete@example.invalid'")
+      .first<{ id: string }>(),
+    'the signed-up user'
+  ).id;
   const login = await auth.handler(
     new Request(base + '/api/auth/sign-in/email', {
       method: 'POST',
@@ -145,7 +149,7 @@ it('self-service deletion preserves financial/content rows, cascades credentials
 it('administrative deletion uses the atomic path without the plugin multi-write deletion', async () => {
   const result = await runAdminAction(
     db,
-    {} as never,
+    env,
     { id: 'actor', role: 'owner' },
     'customer.delete',
     { userId },
@@ -163,7 +167,7 @@ it.each(['owner', 'admin'])(
     expect(
       await runAdminAction(
         db,
-        {} as never,
+        env,
         { id: 'actor', role: 'owner' },
         'customer.delete',
         { userId },
@@ -194,8 +198,8 @@ it('promotion between the preliminary role read and deletion rejects without ano
     },
   });
   const result = await runAdminAction(
-    wrapped as never,
-    {} as never,
+    wrapped,
+    env,
     { id: 'actor', role: 'owner' },
     'customer.delete',
     { userId },
@@ -203,7 +207,7 @@ it('promotion between the preliminary role read and deletion rejects without ano
   );
   expect(result).toMatchObject({ ok: false, status: 409 });
   const after = await snapshot();
-  before[0] = after[0];
+  before[0] = at(after, 0);
   expect(after).toEqual(before);
   expect((await db.prepare('SELECT role FROM user WHERE id=?').bind(userId).first())?.role).toBe(
     'owner'
@@ -235,11 +239,7 @@ it('self-service promotion after the preliminary read leaves credentials and fin
       return typeof value === 'function' ? value.bind(target) : value;
     },
   });
-  const racingAuth = createAuth(
-    wrapped as never,
-    base,
-    'deletion-regression-secret-at-least-32-characters'
-  );
+  const racingAuth = createAuth(wrapped, base, 'deletion-regression-secret-at-least-32-characters');
   const before = await snapshot();
   const response = await racingAuth.handler(
     new Request(base + '/api/auth/delete-user', {
@@ -250,7 +250,7 @@ it('self-service promotion after the preliminary read leaves credentials and fin
   );
   expect(response.status).toBe(403);
   const after = await snapshot();
-  before[0] = after[0];
+  before[0] = at(after, 0);
   expect(after).toEqual(before);
 });
 it('deletion wins before promotion and duplicate deletion cannot partially mutate rows', async () => {

@@ -82,14 +82,20 @@ export const adminActionSchema = z.discriminatedUnion('action', [
     priceCents: nullableCents,
     stockDelta: z.number().int().min(-1_000_000).max(1_000_000).optional().default(0),
   }),
-  z.object({
-    action: z.literal('stock.adjust'),
-    sku: nonEmptyString(100),
-    delta: z.number().int().min(-1_000_000).max(1_000_000),
-    reason: z.enum(['restock', 'correction', 'damaged', 'return']).optional().default('restock'),
-    operationId: idString.optional(),
-    note: text(500).optional(),
-  }),
+  z
+    .object({
+      action: z.literal('stock.adjust'),
+      sku: nonEmptyString(100),
+      delta: z.number().int().min(-1_000_000).max(1_000_000),
+      reason: z.enum(['restock', 'correction', 'damaged', 'return']).optional().default('restock'),
+      operationId: idString.optional(),
+      expectedOnHand: z.number().int().optional(),
+      note: text(500).optional(),
+    })
+    .refine((adjust) => adjust.expectedOnHand === undefined || adjust.operationId !== undefined, {
+      path: ['expectedOnHand'],
+      message: 'expectedOnHand needs an operationId',
+    }),
   z.object({ action: z.literal('media.updateAlt'), mediaId: idString, altText: text(500) }),
   z.object({ action: z.literal('media.delete'), mediaId: idString }),
   z
@@ -100,8 +106,10 @@ export const adminActionSchema = z.discriminatedUnion('action', [
       value: z.number().int().min(0).max(100_000_000),
       minPurchaseCents: centsInt.optional().default(0),
       usageLimit: z.number().int().min(1).nullable().optional(),
-      startsAt: z.string().max(40).nullable().optional(),
-      expiresAt: z.string().max(40).nullable().optional(),
+      usagePerCustomer: z.number().int().min(1).optional().default(1),
+      maxDiscountCents: centsInt.nullable().optional(),
+      startsAt: z.iso.datetime({ precision: 3 }).nullable().optional(),
+      expiresAt: z.iso.datetime({ precision: 3 }).nullable().optional(),
     })
     .refine((discount) => discount.type !== 'percentage' || discount.value <= 100, {
       path: ['value'],
@@ -116,7 +124,10 @@ export const adminActionSchema = z.discriminatedUnion('action', [
       value: z.number().int().min(0).max(100_000_000),
       minPurchaseCents: centsInt.optional().default(0),
       usageLimit: z.number().int().min(1).nullable().optional(),
-      expiresAt: z.string().max(40).nullable().optional(),
+      usagePerCustomer: z.number().int().min(1).optional().default(1),
+      maxDiscountCents: centsInt.nullable().optional(),
+      startsAt: z.iso.datetime({ precision: 3 }).nullable().optional(),
+      expiresAt: z.iso.datetime({ precision: 3 }).nullable().optional(),
     })
     .refine((discount) => discount.type !== 'percentage' || discount.value <= 100, {
       path: ['value'],
@@ -201,6 +212,7 @@ export const adminActionSchema = z.discriminatedUnion('action', [
     action: z.literal('return.refund'),
     returnId: idString,
     amountCents: z.number().int().min(1),
+    restock: z.boolean().optional().default(false),
   }),
   z.object({ action: z.literal('return.reject'), returnId: idString }),
   z.object({ action: z.literal('webhook.replay'), eventId: nonEmptyString(200) }),

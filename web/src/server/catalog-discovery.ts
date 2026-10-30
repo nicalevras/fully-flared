@@ -51,10 +51,10 @@ async function fetchCards(db: D1Database, ids: string[]): Promise<PublishedProdu
 
 export const SEARCH_PAGE_SIZE = 50;
 
-export type SearchCursor = { createdAt: string; id: string };
+export type SearchCursor = { rowid: number };
 
 export function encodeSearchCursor(cursor: SearchCursor): string {
-  return btoa(JSON.stringify({ c: cursor.createdAt, i: cursor.id }))
+  return btoa(JSON.stringify({ r: cursor.rowid }))
     .replaceAll('+', '-')
     .replaceAll('/', '_')
     .replace(/=+$/, '');
@@ -63,21 +63,21 @@ export function encodeSearchCursor(cursor: SearchCursor): string {
 export function decodeSearchCursor(raw: string | undefined): SearchCursor | null {
   if (!raw || raw.length > 500) return null;
   try {
-    const parsed = JSON.parse(atob(raw.replaceAll('-', '+').replaceAll('_', '/'))) as {
-      c?: unknown;
-      i?: unknown;
-    };
-    if (typeof parsed.c !== 'string' || typeof parsed.i !== 'string') return null;
-    return { createdAt: parsed.c, id: parsed.i };
+    const parsed: unknown = JSON.parse(atob(raw.replaceAll('-', '+').replaceAll('_', '/')));
+    if (typeof parsed !== 'object' || parsed === null || !('r' in parsed)) return null;
+    return typeof parsed.r === 'number' && Number.isSafeInteger(parsed.r)
+      ? { rowid: parsed.r }
+      : null;
   } catch {
     return null;
   }
 }
 
-/** One bounded page of FTS matches for the full results page.
- *  Continuation is a keyset cursor over the stable (created_at DESC,
- *  id DESC) order. A malformed cursor is treated as "from the start"
- *  rather than an error. `limited` is asked only when there are terms
+/** One bounded page of FTS matches for the full results page, newest
+ *  rowid first. FTS5 walks its rowids in that order, so a page reads about
+ *  one page of matches instead of all of them. Continuation is a rowid
+ *  keyset cursor; a malformed or older-format cursor is treated as "from
+ *  the start" rather than an error. `limited` is asked only when there are terms
  *  to match, before any D1 work. */
 export async function searchCatalog(
   db: D1Database,
@@ -93,19 +93,18 @@ export async function searchCatalog(
   // One extra row detects whether another page exists.
   const hits = await db
     .prepare(
-      `SELECT p.id, p.created_at AS createdAt FROM products_fts f JOIN products p ON p.rowid = f.rowid
-       WHERE products_fts MATCH ? AND p.status = 'active'
-         ${cursor ? 'AND (p.created_at < ? OR (p.created_at = ? AND p.id < ?))' : ''}
-       ORDER BY p.created_at DESC, p.id DESC LIMIT ${SEARCH_PAGE_SIZE + 1}`
+      `SELECT p.id, f.rowid AS rowid FROM products_fts f JOIN products p ON p.rowid = f.rowid
+       WHERE products_fts MATCH ? AND p.status = 'active' ${cursor ? 'AND f.rowid < ?' : ''}
+       ORDER BY f.rowid DESC LIMIT ${SEARCH_PAGE_SIZE + 1}`
     )
-    .bind(...(cursor ? [match, cursor.createdAt, cursor.createdAt, cursor.id] : [match]))
-    .all<{ id: string; createdAt: string }>();
+    .bind(...(cursor ? [match, cursor.rowid] : [match]))
+    .all<{ id: string; rowid: number }>();
   if (!hits.results.length) return { cards: [], nextCursor: null };
   const pageHits = hits.results.slice(0, SEARCH_PAGE_SIZE);
   const last = pageHits[pageHits.length - 1];
   const nextCursor =
     hits.results.length > SEARCH_PAGE_SIZE && last
-      ? encodeSearchCursor({ createdAt: last.createdAt, id: last.id })
+      ? encodeSearchCursor({ rowid: last.rowid })
       : null;
   return {
     cards: await fetchCards(
@@ -132,7 +131,7 @@ export async function suggestCatalog(
     .prepare(
       `SELECT p.id FROM products_fts f JOIN products p ON p.rowid = f.rowid
        WHERE products_fts MATCH ? AND p.status = 'active'
-       ORDER BY p.created_at DESC, p.id DESC LIMIT ${SUGGEST_SIZE + 1}`
+       ORDER BY f.rowid DESC LIMIT ${SUGGEST_SIZE + 1}`
     )
     .bind(match)
     .all<{ id: string }>();

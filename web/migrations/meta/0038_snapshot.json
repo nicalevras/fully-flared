@@ -2,7 +2,7 @@
   "version": "6",
   "dialect": "sqlite",
   "id": "5e13d76a-28d6-49b7-b915-df549387ece6",
-  "prevId": "387e238b-6b42-406e-a513-49df5fd54dc9",
+  "prevId": "21777262-e50d-447f-9a04-1794274b2fd3",
   "tables": {
     "account": {
       "name": "account",
@@ -772,6 +772,12 @@
           "name": "catalog_builds_cleanup_idx",
           "columns": ["state", "updated_at", "id"],
           "isUnique": false
+        },
+        "catalog_builds_active_idx": {
+          "name": "catalog_builds_active_idx",
+          "columns": ["state"],
+          "isUnique": false,
+          "where": "\"catalog_builds\".\"state\" NOT IN ('done','acknowledged','failed','canceled')"
         }
       },
       "foreignKeys": {},
@@ -1060,6 +1066,11 @@
         "catalog_invalidations_created_idx": {
           "name": "catalog_invalidations_created_idx",
           "columns": ["created_at"],
+          "isUnique": false
+        },
+        "catalog_invalidations_scope_idx": {
+          "name": "catalog_invalidations_scope_idx",
+          "columns": ["scope", "scope_id"],
           "isUnique": false
         }
       },
@@ -2195,6 +2206,12 @@
           "name": "checkout_intents_retention_idx",
           "columns": ["state", "created_at", "id"],
           "isUnique": false
+        },
+        "checkout_intents_superseded_idx": {
+          "name": "checkout_intents_superseded_idx",
+          "columns": ["superseded_by", "created_at"],
+          "isUnique": false,
+          "where": "\"checkout_intents\".\"superseded_by\" IS NOT NULL"
         }
       },
       "foreignKeys": {
@@ -3390,7 +3407,7 @@
           "name": "outbox_claim_due_idx",
           "columns": ["status", "claimed_at", "id"],
           "isUnique": false,
-          "where": "\"outbox\".\"attempts\"<3"
+          "where": "\"outbox\".\"attempts\"<8"
         }
       },
       "foreignKeys": {},

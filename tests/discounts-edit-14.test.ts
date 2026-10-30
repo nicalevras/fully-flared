@@ -36,7 +36,7 @@ describe('Phase 14 discount editing', () => {
       value: 15,
       minPurchaseCents: 5000,
       usageLimit: 3,
-      expiresAt: '2030-01-01',
+      expiresAt: '2030-01-01T04:59:00.000Z',
     });
     expect(result.ok).toBe(true);
     const row = await db
@@ -56,7 +56,7 @@ describe('Phase 14 discount editing', () => {
       value: 15,
       min_purchase_cents: 5000,
       usage_limit: 3,
-      expires_at: '2030-01-01',
+      expires_at: '2030-01-01T04:59:00.000Z',
     });
   });
 

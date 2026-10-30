@@ -4,6 +4,10 @@ import { env } from './helpers/cloudflare-workers-stub';
 import { deleteAccountAtomically } from '../web/src/server/account-deletion';
 import { pruneRetention } from '../web/src/server/operations';
 import { calculateDiscount } from '../web/src/server/checkout';
+import { MAX_EMAIL_ATTEMPTS } from '../web/src/server/outbox';
+import { present } from './helpers/fixtures';
+import { actionData, responseJson, z } from './helpers/json';
+import { noNext, routeResponse } from './helpers/route';
 
 const session = vi.hoisted(() => ({
   user: { id: 'u1', name: 'Una', email: 'una@example.com', emailVerified: true },
@@ -13,9 +17,9 @@ vi.mock('../web/src/server/session', async (original) => ({
   getSessionUser: async () => session.user,
 }));
 
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, bindings: Env, dispose: () => Promise<void>;
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env: bindings, dispose } = await createTestDb());
   env.DB = db;
 });
 afterEach(async () => {
@@ -151,10 +155,7 @@ describe('M3: account deletion removes the email from side tables', () => {
 
 describe('M3: sent outbox rows drop their payload', () => {
   it('a delivered email keeps no recipient or body', async () => {
-    const stub = (await import('cloudflare:workers')) as unknown as {
-      env: Record<string, unknown>;
-    };
-    stub.env.EMAIL = { send: async () => {} };
+    env.EMAIL = { send: async () => {} };
     const { processOutboxRow } = await import('../web/src/server/email');
     await db
       .prepare(
@@ -165,16 +166,13 @@ describe('M3: sent outbox rows drop their payload', () => {
     expect(await processOutboxRow(db, 'ob1')).toBe(true);
     const row = await db.prepare("SELECT status, payload_json FROM outbox WHERE id='ob1'").first();
     expect(row).toEqual({ status: 'sent', payload_json: '{}' });
-    delete stub.env.EMAIL;
+    delete env.EMAIL;
   });
 });
 
 describe('L8: outbox failure log', () => {
   it('logs the outbox id and error code, never the recipient', async () => {
-    const stub = (await import('cloudflare:workers')) as unknown as {
-      env: Record<string, unknown>;
-    };
-    stub.env.EMAIL = {
+    env.EMAIL = {
       send: async () => {
         throw Object.assign(new Error('rejected for c@example.com'), { code: 'E_RATE_LIMIT' });
       },
@@ -197,7 +195,7 @@ describe('L8: outbox failure log', () => {
     });
     expect(lines.join('\n')).not.toContain('c@example.com');
     warn.mockRestore();
-    delete stub.env.EMAIL;
+    delete env.EMAIL;
   });
 });
 
@@ -251,9 +249,16 @@ describe('M7: retention prunes auth and terminal queue rows', () => {
       .run();
     await db
       .prepare(
-        "INSERT INTO outbox(id,type,payload_json,status,attempts,created_at) VALUES('ob-dead','email.send','{}','failed',3,?),('ob-retry','email.send','{}','failed',1,?),('ob-recent','email.send','{}','failed',3,?)"
+        "INSERT INTO outbox(id,type,payload_json,status,attempts,created_at) VALUES('ob-dead','email.send','{}','failed',?,?),('ob-retry','email.send','{}','failed',?,?),('ob-recent','email.send','{}','failed',?,?)"
       )
-      .bind(iso(31 * day), iso(31 * day), iso(day))
+      .bind(
+        MAX_EMAIL_ATTEMPTS,
+        iso(31 * day),
+        MAX_EMAIL_ATTEMPTS - 1,
+        iso(31 * day),
+        MAX_EMAIL_ATTEMPTS,
+        iso(day)
+      )
       .run();
     await db
       .prepare(
@@ -312,17 +317,37 @@ describe('L6: customer data export', () => {
   it('the self-service export includes items, returns and the order address, and claims nothing', async () => {
     await seedHistory();
     const { Route } = await import('../web/src/routes/api/account');
-    const handler = Route.options.server!.handlers!.GET! as (ctx: {
-      request: Request;
-    }) => Promise<Response>;
-    const response = await handler({
-      request: new Request('http://localhost/api/account?export=1'),
-    });
+    const handlers = present(Route.options.server?.handlers, 'the account handlers');
+    if (typeof handlers === 'function') throw new Error('Expected direct route handlers');
+    const handler = present(handlers.GET, 'the account GET handler');
+    const response = routeResponse(
+      await handler({
+        request: new Request('http://localhost/api/account?export=1'),
+        context: undefined,
+        params: {},
+        pathname: '/api/account',
+        next: noNext,
+      })
+    );
     expect(response.status).toBe(200);
-    const body = (await response.json()) as {
-      orders: Array<{ id: string; items: Array<{ sku: string }>; shippingAddress: unknown }>;
-      returns: Array<{ id: string; items: Array<{ sku: string; qty: number }> }>;
-    };
+    const body = await responseJson(
+      response,
+      z.object({
+        orders: z.array(
+          z.object({
+            id: z.string(),
+            items: z.array(z.object({ sku: z.string() })),
+            shippingAddress: z.unknown(),
+          })
+        ),
+        returns: z.array(
+          z.object({
+            id: z.string(),
+            items: z.array(z.object({ sku: z.string(), qty: z.number() })),
+          })
+        ),
+      })
+    );
     expect(body.orders.map((o) => o.id)).toEqual(['o1']);
     expect(body.orders[0]?.items.map((i) => i.sku)).toEqual(['TEE-1']);
     expect(body.orders[0]?.shippingAddress).toEqual({ line1: '1 Main St' });
@@ -337,15 +362,13 @@ describe('L6: customer data export', () => {
     const { runAdminAction } = await import('../web/src/server/admin-actions');
     const result = await runAdminAction(
       db,
-      {} as never,
+      bindings,
       { id: 'owner-1', role: 'owner' },
       'customer.export',
       { userId: 'u1' }
     );
-    const data = result.data as {
-      orders: Array<{ items: Array<{ sku: string }> }>;
-      returns: Array<{ items: Array<{ sku: string }> }>;
-    };
+    const skus = z.object({ items: z.array(z.object({ sku: z.string() })) });
+    const data = actionData(result, z.object({ orders: z.array(skus), returns: z.array(skus) }));
     expect(data.orders[0]?.items.map((i) => i.sku)).toEqual(['TEE-1']);
     expect(data.returns[0]?.items.map((i) => i.sku)).toEqual(['TEE-1']);
   });

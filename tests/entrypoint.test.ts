@@ -1,5 +1,7 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { createTestDb } from './helpers/d1';
+import { present } from './helpers/fixtures';
+import { messageBatch, queueMessage } from './helpers/queue';
 
 let db: D1Database, dispose: () => Promise<void>;
 
@@ -47,7 +49,7 @@ it('gateway forwards only classified public HTML to the storefront with props an
   expect(seen.props).toEqual({ store: 'shop.test' });
   // The forwarded request is sanitized: no cookies, no tracking params.
   expect(seen.request?.headers.has('cookie')).toBe(false);
-  const url = new URL(seen.request!.url);
+  const url = new URL(present(seen.request, 'the forwarded request').url);
   expect(url.searchParams.has('utm_source')).toBe(false);
   // Product documents have no pagination; semantic cache keys omit irrelevant parameters.
   expect(url.searchParams.has('page')).toBe(false);
@@ -108,10 +110,7 @@ async function runCatalogQueueToIdle(purged: string[][]) {
   for (let delivery = 0; delivery < 50; delivery++) {
     let continued = false;
     await worker.queue(
-      {
-        queue: 'store-catalog',
-        messages: [{ body: { type: 'catalog.rebuild' }, ack: () => {}, retry: () => {} }],
-      } as never,
+      messageBatch('store-catalog', [queueMessage({ type: 'catalog.rebuild' })]),
       {
         QUEUE_NAMES: { CATALOG_JOBS: 'store-catalog', DLQ: 'store-jobs-dlq' },
         DB: db,

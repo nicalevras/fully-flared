@@ -442,7 +442,12 @@ export const catalogBuilds = sqliteTable(
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },
-  (t) => [index('catalog_builds_cleanup_idx').on(t.state, t.updatedAt, t.id)]
+  (t) => [
+    index('catalog_builds_cleanup_idx').on(t.state, t.updatedAt, t.id),
+    index('catalog_builds_active_idx')
+      .on(t.state)
+      .where(sql`${t.state} NOT IN ('done','acknowledged','failed','canceled')`),
+  ]
 );
 
 // Per-listing build progress in rows (never catalog-sized checkpoint
@@ -660,7 +665,10 @@ export const catalogInvalidations = sqliteTable(
     refSeq: integer('ref_seq'),
     createdAt: text('created_at').notNull(),
   },
-  (t) => [index('catalog_invalidations_created_idx').on(t.createdAt)]
+  (t) => [
+    index('catalog_invalidations_created_idx').on(t.createdAt),
+    index('catalog_invalidations_scope_idx').on(t.scope, t.scopeId),
+  ]
 );
 
 // Durable token bucket mirroring the Workers Cache purge rate limit.
@@ -920,6 +928,9 @@ export const checkoutIntents = sqliteTable(
     index('checkout_intents_recovery_idx').on(t.state, t.nextReconcileAt),
     index('checkout_intents_session_idx').on(t.stripeSessionId),
     index('checkout_intents_retention_idx').on(t.state, t.createdAt, t.id),
+    index('checkout_intents_superseded_idx')
+      .on(t.supersededBy, t.createdAt)
+      .where(sql`${t.supersededBy} IS NOT NULL`),
   ]
 );
 
@@ -1197,7 +1208,7 @@ export const outbox = sqliteTable(
     index('outbox_status_idx').on(t.status, t.createdAt),
     index('outbox_claim_due_idx')
       .on(t.status, t.claimedAt, t.id)
-      .where(sql`${t.attempts}<3`),
+      .where(sql`${t.attempts}<8`),
   ]
 );
 

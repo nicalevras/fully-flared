@@ -29,6 +29,7 @@ type OrderView = {
   total_cents: number;
   currency: string;
   customer_email: string;
+  guest: boolean;
   items: Array<{ sku: string; title: string; qty: number; unit_price_cents: number }>;
 } | null;
 
@@ -42,7 +43,7 @@ const getOrder = createServerFn({ method: 'GET' })
       'SELECT number, status, payment_status, total_cents, currency, customer_email, user_id FROM orders WHERE id = ?'
     )
       .bind(data.orderId)
-      .first<Omit<NonNullable<OrderView>, 'items'> & { user_id: string | null }>();
+      .first<Omit<NonNullable<OrderView>, 'items' | 'guest'> & { user_id: string | null }>();
     if (!row) return null;
     const secret = env.BETTER_AUTH_SECRET ?? '';
     const tokenOk = secret ? await verifyOrderAccessToken(secret, data.orderId, data.token) : false;
@@ -57,6 +58,7 @@ const getOrder = createServerFn({ method: 'GET' })
       total_cents: row.total_cents,
       currency: row.currency,
       customer_email: row.customer_email,
+      guest: row.user_id === null,
     };
     const cart = parseCartCookie(getRequest().headers.get('cookie'));
     if (
@@ -197,6 +199,13 @@ function SuccessPage() {
           </span>
         </div>
       </Card>
+
+      {order.guest && state === 'confirmed' ? (
+        <section aria-label="Returns" className="mt-6 text-center text-sm text-zinc-500">
+          To return something from this order, reply to your order confirmation email and include
+          order {order.number}.
+        </section>
+      ) : null}
 
       <div className="mt-6 flex flex-wrap justify-center gap-3">
         {state === 'confirming' ? (

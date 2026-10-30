@@ -542,30 +542,31 @@ export async function runCatalogGcUnit(
     ];
     const result = await db.batch([...guard(db, s, lease), ...statements]);
     if (result.slice(2).some((r) => (r.meta.changes ?? 0) === PAGE)) return false;
-    const build = await db
+    const builds = await db
       .prepare(
-        `SELECT id FROM catalog_builds WHERE state IN ${TERMINAL} AND updated_at<? ORDER BY updated_at,id LIMIT 1`
+        `SELECT id FROM catalog_builds WHERE state IN ${TERMINAL} AND updated_at<? ORDER BY updated_at,id LIMIT ${PAGE}`
       )
       .bind(cutoff)
-      .first<{ id: string }>();
-    if (build) {
+      .all<{ id: string }>();
+    if (builds.results.length) {
+      const ids = JSON.stringify(builds.results.map((build) => build.id));
       await db.batch([
         ...guard(db, s, lease),
         db
           .prepare(
-            'DELETE FROM catalog_build_pages WHERE (build_id,listing_id,page) IN (SELECT build_id,listing_id,page FROM catalog_build_pages WHERE build_id=? LIMIT 100)'
+            'DELETE FROM catalog_build_pages WHERE (build_id,listing_id,page) IN (SELECT build_id,listing_id,page FROM catalog_build_pages WHERE build_id IN (SELECT value FROM json_each(?)) LIMIT 100)'
           )
-          .bind(build.id),
+          .bind(ids),
         db
           .prepare(
-            'DELETE FROM catalog_build_listings WHERE (build_id,listing_id) IN (SELECT build_id,listing_id FROM catalog_build_listings WHERE build_id=? LIMIT 100)'
+            'DELETE FROM catalog_build_listings WHERE (build_id,listing_id) IN (SELECT build_id,listing_id FROM catalog_build_listings WHERE build_id IN (SELECT value FROM json_each(?)) LIMIT 100)'
           )
-          .bind(build.id),
+          .bind(ids),
         db
           .prepare(
-            `DELETE FROM catalog_builds WHERE id=? AND state IN ${TERMINAL} AND NOT EXISTS(SELECT 1 FROM catalog_build_pages WHERE build_id=?) AND NOT EXISTS(SELECT 1 FROM catalog_build_listings WHERE build_id=?)`
+            `DELETE FROM catalog_builds WHERE id IN (SELECT value FROM json_each(?)) AND state IN ${TERMINAL} AND NOT EXISTS(SELECT 1 FROM catalog_build_pages p WHERE p.build_id=catalog_builds.id) AND NOT EXISTS(SELECT 1 FROM catalog_build_listings l WHERE l.build_id=catalog_builds.id)`
           )
-          .bind(build.id, build.id, build.id),
+          .bind(ids),
       ]);
       return false;
     }

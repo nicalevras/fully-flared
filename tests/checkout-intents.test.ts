@@ -11,6 +11,10 @@ import {
 } from '../web/src/server/checkout-intents';
 import { deleteAccountAtomically } from '../web/src/server/account-deletion';
 import { fakeAdmissionNamespace } from './helpers/admission';
+import { at, present } from './helpers/fixtures';
+import { responseJson, z } from './helpers/json';
+import type { ProviderCall } from './helpers/payments';
+import type { PaymentProvider } from '../web/src/server/payments';
 import { ensureCart, addCartLine, cartIdentity, type CartCreds } from '../web/src/server/cart';
 import {
   checkoutInputKey,
@@ -24,17 +28,17 @@ vi.mock('../web/src/server/session', () => ({ getSessionUser: async () => null }
 vi.mock('../web/src/server/turnstile', () => ({ verifyTurnstile: async () => true }));
 
 const provider = {
-  createCheckout: vi.fn(),
-  createCoupon: vi.fn(),
-  createCheckoutSession: vi.fn(),
-  createCheckoutCustomer: vi.fn(async () => 'cus_fixture'),
-  retrieveCheckoutSession: vi.fn(),
+  createCheckout: vi.fn<ProviderCall<'createCheckout'>>(),
+  createCoupon: vi.fn<ProviderCall<'createCoupon'>>(),
+  createCheckoutSession: vi.fn<ProviderCall<'createCheckoutSession'>>(),
+  createCheckoutCustomer: vi.fn<ProviderCall<'createCheckoutCustomer'>>(async () => 'cus_fixture'),
+  retrieveCheckoutSession: vi.fn<ProviderCall<'retrieveCheckoutSession'>>(),
   async verifyWebhook(payload: string) {
     const event = JSON.parse(payload);
     return { ...event, data: event.data.object };
   },
-  refund: vi.fn(async () => ({ id: 're_x', status: 'pending' })),
-};
+  refund: vi.fn<ProviderCall<'refund'>>(async () => ({ id: 're_x', status: 'pending' })),
+} satisfies PaymentProvider;
 vi.mock('../web/src/server/payments', () => ({ getStripeProvider: () => provider }));
 
 let db: D1Database, dispose: () => Promise<void>;
@@ -50,6 +54,8 @@ const shippingAddress = {
   country: 'US',
 };
 const INTENT = '123e4567-e89b-42d3-a456-426614174100';
+const stateBody = z.object({ state: z.string() });
+const codeBody = z.object({ code: z.string() });
 
 beforeEach(async () => {
   guestCookie = undefined;
@@ -86,22 +92,25 @@ beforeEach(async () => {
       .bind(id)
       .first<{ order_id: string; id: string; provider_payload_json: string }>();
     if (!row) return null;
-    const order = await db.prepare('SELECT * FROM orders WHERE id=?').bind(row.order_id).first<{
-      subtotal_cents: number;
-      discount_cents: number;
-      shipping_cents: number;
-      total_cents: number;
-    }>();
+    const order = present(
+      await db.prepare('SELECT * FROM orders WHERE id=?').bind(row.order_id).first<{
+        subtotal_cents: number;
+        discount_cents: number;
+        shipping_cents: number;
+        total_cents: number;
+      }>(),
+      'the intent order'
+    );
     return {
       id,
       status: 'open',
       url: 'https://stripe.test/intent',
       payment_status: 'unpaid',
       currency: 'usd',
-      amount_total: order!.total_cents,
-      subtotalCents: order!.subtotal_cents,
-      discountCents: order!.discount_cents,
-      shippingCents: order!.shipping_cents,
+      amount_total: order.total_cents,
+      subtotalCents: order.subtotal_cents,
+      discountCents: order.discount_cents,
+      shippingCents: order.shipping_cents,
       taxCents: 0,
       payment_intent: null,
       metadata: { order_id: row.order_id, attempt_id: row.id },
@@ -128,13 +137,13 @@ async function bootstrapCookie(): Promise<string> {
   expect(res.status).toBe(204);
   const setCookie = res.headers.get('set-cookie') ?? '';
   expect(setCookie.startsWith('guest_checkout=')).toBe(true);
-  return setCookie.split(';')[0]!;
+  return at(setCookie.split(';'), 0);
 }
 
 async function post(
   intentId: string,
   opts: {
-    cookie?: string;
+    cookie?: string | undefined;
     qty?: number;
     code?: string;
     confirmedQuote?: {
@@ -165,7 +174,7 @@ async function post(
       body: JSON.stringify({
         intentId,
         cartId: cart.id,
-        cartRevision: (await cartIdentity(db, cart))!.revision,
+        cartRevision: present(await cartIdentity(db, cart)).revision,
         shippingAddress,
         email: 'guest@example.invalid',
         shippingCountry: 'US',
@@ -211,14 +220,14 @@ async function stock() {
 it('duplicate preparations yield one order, no reservation and one session operation', async () => {
   const first = await post(INTENT);
   expect(first.status).toBe(200);
-  const body = await first.json();
+  const body = await responseJson(first, stateBody);
   expect(body.state).toBe('review_ready');
   const cookie = guestCookie;
   expect(cookie).toBeTruthy();
 
   const second = await post(INTENT, { cookie });
   expect(second.status).toBe(200);
-  expect((await second.json()).state).toBe('review_ready');
+  expect((await responseJson(second, stateBody)).state).toBe('review_ready');
   expect(provider.createCheckoutSession).toHaveBeenCalledTimes(1);
   expect(await count('orders')).toBe(1);
   expect(await count('checkout_intents')).toBe(1);
@@ -261,14 +270,14 @@ it('bootstrap reuses an existing capability and never rotates ownership mid-chec
   // The original owner still replays its ready checkout.
   const retry = await post(INTENT, { cookie });
   expect(retry.status).toBe(200);
-  expect((await retry.json()).state).toBe('review_ready');
+  expect((await responseJson(retry, stateBody)).state).toBe('review_ready');
   expect(await count('orders')).toBe(1);
 });
 
 it('guest checkout without bootstrap is 428 and creates nothing', async () => {
   const res = await postWithoutBootstrap(INTENT);
   expect(res.status).toBe(428);
-  expect((await res.json()).code).toBe('GUEST_BOOTSTRAP_REQUIRED');
+  expect((await responseJson(res, codeBody)).code).toBe('GUEST_BOOTSTRAP_REQUIRED');
   expect(await count('checkout_intents')).toBe(0);
   expect(await count('orders')).toBe(0);
   expect(await count('reservations')).toBe(0);
@@ -315,7 +324,7 @@ it('ambiguous provider failure parks in reconciliation and recovers with the sam
     .prepare("UPDATE checkout_intents SET next_reconcile_at='2000-01-01' WHERE id=?")
     .bind(INTENT)
     .run();
-  expect(await reconcileCheckoutIntents(db, provider as never, 10, admission.namespace)).toBe(1);
+  expect(await reconcileCheckoutIntents(db, provider, 10, admission.namespace)).toBe(1);
   const recovered = await loadIntent(db, INTENT);
   expect(recovered?.state).toBe('ready');
   expect(recovered?.stripe_session_id).toBe('cs_intent');
@@ -350,7 +359,7 @@ it('coupon result is stored before session creation and not recreated on recover
     .prepare("UPDATE checkout_intents SET next_reconcile_at='2000-01-01' WHERE id=?")
     .bind(INTENT)
     .run();
-  await reconcileCheckoutIntents(db, provider as never, 10, admission.namespace);
+  await reconcileCheckoutIntents(db, provider, 10, admission.namespace);
   expect(provider.createCoupon).toHaveBeenCalledTimes(1);
   expect(provider.createCheckoutSession).toHaveBeenCalledTimes(2);
   expect(provider.createCheckoutSession).toHaveBeenLastCalledWith(
@@ -370,7 +379,7 @@ it('an active claim blocks a second worker without calling Stripe', async () => 
     .bind(INTENT)
     .run();
   provider.createCheckoutSession.mockClear();
-  expect(await runIntentOperation(db, provider as never, INTENT)).toEqual({
+  expect(await runIntentOperation(db, provider, INTENT)).toEqual({
     status: 'pending',
   });
   expect(provider.createCheckoutSession).not.toHaveBeenCalled();
@@ -390,7 +399,7 @@ it('an expired claim on a crashed session_creating intent recovers exactly once'
       .bind(INTENT),
   ]);
   provider.createCheckoutSession.mockClear();
-  expect(await runIntentOperation(db, provider as never, INTENT)).toEqual({
+  expect(await runIntentOperation(db, provider, INTENT)).toEqual({
     status: 'ready',
     checkoutUrl: 'https://stripe.test/intent',
   });
@@ -400,7 +409,7 @@ it('an expired claim on a crashed session_creating intent recovers exactly once'
     stripe_session_id: 'cs_intent',
   });
   // A second worker resuming the same intent does not call Stripe again.
-  expect(await runIntentOperation(db, provider as never, INTENT)).toEqual({
+  expect(await runIntentOperation(db, provider, INTENT)).toEqual({
     status: 'ready',
     checkoutUrl: 'https://stripe.test/intent',
   });
@@ -519,7 +528,7 @@ it('an exhausted deadline parks the retry instead of calling the provider', asyn
       body: JSON.stringify({
         intentId: INTENT,
         cartId: cart.id,
-        cartRevision: (await cartIdentity(db, cart))!.revision,
+        cartRevision: present(await cartIdentity(db, cart)).revision,
         shippingAddress,
         quoteRevision: (
           await quoteOrder(db, {
@@ -566,8 +575,9 @@ it('recovery retrieves a known session instead of creating a new one', async () 
     payment_status: 'unpaid',
     amount_total: 2000,
     currency: 'usd',
+    payment_intent: null,
   });
-  expect(await runIntentOperation(db, provider as never, INTENT)).toEqual({
+  expect(await runIntentOperation(db, provider, INTENT)).toEqual({
     status: 'ready',
     checkoutUrl: 'https://stripe.test/known',
   });
@@ -585,7 +595,7 @@ it('past the creation horizon an unresolved intent is preserved and alerted, nev
     .bind(INTENT)
     .run();
   provider.createCheckoutSession.mockClear();
-  expect(await runIntentOperation(db, provider as never, INTENT)).toEqual({ status: 'pending' });
+  expect(await runIntentOperation(db, provider, INTENT)).toEqual({ status: 'pending' });
   const intent = await loadIntent(db, INTENT);
   expect(intent?.state).toBe('reconciliation_required');
   expect(intent?.failure_code).toBe('provider_unresolved');
@@ -611,7 +621,7 @@ it('expired frozen parameters preserve unresolved intent without calling Stripe'
     currency: 'usd',
     payment_intent: null,
   });
-  expect(await runIntentOperation(db, provider as never, INTENT)).toEqual({
+  expect(await runIntentOperation(db, provider, INTENT)).toEqual({
     status: 'pending',
   });
   expect(provider.createCheckoutSession).not.toHaveBeenCalled();
@@ -686,7 +696,7 @@ it('promotion racing deletion leaves the open checkout untouched', async () => {
       return typeof value === 'function' ? value.bind(target) : value;
     },
   });
-  await expect(deleteAccountAtomically(wrapped as never, 'cust4')).rejects.toMatchObject({
+  await expect(deleteAccountAtomically(wrapped, 'cust4')).rejects.toMatchObject({
     status: 409,
   });
   expect(
@@ -769,7 +779,7 @@ it('a submitted total that differs from the confirmed quote is rejected for requ
     confirmedQuote: { subtotalCents: 2000, discountCents: 0, shippingCents: 0, totalCents: 2000 },
   });
   expect(res.status).toBe(409);
-  expect((await res.json()).code).toBe('STALE_QUOTE');
+  expect((await responseJson(res, codeBody)).code).toBe('STALE_QUOTE');
   expect(await count('orders')).toBe(0);
   expect(await count('checkout_intents')).toBe(0);
   expect(await stock()).toEqual({ on_hand: 10, reserved: 0 });
@@ -782,7 +792,7 @@ it('a submission matching its confirmed quote proceeds', async () => {
     confirmedQuote: { subtotalCents: 2000, discountCents: 200, shippingCents: 0, totalCents: 1800 },
   });
   expect(res.status).toBe(200);
-  expect((await res.json()).state).toBe('review_ready');
+  expect((await responseJson(res, stateBody)).state).toBe('review_ready');
   const order = await db.prepare('SELECT total_cents FROM orders').first<{ total_cents: number }>();
   expect(order?.total_cents).toBe(1800);
 });
@@ -833,6 +843,8 @@ it('client intent identity is reused until inputs change or it is reset', async 
     removeItem: (k: string) => void store.delete(k),
   };
   const key = await checkoutInputKey({
+    cartId: 'cart-1',
+    cartRevision: 1,
     email: 'A@b.com',
     lines: [{ sku: 'TEE-1', qty: 1 }],
     shippingCountry: 'US',
@@ -848,6 +860,8 @@ it('client intent identity is reused until inputs change or it is reset', async 
   const changed = getCheckoutIntent(
     storage,
     await checkoutInputKey({
+      cartId: 'cart-1',
+      cartRevision: 1,
       email: 'a@b.com',
       lines: [{ sku: 'TEE-1', qty: 2 }],
       shippingCountry: 'US',
@@ -881,6 +895,8 @@ it('unavailable storage keeps one stable in-memory intent for unchanged inputs',
     },
   };
   const key = await checkoutInputKey({
+    cartId: 'cart-1',
+    cartRevision: 1,
     email: 'a@b.com',
     lines: [{ sku: 'TEE-1', qty: 1 }],
     shippingCountry: 'US',
@@ -889,6 +905,8 @@ it('unavailable storage keeps one stable in-memory intent for unchanged inputs',
   const first = getCheckoutIntent(throwing, key);
   expect(getCheckoutIntent(throwing, key)).toEqual({ intentId: first.intentId, fresh: false });
   const other = await checkoutInputKey({
+    cartId: 'cart-1',
+    cartRevision: 1,
     email: 'a@b.com',
     lines: [{ sku: 'TEE-1', qty: 3 }],
     shippingCountry: 'US',

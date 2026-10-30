@@ -21,6 +21,7 @@ import {
   loadIntent,
   parseGuestCapability,
   runIntentOperation,
+  supersededIntentIds,
   type CheckoutIntentRow,
 } from '../../server/checkout-intents';
 import { acquireCheckoutPermit } from '../../server/checkout-admission';
@@ -309,14 +310,9 @@ async function prepareCheckoutRequest(
         settings,
         authoritative
       );
-      const retired = await env.DB.prepare(
-        "SELECT id FROM checkout_intents WHERE superseded_by=? AND payment_state NOT IN ('finalized','canceled') ORDER BY created_at LIMIT 20"
-      )
-        .bind(intent.id)
-        .all<{ id: string }>();
       const { enqueueJob } = await import('../../server/email');
-      for (const old of retired.results)
-        await enqueueJob({ type: 'checkout.recover', intentId: old.id });
+      for (const intentId of await supersededIntentIds(env.DB, intent.id))
+        await enqueueJob({ type: 'checkout.recover', intentId });
     } catch (err) {
       if (err instanceof CheckoutError) {
         if (err.code === 'INTENT_EXISTS') {

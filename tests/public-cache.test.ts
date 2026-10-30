@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { createTestDb } from './helpers/d1';
+import { present } from './helpers/fixtures';
 import {
   cacheTagsForPath,
   drainCatalogInvalidations,
@@ -89,12 +90,12 @@ it('strips private/forwarding headers and nonsemantic product parameters', () =>
       },
     })
   );
-  expect(forwarded).not.toBeNull();
-  expect(forwarded!.headers.has('cookie')).toBe(false);
-  expect(forwarded!.headers.has('authorization')).toBe(false);
-  expect(forwarded!.headers.has('x-forwarded-host')).toBe(false);
-  expect(forwarded!.headers.get('user-agent')).toBe('test-agent');
-  const url = new URL(forwarded!.url);
+  const { headers, url: forwardedUrl } = present(forwarded, 'the forwarded request');
+  expect(headers.has('cookie')).toBe(false);
+  expect(headers.has('authorization')).toBe(false);
+  expect(headers.has('x-forwarded-host')).toBe(false);
+  expect(headers.get('user-agent')).toBe('test-agent');
+  const url = new URL(forwardedUrl);
   expect(url.searchParams.has('page')).toBe(false);
   expect(url.searchParams.has('utm_source')).toBe(false);
   expect(url.searchParams.has('gclid')).toBe(false);
@@ -489,10 +490,10 @@ it('a hard-deleted post still invalidates its editorial document', async () => {
       )
       .run();
     const { editorialKey } = await import('../web/src/server/catalog-models');
-    await catalogWork(db, kv as never);
+    await catalogWork(db, kv);
     expect(kv.map.has(editorialKey('post', 'hello-world'))).toBe(true);
     await db.prepare("DELETE FROM posts WHERE id = 'post1'").run();
-    await catalogWork(db, kv as never);
+    await catalogWork(db, kv);
     expect(kv.map.has(editorialKey('post', 'hello-world'))).toBe(false);
     const inv = await db
       .prepare("SELECT scope_id FROM catalog_invalidations WHERE scope = 'editorial'")
@@ -524,7 +525,7 @@ it('a due scheduled post is promoted and published by the catalog pass', async (
       )
       .run();
     const { editorialKey } = await import('../web/src/server/catalog-models');
-    await catalogWork(db, kv as never);
+    await catalogWork(db, kv);
     const post = await db
       .prepare("SELECT status FROM posts WHERE id = 'post2'")
       .first<{ status: string }>();

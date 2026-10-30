@@ -1,22 +1,31 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createTestDb } from './helpers/d1';
+import { withOverrides } from './helpers/fixtures';
 import { runAdminAction } from '../web/src/server/admin-actions';
 import { canonicalizeMediaUrls, mediaKeysInContent } from '../web/src/server/media';
 
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, env: Env, bindings: Env, dispose: () => Promise<void>;
 const owner = { id: 'owner', role: 'owner' };
 const removed: string[] = [];
-const env = {
-  MEDIA: {
-    delete: vi.fn(async (key: string) => {
-      removed.push(key);
-    }),
-  },
-} as never;
+
+function withMediaDelete(base: Env, remove: R2Bucket['delete']): Env {
+  return withOverrides(base, { MEDIA: withOverrides(base.MEDIA, { delete: remove }) });
+}
+const failingDelete = () =>
+  vi
+    .fn<R2Bucket['delete']>()
+    .mockRejectedValueOnce(new Error('storage unavailable'))
+    .mockResolvedValue(undefined);
 
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env: bindings, dispose } = await createTestDb());
+  env = withMediaDelete(
+    bindings,
+    vi.fn(async (keys: string | string[]) => {
+      removed.push(...[keys].flat());
+    })
+  );
   removed.length = 0;
   vi.clearAllMocks();
   await db
@@ -204,14 +213,7 @@ describe('inline media references', () => {
 
   it('race B: a save introducing a pending image is rejected, inline and as cover', async () => {
     await media('m', 'race-b.jpg');
-    const failingEnv = {
-      MEDIA: {
-        delete: vi
-          .fn()
-          .mockRejectedValueOnce(new Error('storage unavailable'))
-          .mockResolvedValue(undefined),
-      },
-    } as never;
+    const failingEnv = withMediaDelete(bindings, failingDelete());
     await runAdminAction(db, failingEnv, owner, 'media.delete', { mediaId: 'm' });
     expect(
       (await db.prepare("SELECT deletion_pending FROM media WHERE id='m'").first())
@@ -247,14 +249,7 @@ describe('inline media references', () => {
 
   it('absolute local URL with canonical unset is guarded via the request origin', async () => {
     await media('m', 'abs.jpg');
-    const failingEnv = {
-      MEDIA: {
-        delete: vi
-          .fn()
-          .mockRejectedValueOnce(new Error('storage unavailable'))
-          .mockResolvedValue(undefined),
-      },
-    } as never;
+    const failingEnv = withMediaDelete(bindings, failingDelete());
     await runAdminAction(db, failingEnv, owner, 'media.delete', { mediaId: 'm' });
     const result = await savePost('post-abs', '<img src="https://shop.invalid/media/abs.jpg">');
     expect(result).toMatchObject({ ok: false, status: 409 });
@@ -307,14 +302,7 @@ describe('inline media references', () => {
 
   it('save introducing an encoded reference to pending media is rejected', async () => {
     await media('m', 'enc.jpg');
-    const failingEnv = {
-      MEDIA: {
-        delete: vi
-          .fn()
-          .mockRejectedValueOnce(new Error('storage unavailable'))
-          .mockResolvedValue(undefined),
-      },
-    } as never;
+    const failingEnv = withMediaDelete(bindings, failingDelete());
     await runAdminAction(db, failingEnv, owner, 'media.delete', { mediaId: 'm' });
     const result = await savePost('post-enc', '<img src="/media/%65nc.jpg">');
     expect(result).toMatchObject({ ok: false, status: 409 });

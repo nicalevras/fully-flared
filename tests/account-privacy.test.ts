@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestDb } from './helpers/d1';
 import { claimVerifiedGuestOrders } from '../web/src/server/account';
 import { createAuth } from '../web/src/lib/auth';
+import { z } from './helpers/json';
 
 let db: D1Database;
 let dispose: () => Promise<void>;
@@ -69,7 +70,7 @@ describe('auth configuration', () => {
       body: { name: 'Attacker', email: 'boss@example.com', password: 'password123' },
     });
     expect(result.user.emailVerified).toBe(false);
-    expect((result.user as { role?: string }).role).toBe('customer');
+    expect(z.object({ role: z.string() }).parse(result.user).role).toBe('customer');
     const row = await db
       .prepare('SELECT role, email_verified FROM user WHERE email = ?')
       .bind('boss@example.com')

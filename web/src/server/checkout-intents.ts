@@ -122,6 +122,17 @@ export async function loadIntent(
     .first<CheckoutIntentRow>();
 }
 
+/** Unsettled intents the given intent replaced, oldest first, for recovery. */
+export async function supersededIntentIds(db: D1Database, intentId: string): Promise<string[]> {
+  const { results } = await db
+    .prepare(
+      "SELECT id FROM checkout_intents WHERE superseded_by=? AND payment_state NOT IN ('finalized','canceled') ORDER BY created_at LIMIT 20"
+    )
+    .bind(intentId)
+    .all<{ id: string }>();
+  return results.map((row) => row.id);
+}
+
 /** Ownership is proven by account identity or the hashed guest
  *  capability. Intent ID, email or order ID alone never authorize. */
 export async function intentOwnedBy(

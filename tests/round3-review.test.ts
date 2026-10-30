@@ -74,28 +74,32 @@ it('cold and warm anonymous storefront reads make zero D1 calls', async () => {
   const { db, dispose } = await createTestDb();
   const values = new Map<string, string>();
   const kv = {
-    get: vi.fn(async (key: string) => values.get(key) ?? null),
+    get: async (key: string) => values.get(key) ?? null,
     put: async (key: string, value: string) => {
       values.set(key, value);
     },
-  } as unknown as KVNamespace;
+  };
   try {
     await seedProduct(db);
     await buildCatalogReadModels(db, kv);
     // A new binding object simulates an isolate cold start without warming a pointer memo.
-    const coldKv = {
-      get: vi.fn(async (key: string) => values.get(key) ?? null),
-    } as unknown as KVNamespace;
-    const prepare = vi.fn(() => {
+    const coldGet = vi.fn(async (key: string) => values.get(key) ?? null);
+    const coldKv = { get: coldGet };
+    const prepare = vi.fn<D1Database['prepare']>(() => {
       throw new Error('Anonymous page queried D1');
     });
-    const forbiddenDb = { prepare } as unknown as D1Database;
+    const forbiddenDb = withOverrides(db, {
+      prepare,
+      batch: async () => {
+        throw new Error('Anonymous page batched D1');
+      },
+    });
     // Since Phase 4 the HTML itself is cached by Workers Cache in
     // front of PublicStorefront; what this suite still guarantees is
     // the read path underneath it: anonymous listing/layout reads are
     // served from KV with zero D1 calls, cold or warm.
     const render = () =>
-      runWithRequestContext({} as ExecutionContext, async () => {
+      runWithRequestContext(requestContext(), async () => {
         const [page, layout] = await Promise.all([
           readListingPage(forbiddenDb, coldKv, ALL_LISTING, 1),
           getStorefrontLayout(forbiddenDb, { CATALOG_KV: coldKv }),
@@ -109,9 +113,7 @@ it('cold and warm anonymous storefront reads make zero D1 calls', async () => {
     await vi.advanceTimersByTimeAsync(5001);
     await Promise.all(Array.from({ length: 8 }, () => render()));
     expect(prepare).not.toHaveBeenCalled();
-    expect(vi.mocked(coldKv.get).mock.calls.filter(([key]) => key === LAYOUT_REF_KEY)).toHaveLength(
-      10
-    );
+    expect(coldGet.mock.calls.filter(([key]) => key === LAYOUT_REF_KEY)).toHaveLength(10);
     process.stdout.write(
       'PASS cold/warm/concurrent anonymous storefront reads: D1 calls=0; layout ref reads=10 (one per independent request, no stale cross-request memo)\n'
     );
@@ -131,7 +133,7 @@ it('records corrupt catalog values and recovers from D1 without raw errors or PI
     put: async (key: string, value: string) => {
       values.set(key, value);
     },
-  } as unknown as KVNamespace;
+  };
   try {
     await seedProduct(db);
     await buildCatalogReadModels(db, kv);
@@ -149,3 +151,4 @@ it('records corrupt catalog values and recovers from D1 without raw errors or PI
 });
 import { buildCatalogReadModels } from './helpers/catalog-driver';
 import { runWithRequestContext } from '../web/src/server/exec-context';
+import { requestContext, withOverrides } from './helpers/fixtures';

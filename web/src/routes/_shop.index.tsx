@@ -1,4 +1,7 @@
-import { useAvailability } from '../lib/availability';
+import { inBrowser, seedAvailability, useAvailability } from '../lib/availability';
+import { pageAvailability } from '../server/page-availability';
+import { validateServerInput } from '../server/function-boundary';
+import { homeInputSchema } from '../schemas/checkout';
 import { Link, createFileRoute } from '@tanstack/react-router';
 import { formatDate } from '../lib/format';
 import { createServerFn } from '@tanstack/react-start';
@@ -13,24 +16,33 @@ import { cn } from '@/lib/utils';
 import { absoluteUrl, seoMeta } from '../lib/seo';
 import { ArrowRightIcon, ReturnIcon, ShieldIcon, TruckIcon } from '../components/icons';
 
-const getHome = createServerFn({ method: 'GET' }).handler(async () => {
-  const { env } = await import('cloudflare:workers');
-  const [layout, collections] = await Promise.all([
-    getStorefrontLayout(env.DB, env),
-    getHomeCollections(env.DB, env),
-  ]);
-  return {
-    storeName: layout.storeName,
-    hero: layout.hero,
-    canonicalBaseUrl: requestCanonicalBase(layout.canonicalBaseUrl),
-    rails: await getFeaturedRails(env.DB, env, layout.featured),
-    collections,
-    posts: layout.posts,
-  };
-});
+const getHome = createServerFn({ method: 'GET' })
+  .validator(validateServerInput(homeInputSchema))
+  .handler(async ({ data }) => {
+    const { env } = await import('cloudflare:workers');
+    const [layout, collections] = await Promise.all([
+      getStorefrontLayout(env.DB, env),
+      getHomeCollections(env.DB, env),
+    ]);
+    const rails = await getFeaturedRails(env.DB, env, layout.featured);
+    return {
+      storeName: layout.storeName,
+      hero: layout.hero,
+      canonicalBaseUrl: requestCanonicalBase(layout.canonicalBaseUrl),
+      rails,
+      collections,
+      posts: layout.posts,
+      availability: await pageAvailability(
+        data.live,
+        rails.flatMap((rail) => rail.products.map((p) => p.id)),
+        'products'
+      ),
+    };
+  });
 
 export const Route = createFileRoute('/_shop/')({
-  loader: async () => getHome(),
+  loader: async ({ preload }) =>
+    seedAvailability(await getHome({ data: { live: inBrowser() && !preload } })),
   staleTime: 20_000,
   head: ({ loaderData }) => ({
     meta: loaderData
@@ -48,10 +60,13 @@ export const Route = createFileRoute('/_shop/')({
 });
 
 function HomePage() {
-  const { storeName, hero, rails, collections, posts } = Route.useLoaderData();
-  const availability = useAvailability([
-    ...new Set(rails.flatMap((rail) => rail.products.map((p) => p.id))),
-  ]);
+  const { storeName, hero, rails, collections, posts, availability: seed } = Route.useLoaderData();
+  const availability = useAvailability(
+    [...new Set(rails.flatMap((rail) => rail.products.map((p) => p.id)))],
+    'products',
+    '',
+    seed
+  );
 
   return (
     <main>
