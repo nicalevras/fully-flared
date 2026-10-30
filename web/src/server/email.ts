@@ -259,13 +259,3 @@ export async function enqueueOutboxRecoveryPage(
   }
   return { queued, cursor: next, done: rows.results.length < 25, retry: false };
 }
-
-/** Emails that used every attempt and will not be sent without staff action. */
-export async function failedEmailCount(db: D1Database): Promise<number> {
-  const row = await db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM outbox WHERE status='failed' AND attempts>=${MAX_EMAIL_ATTEMPTS}`
-    )
-    .first<{ n: number }>();
-  return row?.n ?? 0;
-}

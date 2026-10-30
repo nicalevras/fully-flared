@@ -24,8 +24,7 @@ import {
 import * as z from 'zod';
 import { validateServerInput } from '../../server/function-boundary';
 import { failingCatalogWork, type FailingCatalogWork } from '../../server/catalog-operations';
-import { failedEmailCount } from '../../server/email';
-import { MAX_EMAIL_ATTEMPTS } from '../../server/outbox';
+import { failedEmailCount } from '../../server/outbox';
 import { MailIcon } from 'lucide-react';
 import {
   ArrowRightIcon,
@@ -313,7 +312,7 @@ function AdminHome() {
                   {s.failedEmails} email{s.failedEmails === 1 ? '' : 's'} could not be sent
                 </p>
                 <p className="text-[13px] text-zinc-500">
-                  Receipts or notices failed {MAX_EMAIL_ATTEMPTS} times. Check the email provider.
+                  Every retry failed. Check the email provider settings.
                 </p>
               </div>
             </div>

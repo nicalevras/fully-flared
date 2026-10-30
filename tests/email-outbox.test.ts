@@ -1,7 +1,8 @@
 import { env } from 'cloudflare:workers';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb } from './helpers/d1';
-import { failedEmailCount, processOutboxRow } from '../web/src/server/email';
+import { processOutboxRow } from '../web/src/server/email';
+import { failedEmailCount } from '../web/src/server/outbox';
 
 let db: D1Database, dispose: () => Promise<void>;
 
