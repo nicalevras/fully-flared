@@ -63,7 +63,7 @@ export function parseCsv(text: string): string[][] {
 export function serializeCsvCell(value: unknown): string {
   let s = String(value ?? '');
   // Spreadsheet formula injection: neutralize leading formula characters.
-  if (/^[=+\-@|]/.test(s)) s = `'${s}`;
+  if (/^[=+\-@|\t\r]/.test(s)) s = `'${s}`;
   return s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')
     ? `"${s.replace(/"/g, '""')}"`
     : s;
