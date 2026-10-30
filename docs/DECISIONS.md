@@ -492,7 +492,8 @@ Other owner decisions from the same review and from the request-path work:
 - **CI runs on pull requests to any branch.** The preview deploy runs only for
   pull requests into `main`, so stacked pull requests get CI without deploying.
 - **Dependency advisories (R-18).** `sanitize-html` and `seroval` were patched
-  within their current majors. `npm audit --omit=dev` in `web/` went from 7
+  within their current majors in PR #49 (`5aa7bf9`), which merges before this
+  change. On a branch with that patch, `npm audit --omit=dev` in `web/` went from 7
   advisories to 4 moderate, all in the `drizzle-kit` dev chain. Major upgrades
   of dev tools (`drizzle-kit`, `vitest`, and `wrangler`'s `undici`) are
   deferred.
