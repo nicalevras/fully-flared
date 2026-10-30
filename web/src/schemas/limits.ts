@@ -18,15 +18,6 @@ export function limitValueSchema(key: LimitKey) {
     .transform(Number)
     .pipe(z.number().int().min(min).max(max));
 }
-export function parseLimits(stored: Record<string, string>): StoreLimits {
-  return Object.fromEntries(
-    LIMIT_KEYS.map((key) => {
-      const parsed = limitValueSchema(key).safeParse(stored[key]);
-      return [key, parsed.success ? parsed.data : LIMIT_DEFINITIONS[key].default];
-    })
-  ) as StoreLimits;
-}
-
 export const storeLimitsSchema = z
   .record(z.enum(LIMIT_KEYS), z.number())
   .superRefine((limits, ctx) => {
@@ -36,6 +27,17 @@ export const storeLimitsSchema = z
         ctx.addIssue({ code: 'custom', path: [key], message: `Expected integer ${min}..${max}` });
     }
   });
+
+export function parseLimits(stored: Record<string, string>): StoreLimits {
+  return storeLimitsSchema.parse(
+    Object.fromEntries(
+      LIMIT_KEYS.map((key) => {
+        const parsed = limitValueSchema(key).safeParse(stored[key]);
+        return [key, parsed.success ? parsed.data : LIMIT_DEFINITIONS[key].default];
+      })
+    )
+  );
+}
 
 /** Existing immutable layouts keep their original hash. Normalize only the
  * returned view while the new publisher replaces the old setting name. */
@@ -63,11 +65,15 @@ export function admissionValueSchema(key: AdmissionKey) {
     .pipe(z.number().int().min(min).max(max));
 }
 
+const admissionConfigSchema = z.record(z.enum(ADMISSION_KEYS), z.number());
+
 export function parseAdmissionConfig(stored: Record<string, string>): AdmissionConfig {
-  return Object.fromEntries(
-    ADMISSION_KEYS.map((key) => {
-      const parsed = admissionValueSchema(key).safeParse(stored[key]);
-      return [key, parsed.success ? parsed.data : ADMISSION_DEFINITIONS[key].default];
-    })
-  ) as AdmissionConfig;
+  return admissionConfigSchema.parse(
+    Object.fromEntries(
+      ADMISSION_KEYS.map((key) => {
+        const parsed = admissionValueSchema(key).safeParse(stored[key]);
+        return [key, parsed.success ? parsed.data : ADMISSION_DEFINITIONS[key].default];
+      })
+    )
+  );
 }

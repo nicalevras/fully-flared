@@ -21,7 +21,7 @@ function validSetting(key: string, value: string) {
   }
 }
 import { zodIssues } from '../schemas/common';
-import { ACTION_PERMISSIONS, roles, type StaffRole } from '../lib/permissions';
+import { ACTION_PERMISSIONS, isStaffRole, roleFor } from '../lib/permissions';
 import type { Auth } from '../lib/auth';
 
 export const CSV_IMPORT_MAX_ROWS = 1000;
@@ -319,6 +319,23 @@ async function mediaSaveFailure(
   return null;
 }
 
+/** Whether the actor's stored role grants the permissions, through Better
+ *  Auth when it is wired and the local access-control table otherwise. A
+ *  role outside the table grants nothing on either path. */
+async function actorCan(
+  actor: { id: string; role: string },
+  permissions: Record<string, string[]>,
+  authContext: { auth: Auth; headers: Headers } | undefined
+): Promise<boolean> {
+  const role = actor.role;
+  if (!isStaffRole(role)) return false;
+  if (!authContext) return roleFor(role)?.authorize(permissions).success ?? false;
+  const result = await authContext.auth.api.userHasPermission({
+    body: { userId: actor.id, role, permissions },
+  });
+  return result.success;
+}
+
 export async function runAdminAction(
   db: D1Database,
   env: Cloudflare.Env,
@@ -334,20 +351,11 @@ export async function runAdminAction(
 
   const permission = ACTION_PERMISSIONS[parsedAction.data.action];
   if (!permission) return { ok: false, error: `Unknown action ${action}`, status: 400 };
-  let allowed = false;
-  if (authContext) {
-    const result = await authContext.auth.api.userHasPermission({
-      body: {
-        userId: actor.id,
-        role: actor.role as StaffRole,
-        permissions: { [permission.resource]: [permission.action] },
-      },
-    });
-    allowed = result.success;
-  } else {
-    const role = roles[actor.role as keyof typeof roles];
-    allowed = Boolean(role?.authorize({ [permission.resource]: [permission.action] }).success);
-  }
+  const allowed = await actorCan(
+    actor,
+    { [permission.resource]: [permission.action] },
+    authContext
+  );
   if (!allowed) {
     return { ok: false, error: `Your role (${actor.role}) cannot perform ${action}`, status: 403 };
   }
@@ -356,18 +364,7 @@ export async function runAdminAction(
   if ('restock' in parsedAction.data && parsedAction.data.restock)
     extraPermissions.push({ resource: 'stock', action: 'adjust' });
   for (const required of extraPermissions) {
-    const granted = authContext
-      ? (
-          await authContext.auth.api.userHasPermission({
-            body: {
-              userId: actor.id,
-              role: actor.role as StaffRole,
-              permissions: { [required.resource]: [required.action] },
-            },
-          })
-        ).success
-      : roles[actor.role as StaffRole]?.authorize({ [required.resource]: [required.action] })
-          .success;
+    const granted = await actorCan(actor, { [required.resource]: [required.action] }, authContext);
     if (!granted)
       return {
         ok: false,
@@ -467,7 +464,7 @@ export async function runAdminAction(
             actorId: actor.id,
             sku: f.sku,
             delta: f.delta,
-            reason: (f.reason as 'restock') || 'restock',
+            reason: f.reason,
             ...(f.note !== undefined ? { note: f.note } : {}),
             ...(f.expectedOnHand !== undefined ? { expectedOnHand: f.expectedOnHand } : {}),
             extraStatements: [
@@ -481,7 +478,7 @@ export async function runAdminAction(
           if (outcome.status === 'conflict')
             return { ok: false, error: outcome.error, conflict: true };
           if (outcome.status === 'missing-sku') return { ok: false, error: outcome.error };
-          await broadcastAdminRealtime('inventory.updated', { sku: f.sku as string });
+          await broadcastAdminRealtime('inventory.updated', { sku: f.sku });
           return {
             ok: true,
             data: {
@@ -491,10 +488,10 @@ export async function runAdminAction(
             },
           };
         }
-        await adjustStock(db, f.sku, f.delta, (f.reason as 'restock') || 'restock', [
+        await adjustStock(db, f.sku, f.delta, f.reason, [
           auditStmt(db, actor.id, 'stock.adjust', 'stock', f.sku, { delta: f.delta }),
         ]);
-        await broadcastAdminRealtime('inventory.updated', { sku: f.sku as string });
+        await broadcastAdminRealtime('inventory.updated', { sku: f.sku });
         return { ok: true };
       }
       case 'discount.create': {
@@ -690,7 +687,7 @@ export async function runAdminAction(
           amount: result.amount,
           restock: Boolean(f.restock),
         });
-        await broadcastAdminRealtime('order.refunded', { orderId: f.orderId as string });
+        await broadcastAdminRealtime('order.refunded', { orderId: f.orderId });
         return {
           ok: true,
           data: {
@@ -773,17 +770,7 @@ export async function runAdminAction(
         // No migration: return_decision_update only guards transitions out
         // of 'requested', and the 0007 guards already allow 'rejected'.
         if (current.status === 'refund_failed') {
-          const canRefund = authContext
-            ? (
-                await authContext.auth.api.userHasPermission({
-                  body: {
-                    userId: actor.id,
-                    role: actor.role as StaffRole,
-                    permissions: { order: ['refund'] },
-                  },
-                })
-              ).success
-            : roles[actor.role as StaffRole]?.authorize({ order: ['refund'] }).success;
+          const canRefund = await actorCan(actor, { order: ['refund'] }, authContext);
           if (!canRefund)
             return {
               ok: false,
@@ -1653,7 +1640,7 @@ export async function runAdminAction(
         // also revoke the target's existing sessions, which the plugin call
         // is paired with explicitly.
         await authContext.auth.api.setRole({
-          body: { userId: f.userId, role: role as StaffRole },
+          body: { userId: f.userId, role },
           headers: authContext.headers,
         });
         await authContext.auth.api.revokeUserSessions({
@@ -2043,7 +2030,7 @@ export async function runAdminAction(
         const exhaustive: never = parsedAction.data;
         return {
           ok: false,
-          error: `Unknown action ${String((exhaustive as { action: string }).action)}`,
+          error: `Unknown action ${String(Reflect.get(exhaustive, 'action'))}`,
         };
       }
     }

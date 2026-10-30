@@ -269,6 +269,9 @@ export async function createPendingOrder(
   const email = input.email.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
     throw new CheckoutError('A valid email is required');
+  const { shippingCountry, shippingRateId } = input;
+  if (!shippingCountry || !shippingRateId)
+    throw new CheckoutError('Select a shipping country and rate');
   const quote = suppliedQuote ?? (await quoteOrder(db, input, suppliedSettings));
   const orderId = id(),
     attemptId = intent.id,
@@ -312,8 +315,8 @@ export async function createPendingOrder(
         attemptId,
         intent.id,
         input.ip ? normalizeNetwork(input.ip) : null,
-        input.shippingCountry!,
-        input.shippingRateId!,
+        shippingCountry,
+        shippingRateId,
         intent.reminderConsent ? 1 : 0,
         at,
         at
@@ -422,7 +425,7 @@ export async function createPendingOrder(
 }
 
 /** Idempotent webhook processing. Returns true when the event was new. */
-type StripeEventLike = { id: string; type: string; data: unknown };
+type StripeEventLike = { id: string; type: string; data: Record<string, unknown> };
 
 /** Verify + durably inbox a Stripe delivery. Processing happens separately
  *  (Queue consumer), so the HTTP response never waits on order work. */
@@ -644,11 +647,9 @@ async function applyStripeEvent(
   event: StripeEventLike,
   provider?: PaymentProvider
 ): Promise<boolean> {
-  const data = event.data as Record<string, unknown>;
+  const data = event.data;
   const sessionId =
-    typeof data.id === 'string' && event.type.startsWith('checkout.session')
-      ? (data.id as string)
-      : null;
+    typeof data.id === 'string' && event.type.startsWith('checkout.session') ? data.id : null;
 
   try {
     const { recordAuthorizedEvent } = await import('./authorized-checkout');
@@ -658,7 +659,8 @@ async function applyStripeEvent(
       event.type === 'checkout.session.completed' ||
       event.type === 'checkout.session.async_payment_succeeded'
     ) {
-      const paymentStatus = data.payment_status as string | undefined;
+      const paymentStatus =
+        typeof data.payment_status === 'string' ? data.payment_status : undefined;
       if (
         event.type === 'checkout.session.completed' &&
         paymentStatus &&
@@ -818,6 +820,15 @@ async function applyStripeEvent(
     throw err;
   }
   return true;
+}
+
+async function orderEmail(db: D1Database, orderId: string): Promise<string> {
+  const order = await db
+    .prepare('SELECT customer_email FROM orders WHERE id=?')
+    .bind(orderId)
+    .first<{ customer_email: string }>();
+  if (!order) throw new Error(`Order ${orderId} not found`);
+  return order.customer_email;
 }
 
 async function findOrderBySession(db: D1Database, sessionId: string) {
@@ -1212,10 +1223,7 @@ export async function cancelOrderById(
               db,
               `expired-free-${orderId}`,
               {
-                to: (await db
-                  .prepare('SELECT customer_email FROM orders WHERE id=?')
-                  .bind(orderId)
-                  .first<{ customer_email: string }>())!.customer_email,
+                to: await orderEmail(db, orderId),
                 subject: 'Checkout could not be completed',
                 text: cancellationText,
                 html: `<p>${cancellationText}</p>`,

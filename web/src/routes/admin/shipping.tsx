@@ -11,6 +11,7 @@ import {
 import { staffMiddleware } from '../../server/staff-middleware';
 import { requireStaffPermission } from '../../server/session';
 import { useStoreCurrency } from '../../lib/use-store-currency';
+import { stringArray } from '../../lib/is-record';
 import { createFileRoute, useRouter } from '@tanstack/react-router';
 import { createServerFn, useServerFn } from '@tanstack/react-start';
 import * as z from 'zod';
@@ -46,6 +47,12 @@ type Zone = {
     per_kg_cents: number | null;
   }>;
 };
+
+function zoneCountries(json: string): string[] {
+  const countries = stringArray(JSON.parse(json));
+  if (!countries) throw new Error('Shipping zone countries are not a list of codes.');
+  return countries;
+}
 
 export function countryLabel(code: string): string {
   try {
@@ -182,7 +189,7 @@ function Page() {
               <div className="flex flex-wrap items-baseline gap-x-3 px-5 pt-4 pb-3">
                 <h2 className="text-sm font-medium text-zinc-950">{z.name}</h2>
                 <span className="text-[13px] text-zinc-500">
-                  {(JSON.parse(z.countries_json) as string[]).map(countryLabel).join(', ')}
+                  {zoneCountries(z.countries_json).map(countryLabel).join(', ')}
                 </span>
               </div>
               <AdminDataTableShell>

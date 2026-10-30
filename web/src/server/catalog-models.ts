@@ -17,6 +17,8 @@ export const ARTIFACT_BYTE_LIMIT = 1_500_000;
 /** Largest editorial HTML accepted at save time, leaving room for the document envelope. */
 export const EDITORIAL_HTML_BYTE_LIMIT = 1_400_000;
 
+export const imageVariantsSchema = z.array(z.object({ width: z.number(), url: z.string() }));
+
 export const catalogCardSchema = z.object({
   id: z.string(),
   slug: z.string(),
@@ -25,7 +27,7 @@ export const catalogCardSchema = z.object({
   priceCents: z.number().nullable(),
   imageKey: z.string().nullable(),
   imagePublicUrl: z.string().nullable().optional(),
-  imageVariants: z.array(z.object({ width: z.number(), url: z.string() })).optional(),
+  imageVariants: imageVariantsSchema.optional(),
 });
 export type CatalogCard = z.infer<typeof catalogCardSchema>;
 
@@ -57,7 +59,7 @@ export const productDocumentSchema = z.object({
       key: z.string(),
       alt: z.string(),
       publicUrl: z.string().nullable().optional(),
-      variants: z.array(z.object({ width: z.number(), url: z.string() })).optional(),
+      variants: imageVariantsSchema.optional(),
     })
   ),
   revision: z.string(),

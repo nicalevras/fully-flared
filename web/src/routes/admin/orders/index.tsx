@@ -22,9 +22,9 @@ import { formatMoney } from '../../../components/ProductCard';
 import { StatusBadge } from '../../../components/StatusBadge';
 import { adminOrderDiscovery } from '../../../server/admin-order-discovery';
 import { orderDiscoveryInputSchema } from '../../../server/admin-order-discovery';
-import { normalizeOrderSearch, type OrderView } from '../../../lib/order-search';
+import { isOrderPaymentFilter, isOrderView, normalizeOrderSearch } from '../../../lib/order-search';
 import { validateServerInput } from '../../../server/function-boundary';
-import { roles, type StaffRole } from '../../../lib/permissions';
+import { roleFor } from '../../../lib/permissions';
 import { canShipOrder, refundActionMessage } from '../../../lib/order-actions';
 import { ConfirmDialog, type ConfirmRequest } from '../../../components/ConfirmDialog';
 import {
@@ -70,7 +70,7 @@ const getData = createServerFn({ method: 'GET' })
   .handler(async ({ data, context }) => {
     requireStaffPermission(context.staff, 'order', 'view');
     const { env } = await import('cloudflare:workers');
-    const role = roles[context.staff.role as StaffRole];
+    const role = roleFor(context.staff.role);
     return {
       ...(await adminOrderDiscovery(env.DB, data)),
       canRefund: role?.authorize({ order: ['refund'] }).success ?? false,
@@ -174,38 +174,27 @@ function AdminOrders() {
     setSelected(Object.keys(next).filter((id) => next[id]));
   };
 
+  const selectColumn: ColumnDef<DataTableFeatures, OrderRow> = {
+    id: 'select',
+    header: () => <span className="sr-only">Select for bulk shipping</span>,
+    enableHiding: false,
+    cell: ({ row }) => {
+      const o = row.original;
+      return (
+        <Checkbox
+          checked={row.getIsSelected()}
+          onCheckedChange={(value) => row.toggleSelected(!!value)}
+          disabled={
+            !canShipOrder(o) ||
+            (!selected.includes(o.id) && selected.length >= MAX_BULK_FULFILLMENT)
+          }
+          aria-label={`Select ${o.number} for bulk shipping`}
+        />
+      );
+    },
+  };
   const orderColumns: ColumnDef<DataTableFeatures, OrderRow>[] = [
-    ...(search.view === 'queue'
-      ? [
-          {
-            id: 'select',
-            header: () => <span className="sr-only">Select for bulk shipping</span>,
-            enableHiding: false,
-            cell: ({
-              row,
-            }: {
-              row: {
-                original: OrderRow;
-                getIsSelected: () => boolean;
-                toggleSelected: (value?: boolean) => void;
-              };
-            }) => {
-              const o = row.original;
-              return (
-                <Checkbox
-                  checked={row.getIsSelected()}
-                  onCheckedChange={(value) => row.toggleSelected(!!value)}
-                  disabled={
-                    !canShipOrder(o) ||
-                    (!selected.includes(o.id) && selected.length >= MAX_BULK_FULFILLMENT)
-                  }
-                  aria-label={`Select ${o.number} for bulk shipping`}
-                />
-              );
-            },
-          } as ColumnDef<DataTableFeatures, OrderRow>,
-        ]
-      : []),
+    ...(search.view === 'queue' ? [selectColumn] : []),
     {
       id: 'order',
       accessorKey: 'number',
@@ -359,11 +348,10 @@ function AdminOrders() {
             <>
               <Select
                 value={search.view}
-                onValueChange={(value) =>
-                  void navigate({
-                    search: { ...search, view: value as OrderView, cursor: undefined },
-                  })
-                }
+                onValueChange={(value) => {
+                  if (isOrderView(value))
+                    void navigate({ search: { ...search, view: value, cursor: undefined } });
+                }}
               >
                 <SelectTrigger aria-label="View" className={dataTableControlClassName}>
                   <SelectValue>View</SelectValue>
@@ -390,15 +378,10 @@ function AdminOrders() {
               </Select>
               <Select
                 value={search.payment}
-                onValueChange={(value) =>
-                  void navigate({
-                    search: {
-                      ...search,
-                      payment: value as typeof search.payment,
-                      cursor: undefined,
-                    },
-                  })
-                }
+                onValueChange={(value) => {
+                  if (isOrderPaymentFilter(value))
+                    void navigate({ search: { ...search, payment: value, cursor: undefined } });
+                }}
               >
                 <SelectTrigger aria-label="Payment" className={dataTableControlClassName}>
                   <SelectValue>Payment</SelectValue>

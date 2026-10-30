@@ -113,13 +113,21 @@ export const roles = {
 
 export type StaffRole = keyof typeof roles;
 
+export function isStaffRole(role: string): role is StaffRole {
+  return Object.hasOwn(roles, role);
+}
+
+/** The access-control role named by a stored role string, if it is one. */
+export function roleFor(role: string | null | undefined) {
+  return Object.entries(roles).find(([name]) => name === role)?.[1];
+}
+
 export function roleCan(
   role: string | null | undefined,
   resource: keyof typeof statement,
   action: string
 ): boolean {
-  const granted = Object.entries(roles).find(([name]) => name === role)?.[1];
-  return granted?.authorize({ [resource]: [action] }).success ?? false;
+  return roleFor(role)?.authorize({ [resource]: [action] }).success ?? false;
 }
 
 /** The Better Auth permission pair guarding one admin action. */

@@ -5,7 +5,7 @@ import {
 } from './server/public-cache';
 import { normalizeNetwork } from './server/network';
 import entry from '@tanstack/react-start/server-entry';
-import { processCustomerDeletion, processOutboxRow, type JobMessage } from './server/email';
+import { processCustomerDeletion, processOutboxRow } from './server/email';
 import { failInboxEvent, processInboxEvent } from './server/checkout';
 import { getStripeProvider, providerWithBudget } from './server/payments';
 import { runCatalogUnit } from './server/catalog-publisher';
@@ -135,7 +135,7 @@ export default {
     env: Cloudflare.Env,
     ctx: ExecutionContext
   ): Promise<void> {
-    return handleQueue(batch as MessageBatch<JobMessage>, env, ctx);
+    return handleQueue(batch, env, ctx);
   },
 
   async scheduled(
@@ -232,7 +232,7 @@ async function handleFetch(
 }
 
 async function handleQueue(
-  batch: MessageBatch<JobMessage>,
+  batch: MessageBatch<unknown>,
   env: Cloudflare.Env,
   ctx: ExecutionContext
 ): Promise<void> {
@@ -420,16 +420,19 @@ async function handleScheduled(
         });
       }
       work.push({ name: 'cache-invalidation', promise: drainPublicCacheInvalidations(env, ctx) });
-      const results = await Promise.allSettled(work.map((task) => task.promise));
-      let failed = 0;
-      for (let index = 0; index < results.length; index++)
-        if (results[index]!.status === 'rejected') {
-          failed++;
-          console.error(
-            JSON.stringify({ event: 'scheduled_task_failed', task: work[index]!.name })
-          );
-        }
-      if (failed) throw Error('One or more scheduled responsibilities failed');
+      const failed = (
+        await Promise.all(
+          work.map((task) =>
+            task.promise.then(
+              () => [],
+              () => [task.name]
+            )
+          )
+        )
+      ).flat();
+      for (const task of failed)
+        console.error(JSON.stringify({ event: 'scheduled_task_failed', task }));
+      if (failed.length) throw Error('One or more scheduled responsibilities failed');
     })()
   );
 }

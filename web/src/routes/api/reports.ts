@@ -92,8 +92,9 @@ export async function exportReport(
   };
   try {
     if (format === 'csv') {
-      if (!rows.length) return new Response('', { headers: csvHeaders(type) });
-      const headers = Object.keys(rows[0]!);
+      const [first] = rows;
+      if (!first) return new Response('', { headers: csvHeaders(type) });
+      const headers = Object.keys(first);
       const parts: string[] = [withinBytes(headers.join(','))];
       for (let i = 0; i < rows.length; i += 500) {
         const slice = rows

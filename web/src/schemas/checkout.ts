@@ -20,6 +20,30 @@ export const shippingAddressSchema = z.object({
 });
 export type ShippingAddress = z.infer<typeof shippingAddressSchema>;
 
+/** Validates a CheckoutRequest stored as JSON; unknown keys pass through. */
+export const checkoutRequestSchema = z
+  .object({
+    orderId: z.string(),
+    attemptId: z.string(),
+    email: z.string(),
+    currency: z.string(),
+    lineItems: z.array(
+      z.object({ name: z.string(), unitAmountCents: z.number(), qty: z.number() }).loose()
+    ),
+    discountCents: z.number().optional(),
+    discountCode: z.string().optional(),
+    shippingCents: z.number().optional(),
+    successUrl: z.string(),
+    cancelUrl: z.string(),
+    collectShipping: z.boolean(),
+    shippingCountries: z.array(z.string()),
+    automaticTax: z.boolean(),
+    expiresAtEpochSeconds: z.number(),
+    shippingAddress: shippingAddressSchema.optional(),
+    customerId: z.string().optional(),
+  })
+  .loose();
+
 export const checkoutBodySchema = z.object({
   // Durable client intent (Phase 1): one UUID per logical purchase
   // attempt, reused across double-clicks and retries.

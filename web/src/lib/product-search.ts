@@ -1,3 +1,5 @@
+import { isRecord } from './is-record';
+
 export const productSearchModes = ['title'] as const;
 
 export type ProductMode = (typeof productSearchModes)[number];
@@ -25,11 +27,11 @@ export type ProductSearchCursor = {
 };
 
 export function isProductStatusFilter(value: unknown): value is ProductStatusFilter {
-  return typeof value === 'string' && (productStatusFilters as readonly string[]).includes(value);
+  return productStatusFilters.some((item) => item === value);
 }
 
 export function isProductSort(value: unknown): value is ProductSort {
-  return typeof value === 'string' && (productSorts as readonly string[]).includes(value);
+  return productSorts.some((item) => item === value);
 }
 
 export function compareBinaryStrings(a: string, b: string): number {
@@ -66,8 +68,8 @@ export function decodeProductSearchCursor(
   try {
     const bytes = Uint8Array.from(atob(cursor), (character) => character.charCodeAt(0));
     const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
-    const record = value as Record<string, unknown>;
+    if (!isRecord(value)) return null;
+    const record = value;
     if (record.v !== 2) return null;
     if (record.direction !== 'next' && record.direction !== 'previous') return null;
     if (record.q !== q || record.mode !== mode) return null;
@@ -80,10 +82,10 @@ export function decodeProductSearchCursor(
 }
 
 export function normalizeProductSearch(value: unknown): ProductSearch {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+  if (!isRecord(value)) {
     return { q: '', mode: null, status: 'all', sort: 'newest' };
   }
-  const raw = value as Record<string, unknown>;
+  const raw = value;
   const q = typeof raw.q === 'string' && raw.q.length <= 200 ? raw.q.trim() : '';
   const mode: ProductMode | null = q ? 'title' : null;
   const status: ProductStatusFilter = isProductStatusFilter(raw.status) ? raw.status : 'all';

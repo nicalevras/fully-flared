@@ -1,3 +1,4 @@
+import * as z from 'zod';
 import { type CatalogLease, leaseGuardStatement } from './catalog-exec';
 import {
   directoryKey,
@@ -11,7 +12,12 @@ type Kv = {
   get(key: string): Promise<string | null>;
   put(key: string, value: string): Promise<void>;
 };
-type Cursor = { stage: number; key: string; pagePosition?: [string, number, number, string] };
+const cursorSchema = z.object({
+  stage: z.number(),
+  key: z.string(),
+  pagePosition: z.tuple([z.string(), z.number(), z.number(), z.string()]).optional(),
+});
+const productIdentitySchema = z.object({ id: z.string(), slug: z.string(), revision: z.string() });
 
 /** Replay durable artifacts, never source tables or a new publication. */
 export async function repairCatalogUnit(
@@ -33,14 +39,14 @@ export async function repairCatalogUnit(
       .bind(build.id, build.state_json)
       .run();
   }
-  const cursor = JSON.parse(build.state_json) as Cursor;
+  const cursor = cursorSchema.parse(JSON.parse(build.state_json));
   const tables = [
     'catalog_documents',
     'catalog_ref_chunks',
     'catalog_listing_page_revisions',
   ] as const;
-  if (cursor.stage < tables.length) {
-    const table = tables[cursor.stage]!;
+  const table = tables[cursor.stage];
+  if (table) {
     const keyColumn =
       cursor.stage === 0
         ? 'key'
@@ -91,7 +97,7 @@ export async function repairCatalogUnit(
       if (Number(row.payload_bytes) > 1024 * 1024 || (await kv.get(key)) !== payload)
         await kv.put(key, payload);
       if (cursor.stage === 0 && row.kind === 'product') {
-        const doc = JSON.parse(payload) as { id: string; slug: string; revision: string };
+        const doc = productIdentitySchema.parse(JSON.parse(payload));
         if (revisions.get(doc.id) === doc.revision) {
           const pointer = JSON.stringify({ id: doc.id, revision: doc.revision });
           const slugKey = productSlugKey(doc.slug);

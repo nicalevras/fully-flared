@@ -28,7 +28,7 @@ import { isPageSize, pageSizeOptions } from '../../lib/search-params';
 import { pageSizeSchema } from '../../schemas/pagination';
 import * as z from 'zod';
 import { validateServerInput } from '../../server/function-boundary';
-import { mediaUrl } from '../../lib/media-url';
+import { mediaUrl, storedVariants } from '../../lib/media-url';
 import type { PostStatus } from '../../db/schema';
 import { Button, pageSub, pageTitle } from '../../components/ui';
 import { Button as TableButton } from '@/components/ui/button';
@@ -187,20 +187,8 @@ export const Route = createFileRoute('/admin/articles')({
   component: AdminBlog,
 });
 
-function coverVariants(row: PostRow): Array<{ width: number; url: string }> | undefined {
-  if (!row.cover_variants_json) return undefined;
-  try {
-    const parsed = JSON.parse(row.cover_variants_json) as unknown;
-    if (!Array.isArray(parsed)) return undefined;
-    // Same fill the catalog publisher applies: variants stored without a
-    // public URL are served through the media route at that width.
-    return (parsed as Array<{ width: number; url: string }>).map((variant) => ({
-      ...variant,
-      url: variant.url || `/media/${encodeURIComponent(row.cover_key ?? '')}?w=${variant.width}`,
-    }));
-  } catch {
-    return undefined;
-  }
+function coverVariants(row: PostRow) {
+  return storedVariants(row.cover_variants_json, row.cover_key ?? '');
 }
 
 function AdminBlog() {

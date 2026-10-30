@@ -51,12 +51,13 @@ export async function saveBlogPost(
     publishedAt: scheduled.iso,
   });
   if (!result.ok) return { ok: false, error: result.error ?? 'Save failed' };
-  const data = result.data as { postId?: unknown; updatedAt?: unknown } | undefined;
+  const data = typeof result.data === 'object' && result.data !== null ? result.data : {};
   return {
     ok: true,
     created: !form.id,
-    postId: typeof data?.postId === 'string' ? data.postId : form.id,
-    updatedAt: typeof data?.updatedAt === 'string' ? data.updatedAt : form.updatedAt,
+    postId: 'postId' in data && typeof data.postId === 'string' ? data.postId : form.id,
+    updatedAt:
+      'updatedAt' in data && typeof data.updatedAt === 'string' ? data.updatedAt : form.updatedAt,
   };
 }
 

@@ -1015,7 +1015,8 @@ function AdminCollections() {
                     key={c.id}
                     className="cursor-pointer"
                     onClick={(event) => {
-                      if ((event.target as HTMLElement).closest('a, button')) return;
+                      if (event.target instanceof Element && event.target.closest('a, button'))
+                        return;
                       openEditor(c.id);
                     }}
                   >

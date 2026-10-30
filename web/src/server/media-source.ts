@@ -1,4 +1,22 @@
+import * as z from 'zod';
 import type { MediaSource } from '../lib/media-url';
+
+const variantSchema = z.object({ width: z.number(), url: z.string() });
+
+/** Variants from a stored JSON array, skipping malformed entries; unreadable
+ *  JSON yields none. */
+export function parseMediaVariants(json: string | null): MediaSource['variants'] {
+  try {
+    const parsed: unknown = json ? JSON.parse(json) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((v: unknown) => {
+      const variant = variantSchema.safeParse(v);
+      return variant.success ? [variant.data] : [];
+    });
+  } catch {
+    return [];
+  }
+}
 
 /** Resolve media ids to renderable sources in one query: ready media only,
  * variants carrying the public URL or the /media fallback the publisher uses. */
@@ -25,21 +43,11 @@ export async function resolveMediaSources(
       variants_json: string | null;
     }>();
   for (const row of rows.results) {
-    let variants: MediaSource['variants'] = [];
-    try {
-      const parsed: unknown = row.variants_json ? JSON.parse(row.variants_json) : [];
-      if (Array.isArray(parsed))
-        variants = parsed.filter(
-          (v): v is { width: number; url: string } =>
-            typeof v === 'object' &&
-            v !== null &&
-            typeof (v as { width?: unknown }).width === 'number' &&
-            typeof (v as { url?: unknown }).url === 'string'
-        );
-    } catch {
-      variants = [];
-    }
-    sources.set(row.id, { key: row.r2_key, publicUrl: row.public_url ?? null, variants });
+    sources.set(row.id, {
+      key: row.r2_key,
+      publicUrl: row.public_url ?? null,
+      variants: parseMediaVariants(row.variants_json),
+    });
   }
   return sources;
 }

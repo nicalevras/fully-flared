@@ -12,6 +12,7 @@ import { createServerFn } from '@tanstack/react-start';
 import { staffMiddleware } from '../server/staff-middleware';
 import { requireStaffPermission } from '../server/session';
 import { uploadMedia } from '../lib/upload';
+import { isRecord } from '../lib/is-record';
 import { getRouteApi } from '@tanstack/react-router';
 import { AdminActionFeedback, type AdminActionFeedbackState } from './AdminActionFeedback';
 import { AdminDataTableShell } from './AdminDataTable';
@@ -282,9 +283,10 @@ export function ProductCreateDrawer({
               }
               const result = await adminAction('product.create', payload);
               if (result.ok) {
-                const data = result.data as { productId?: string } | undefined;
-                if (data?.productId) {
-                  const productId = data.productId;
+                const data = result.data;
+                const productId =
+                  isRecord(data) && typeof data.productId === 'string' ? data.productId : '';
+                if (productId) {
                   const failures: string[] = [];
                   for (const img of stagedImages) {
                     try {

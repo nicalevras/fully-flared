@@ -60,7 +60,7 @@ function SignInPage() {
         fetchOptions: captchaFetchOptions,
       });
       if (error) setMessage(error.message ?? 'Sign-in failed. Check your email and password.');
-      else if ((data as { twoFactorRedirect?: boolean } | null)?.twoFactorRedirect) {
+      else if (data && 'twoFactorRedirect' in data && data.twoFactorRedirect) {
         // Staff accounts carry mandatory two-factor: finish the second step.
         setNeedsTotp(true);
         setMessage('Enter the 6-digit code from your authenticator app.');
@@ -116,7 +116,7 @@ function SignInPage() {
           type="single"
           value={mode}
           onValueChange={(value) => {
-            if (value) setMode(value as typeof mode);
+            if (value === 'signin' || value === 'signup') setMode(value);
           }}
           className="mt-6 grid w-full grid-cols-2"
           aria-label="Sign in or create account"

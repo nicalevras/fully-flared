@@ -1,3 +1,5 @@
+import { isRecord } from './is-record';
+
 export const DRAFT_FORMAT_VERSION = 1;
 
 export type DraftEntityType = 'post' | 'page';
@@ -29,13 +31,14 @@ export function parseDraft(
   if (!raw) return null;
   try {
     const value: unknown = JSON.parse(raw);
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
-    const record = value as Record<string, unknown>;
+    if (!isRecord(value)) return null;
+    const record = value;
     if (record.version !== DRAFT_FORMAT_VERSION) return null;
     if (record.staffId !== staffId || record.entityType !== entityType) return null;
     if (record.entityId !== entityId) return null;
     if (typeof record.savedAt !== 'number' || !Number.isFinite(record.savedAt)) return null;
-    if (record.baseUpdatedAt !== null && typeof record.baseUpdatedAt !== 'string') return null;
+    const baseUpdatedAt = record.baseUpdatedAt;
+    if (baseUpdatedAt !== null && typeof baseUpdatedAt !== 'string') return null;
     if (typeof record.fields !== 'object' || record.fields === null || Array.isArray(record.fields))
       return null;
     const fields: Record<string, string> = {};
@@ -48,7 +51,7 @@ export function parseDraft(
       staffId,
       entityType,
       entityId,
-      baseUpdatedAt: record.baseUpdatedAt as string | null,
+      baseUpdatedAt,
       savedAt: record.savedAt,
       fields,
     };

@@ -129,7 +129,12 @@ function ProductPage() {
   const selected = activeVariants.find((v) => v.sku === selectedSku) ?? activeVariants[0];
   const purchase = purchaseAvailability(selected?.sku, product.limits.cart_max_qty, availability);
   const chosenQty = Math.max(1, Math.min(qty, purchase.maxQty));
-  const onSale = selected?.compareAtCents != null && selected.compareAtCents > selected.priceCents;
+  const saleCompareAtCents =
+    selected?.compareAtCents != null && selected.compareAtCents > selected.priceCents
+      ? selected.compareAtCents
+      : null;
+  const onSale = saleCompareAtCents != null;
+  const activeImage = product.images[imageIdx];
 
   return (
     <main className="py-8 lg:py-12">
@@ -146,14 +151,10 @@ function ProductPage() {
           <div className="relative flex aspect-[4/5] items-center justify-center overflow-hidden rounded-2xl bg-zinc-100">
             {product.images.length > 0 ? (
               <img
-                src={
-                  product.images[imageIdx] ? mediaUrl(product.images[imageIdx]!, 960) : undefined
-                }
-                srcSet={
-                  product.images[imageIdx] ? mediaSrcSet(product.images[imageIdx]!) : undefined
-                }
+                src={activeImage ? mediaUrl(activeImage, 960) : undefined}
+                srcSet={activeImage ? mediaSrcSet(activeImage) : undefined}
                 sizes="(max-width: 1024px) 100vw, 50vw"
-                alt={product.images[imageIdx]?.alt || product.title}
+                alt={activeImage?.alt || product.title}
                 className="h-full w-full object-cover"
               />
             ) : (
@@ -201,14 +202,14 @@ function ProductPage() {
               <span className="text-xl font-normal text-zinc-950">
                 {formatMoney(selected.priceCents, currency)}
               </span>
-              {onSale ? (
+              {saleCompareAtCents != null ? (
                 <span className="text-zinc-400 line-through">
-                  {formatMoney(selected.compareAtCents!, currency)}
+                  {formatMoney(saleCompareAtCents, currency)}
                 </span>
               ) : null}
-              {onSale ? (
+              {saleCompareAtCents != null ? (
                 <Badge variant="destructive">
-                  Save {formatMoney(selected.compareAtCents! - selected.priceCents, currency)}
+                  Save {formatMoney(saleCompareAtCents - selected.priceCents, currency)}
                 </Badge>
               ) : null}
             </p>

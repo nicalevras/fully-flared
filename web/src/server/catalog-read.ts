@@ -31,8 +31,9 @@ import {
   type ListingReference,
   type ListingPage,
   type ProductDocument,
+  type EditorialDocument,
 } from './catalog-models';
-import { requestRead } from './exec-context';
+import { requestCache, type RequestCache } from './exec-context';
 import { parseLimits, publishedLimits } from '../schemas/limits';
 import type { StoreLimits } from '../lib/settings-definitions';
 import { pageWindow } from '../lib/catalog-page';
@@ -46,6 +47,19 @@ export type CatalogKv = {
 export const IMMUTABLE_KV_CACHE_TTL = 86_400;
 type EnvLike = { CATALOG_KV?: CatalogKv };
 type Json = Record<string, unknown>;
+const kvReads = requestCache<string | null>();
+const mirrorReads = requestCache<string | null>();
+const directoryReads = requestCache<DirectoryNode | null>();
+const directoryPageReads = requestCache<string | null>();
+const listingRefReads = requestCache<ListingReference | null>();
+const listingArtifactReads = requestCache<z.infer<typeof listingArtifactSchema> | null>();
+const indexArtifactReads = requestCache<z.infer<typeof indexArtifactSchema> | null>();
+const listingPageReads = requestCache<ListingPage | null>();
+const productReads = requestCache<ProductDocument | MovedPointer | null>();
+const editorialReads = requestCache<EditorialDocument | MovedPointer | null>();
+const layoutReads = requestCache<StorefrontLayoutSnapshot>();
+const isJson = (value: unknown): value is Json =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
 
 async function kvValue(
   kv: CatalogKv | undefined,
@@ -53,7 +67,7 @@ async function kvValue(
   immutable: boolean
 ): Promise<string | null> {
   if (!kv) return null;
-  return requestRead(kv, `kv:${key}`, async () => {
+  return kvReads(kv, `kv:${key}`, async () => {
     try {
       return await (immutable ? kv.get(key, { cacheTtl: IMMUTABLE_KV_CACHE_TTL }) : kv.get(key));
     } catch {
@@ -71,7 +85,7 @@ function decode<T>(
   try {
     const body: unknown = JSON.parse(raw),
       parsed = schema.safeParse(body);
-    if (parsed.success && valid(parsed.data, body as Json)) return parsed.data;
+    if (parsed.success && isJson(body) && valid(parsed.data, body)) return parsed.data;
   } catch {
     /* Invalid public cache values use the exact durable mirror. */
   }
@@ -81,7 +95,7 @@ function decode<T>(
   return null;
 }
 async function documentRaw(db: D1Database, key: string): Promise<string | null> {
-  return requestRead(db, `mirror:${key}`, async () => {
+  return mirrorReads(db, `mirror:${key}`, async () => {
     const row = await db
       .prepare('SELECT payload_json FROM catalog_documents WHERE key=?')
       .bind(key)
@@ -100,14 +114,18 @@ export async function loadDirectoryNode(
   kv: CatalogKv | undefined,
   hash: string
 ): Promise<DirectoryNode | null> {
-  return requestRead(kv ?? db, `directory:${hash}`, async () => {
+  return directoryReads(kv ?? db, `directory:${hash}`, async () => {
     const valid = (node: DirectoryNode, body: Json) =>
       contentRevision(JSON.stringify(body)) === hash &&
       (node.kind === 'pages'
-        ? node.entries.every((e, i) => i === 0 || node.entries[i - 1]!.page < e.page)
-        : node.entries.every(
-            (e, i) => e.from <= e.to && (i === 0 || node.entries[i - 1]!.to < e.from)
-          ));
+        ? node.entries.every((e, i, all) => {
+            const prev = all[i - 1];
+            return !prev || prev.page < e.page;
+          })
+        : node.entries.every((e, i, all) => {
+            const prev = all[i - 1];
+            return e.from <= e.to && (!prev || prev.to < e.from);
+          }));
     const cached = decode(await kvValue(kv, directoryKey(hash), true), directoryNodeSchema, valid);
     if (cached) return cached;
     const row = await db
@@ -123,7 +141,7 @@ export async function resolveDirectoryRevision(
   root: string,
   page: number
 ): Promise<string | null> {
-  return requestRead(kv ?? db, `directory-page:${root}:${page}`, async () => {
+  return directoryPageReads(kv ?? db, `directory-page:${root}:${page}`, async () => {
     let hash = root;
     const seen = new Set<string>();
     for (let depth = 0; depth < 16; depth++) {
@@ -145,7 +163,7 @@ export async function readListingRef(
   kv: CatalogKv | undefined,
   listingId: string
 ): Promise<ListingReference | null> {
-  return requestRead(kv ?? db, `listing-ref:${listingId}`, async () => {
+  return listingRefReads(kv ?? db, `listing-ref:${listingId}`, async () => {
     const valid = (ref: ListingReference) =>
       ref.listingId === listingId &&
       ref.pageCount === Math.max(1, Math.ceil(ref.total / ref.pageSize));
@@ -193,10 +211,11 @@ async function pageRaw<T>(
   ref: ListingReference,
   page: number,
   schema: z.ZodType<T>,
-  identity: (value: T) => boolean
+  identity: (value: T) => boolean,
+  reads: RequestCache<T | null>
 ): Promise<T | null> {
   if (!Number.isInteger(page) || page < 1 || page > ref.pageCount) return null;
-  return requestRead(
+  return reads(
     kv ?? db,
     `artifact:${ref.listingId}:${ref.generation}:${ref.rootHash}:${page}`,
     async () => {
@@ -227,7 +246,7 @@ export async function readListingPage(
 ): Promise<ListingPage | null> {
   const ref = pinnedRef === undefined ? await readListingRef(db, kv, listingId) : pinnedRef;
   if (!ref || ref.listingId !== listingId) return null;
-  return requestRead(
+  return listingPageReads(
     kv ?? db,
     `listing-page:${listingId}:${ref.publicationSeq}:${ref.rootHash}:${page}`,
     async () => {
@@ -242,7 +261,8 @@ export async function readListingPage(
           v.page === page &&
           v.pageSize === ref.pageSize &&
           v.cards.length ===
-            Math.min(ref.pageSize, Math.max(0, ref.total - (page - 1) * ref.pageSize))
+            Math.min(ref.pageSize, Math.max(0, ref.total - (page - 1) * ref.pageSize)),
+        listingArtifactReads
       );
       return artifact
         ? { ...artifact, generation: ref.generation, total: ref.total, pageCount: ref.pageCount }
@@ -260,7 +280,7 @@ export async function readProductDocument(
   slug: string,
   beforeFallback?: () => Promise<void>
 ): Promise<ProductDocument | MovedPointer | null> {
-  return requestRead(kv ?? db, `product:${slug}`, async () => {
+  return productReads(kv ?? db, `product:${slug}`, async () => {
     const pointerSchema = z.union([
       z.object({ id: z.string().min(1), revision: z.string().min(1) }).strict(),
       movedPointerSchema,
@@ -352,7 +372,7 @@ export async function readEditorialDocument(
   kind: 'post' | 'page',
   slug: string
 ) {
-  return requestRead(kv ?? db, `editorial:${kind}:${slug}`, () =>
+  return editorialReads(kv ?? db, `editorial:${kind}:${slug}`, () =>
     readDocument(
       db,
       kv,
@@ -383,7 +403,7 @@ export function getStorefrontLayout(
   env: EnvLike
 ): Promise<StorefrontLayoutSnapshot> {
   const kv = env.CATALOG_KV;
-  return requestRead(kv ?? db, 'layout', async () => {
+  return layoutReads(kv ?? db, 'layout', async () => {
     const refSchema = z.object({ revision: z.string().min(1) }).strict();
     let ref = decode(await kvValue(kv, LAYOUT_REF_KEY, false), refSchema, () => true);
     if (!ref) {
@@ -393,10 +413,11 @@ export function getStorefrontLayout(
       if (row?.root_hash) ref = { revision: row.root_hash };
     }
     if (ref) {
-      const key = layoutKey(ref.revision);
+      const { revision } = ref;
+      const key = layoutKey(revision);
       const valid = (value: z.infer<typeof layoutModelSchema>, body: Json) =>
-        value.revision === ref!.revision &&
-        contentRevision(JSON.stringify({ ...body, revision: '' })) === ref!.revision &&
+        value.revision === revision &&
+        contentRevision(JSON.stringify({ ...body, revision: '' })) === revision &&
         Boolean(publishedLimits(value.limits));
       const model =
         decode(await kvValue(kv, key, true), layoutModelSchema, valid) ??
@@ -464,7 +485,8 @@ async function readIndex(
       v.page === clamped &&
       v.pageSize === ref.pageSize &&
       v.items.length ===
-        Math.min(ref.pageSize, Math.max(0, ref.total - (clamped - 1) * ref.pageSize))
+        Math.min(ref.pageSize, Math.max(0, ref.total - (clamped - 1) * ref.pageSize)),
+    indexArtifactReads
   );
   if (!artifact) throw new Error('Published catalog index is unavailable');
   return { items: artifact.items, total: ref.total, page: clamped, pageCount: ref.pageCount };

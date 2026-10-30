@@ -107,52 +107,55 @@ export class CatalogBudget {
   }
 }
 
-const realStatement = new WeakMap<object, unknown>();
+const realStatement = new WeakMap<object, D1PreparedStatement>();
+const byteLength = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
 
 function wrapStatement(stmt: D1PreparedStatement, budget: CatalogBudget): D1PreparedStatement {
-  const wrapped = Object.create(stmt) as D1PreparedStatement;
-  const rawBind = stmt.bind.bind(stmt);
-  (wrapped as { bind: (...v: unknown[]) => D1PreparedStatement }).bind = (...values: unknown[]) => {
-    if (values.length > CATALOG_BUDGET_LIMITS.maxBinds) throw new BudgetExhausted('binds');
-    for (const v of values) {
-      if (typeof v === 'string') budget.addBytes(new TextEncoder().encode(v).byteLength);
-    }
-    const bound = rawBind(...values);
-    const bw = wrapStatement(bound, budget);
-    realStatement.set(bw, bound);
-    return bw;
-  };
-  const rawRun = stmt.run.bind(stmt);
-  (wrapped as { run: () => Promise<unknown> }).run = async () => {
-    budget.statement();
-    return rawRun();
-  };
-  const rawAll = stmt.all.bind(stmt);
-  (wrapped as { all: () => Promise<{ results?: unknown[] }> }).all = async () => {
-    budget.statement();
-    const r = await rawAll();
-    budget.addRows(r.results?.length ?? 0);
-    budget.addBytes(new TextEncoder().encode(JSON.stringify(r.results ?? [])).byteLength);
-    return r;
-  };
-  const rawRows = stmt.raw.bind(stmt);
-  (wrapped as { raw: (...args: unknown[]) => Promise<unknown[][]> }).raw = async (
-    ...args: unknown[]
-  ) => {
-    budget.statement();
-    const result = await (rawRows as (...a: unknown[]) => Promise<unknown[][]>)(...args);
-    budget.addRows(result.length);
-    budget.addBytes(new TextEncoder().encode(JSON.stringify(result)).byteLength);
-    return result;
-  };
-  const rawFirst = stmt.first.bind(stmt);
-  (wrapped as { first: () => Promise<unknown> }).first = async () => {
-    budget.statement();
-    const r = await rawFirst();
-    if (r != null) budget.addRows(1);
-    if (r != null) budget.addBytes(new TextEncoder().encode(JSON.stringify(r)).byteLength);
-    return r;
-  };
+  const wrapped = new Proxy(stmt, {
+    get(target, prop) {
+      if (prop === 'bind')
+        return (...values: unknown[]) => {
+          if (values.length > CATALOG_BUDGET_LIMITS.maxBinds) throw new BudgetExhausted('binds');
+          for (const v of values) {
+            if (typeof v === 'string') budget.addBytes(new TextEncoder().encode(v).byteLength);
+          }
+          return wrapStatement(target.bind(...values), budget);
+        };
+      if (prop === 'run')
+        return async () => {
+          budget.statement();
+          return target.run();
+        };
+      if (prop === 'all')
+        return async () => {
+          budget.statement();
+          const r = await target.all();
+          budget.addRows(r.results.length);
+          budget.addBytes(byteLength(r.results));
+          return r;
+        };
+      if (prop === 'raw')
+        return async (options?: { columnNames?: boolean }) => {
+          budget.statement();
+          const result = options?.columnNames
+            ? await target.raw({ columnNames: true })
+            : await target.raw();
+          budget.addRows(result.length);
+          budget.addBytes(byteLength(result));
+          return result;
+        };
+      if (prop === 'first')
+        return async (colName?: string) => {
+          budget.statement();
+          const r = colName === undefined ? await target.first() : await target.first(colName);
+          if (r != null) budget.addRows(1);
+          if (r != null) budget.addBytes(byteLength(r));
+          return r;
+        };
+      const value = Reflect.get(target, prop);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
   realStatement.set(wrapped, stmt);
   return wrapped;
 }
@@ -169,9 +172,7 @@ export function countedDb(db: D1Database, budget: CatalogBudget): D1Database {
       if (prop === 'batch') {
         return async (stmts: D1PreparedStatement[]) => {
           budget.statement(stmts.length);
-          const native = stmts.map(
-            (s) => (realStatement.get(s) as D1PreparedStatement | undefined) ?? s
-          );
+          const native = stmts.map((s) => realStatement.get(s) ?? s);
           const result = await target.batch(native);
           for (const row of result) {
             budget.addRows(row.results?.length ?? 0);
@@ -180,8 +181,8 @@ export function countedDb(db: D1Database, budget: CatalogBudget): D1Database {
           return result;
         };
       }
-      const value = Reflect.get(target, prop) as unknown;
-      return typeof value === 'function' ? (value as () => unknown).bind(target) : value;
+      const value = Reflect.get(target, prop);
+      return typeof value === 'function' ? value.bind(target) : value;
     },
   });
 }
@@ -252,15 +253,17 @@ export function countedKv<
           budget.addBytes(bytes);
           return target.put(key, value);
         };
-      if (prop === 'delete' && target.delete)
+      const remove = target.delete?.bind(target);
+      if (prop === 'delete' && remove)
         return async (key: string) => {
           budget.kvOp();
-          return target.delete!(key);
+          return remove(key);
         };
-      if (prop === 'list' && target.list)
-        return async (options: Parameters<NonNullable<T['list']>>[0]) => {
+      const list = target.list?.bind(target);
+      if (prop === 'list' && list)
+        return async (options: Parameters<typeof list>[0]) => {
           budget.kvOp();
-          const result = await target.list!(options);
+          const result = await list(options);
           budget.addBytes(new TextEncoder().encode(JSON.stringify(result)).byteLength);
           return result;
         };

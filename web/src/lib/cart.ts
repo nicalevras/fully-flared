@@ -12,6 +12,12 @@ import { signalCartCount } from './cart-cookie';
 // through a localStorage signal. The cart itself never lives in
 // localStorage, so SSR and the browser can never disagree.
 export type { CartView, PricedLine, ShippingZoneView };
+
+declare global {
+  interface WindowEventMap {
+    'cart-changed': CustomEvent<{ count: number; view: CartView } | null>;
+  }
+}
 export type ZoneRate = ShippingZoneView['rates'][number];
 export type Zone = ShippingZoneView;
 
@@ -40,17 +46,11 @@ export class CartLockUnavailableError extends Error {
 
 /** Minimal structural view of the Web Locks API used for cart mutations. */
 export type CartMutationLocks = {
-  request(
-    name: string,
-    options: { mode: 'exclusive' },
-    callback: () => Promise<void>
-  ): Promise<void>;
+  request<R>(name: string, options: { mode: 'exclusive' }, callback: () => Promise<R>): Promise<R>;
 };
 
 function browserCartLocks(): CartMutationLocks | undefined {
-  return typeof navigator !== 'undefined' && 'locks' in navigator
-    ? (navigator.locks as unknown as CartMutationLocks)
-    : undefined;
+  return typeof navigator !== 'undefined' && 'locks' in navigator ? navigator.locks : undefined;
 }
 
 /** Serialize cart-creating mutations across tabs, mirroring
@@ -63,11 +63,7 @@ export async function withCartMutationLock<T>(
   run: () => Promise<T>
 ): Promise<T> {
   if (!locks) throw new CartLockUnavailableError();
-  let result: T | undefined;
-  await locks.request('cart-mutation', { mode: 'exclusive' }, async () => {
-    result = await run();
-  });
-  return result as T;
+  return locks.request('cart-mutation', { mode: 'exclusive' }, run);
 }
 
 export async function addToCart(sku: string, qty: number): Promise<void> {
@@ -121,8 +117,8 @@ export function useServerCart(initial: CartView) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => {
-    const changed = (event: Event) => {
-      const next = (event as CustomEvent<{ view?: CartView }>).detail?.view;
+    const changed = (event: WindowEventMap['cart-changed']) => {
+      const next = event.detail?.view;
       if (next) setView(next);
     };
     window.addEventListener('cart-changed', changed);

@@ -64,7 +64,7 @@ export const Route = createFileRoute('/api/media')({
           if (typeof variantOf !== 'string' || variantOf.length === 0 || variantOf.length > 200) {
             return Response.json({ error: 'Original image is required' }, { status: 400 });
           }
-          if (!(VARIANT_WIDTHS as readonly number[]).includes(variantWidth)) {
+          if (!VARIANT_WIDTHS.some((width) => width === variantWidth)) {
             return Response.json({ error: 'Unsupported variant width' }, { status: 400 });
           }
           const original = await env.DB.prepare(

@@ -19,6 +19,7 @@ import {
   checkoutFingerprint,
   intentOwnedBy,
   loadIntent,
+  requireIntent,
   parseGuestCapability,
   runIntentOperation,
   supersededIntentIds,
@@ -501,14 +502,14 @@ async function respondForIntent(
     });
     switch (result.status) {
       case 'ready': {
-        const fresh = (await loadIntent(db, intent.id))!;
+        const fresh = await requireIntent(db, intent.id);
         const quote = await prepareReview(
           db,
           provider,
           fresh,
           opts.deadlineMs ?? Date.now() + 30_000
         );
-        const frozen = (await loadIntent(db, intent.id))!;
+        const frozen = await requireIntent(db, intent.id);
         return Response.json({
           state: 'review_ready',
           intentId: intent.id,

@@ -31,6 +31,8 @@ export type AdminReturnRow = {
   refundable_cents: number;
   refund_status: string | null;
 };
+const spendingSchema = z.array(z.object({ currency: z.string(), spent_cents: z.number() }));
+
 type CustomerRow = {
   id: string;
   name: string;
@@ -58,7 +60,7 @@ export async function adminCustomers(db: D1Database, input: unknown) {
   return {
     customers: rows.results.map(({ spending_json, ...row }) => ({
       ...row,
-      spending: JSON.parse(spending_json) as Array<{ currency: string; spent_cents: number }>,
+      spending: spendingSchema.parse(JSON.parse(spending_json)),
     })),
     total: count?.n ?? 0,
     page,

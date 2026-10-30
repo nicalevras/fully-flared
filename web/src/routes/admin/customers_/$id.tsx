@@ -6,9 +6,8 @@ import { validateServerInput } from '../../../server/function-boundary';
 import { idString } from '../../../schemas/common';
 import { getCustomerWorkspace } from '../../../server/admin-customer-workspace';
 import { formatMoney } from '../../../components/ProductCard';
-import { formatDate } from '../../../lib/format';
+import { formatAddress, formatDate } from '../../../lib/format';
 import { StatusBadge } from '../../../components/StatusBadge';
-import type { OrderStatus, ReturnStatus } from '../../../db/schema';
 import { btnSecondary, cardCls, pageSub, pageTitle } from '../../../components/ui';
 
 const getData = createServerFn({ method: 'GET' })
@@ -24,21 +23,6 @@ export const Route = createFileRoute('/admin/customers_/$id')({
   loader: async ({ params }) => getData({ data: params.id }),
   component: CustomerWorkspacePage,
 });
-
-function formatAddress(json: string | null): string[] {
-  if (!json) return [];
-  try {
-    const a = JSON.parse(json) as Record<string, string | undefined>;
-    return [
-      a.line1,
-      a.line2,
-      [a.city, a.state, a.postal_code].filter(Boolean).join(', '),
-      a.country,
-    ].filter(Boolean) as string[];
-  } catch {
-    return [json];
-  }
-}
 
 function CustomerWorkspacePage() {
   const ws = Route.useLoaderData();
@@ -129,7 +113,7 @@ function CustomerWorkspacePage() {
                 >
                   {o.number}
                 </Link>
-                <StatusBadge value={o.status as OrderStatus} />
+                <StatusBadge value={o.status} />
                 <span className="text-zinc-500">{formatDate(o.created_at)}</span>
                 <span className="ml-auto font-medium">
                   {o.currency} {formatMoney(o.total_cents, o.currency)}
@@ -157,7 +141,7 @@ function CustomerWorkspacePage() {
                 >
                   {r.number}
                 </Link>
-                <StatusBadge value={r.status as ReturnStatus} />
+                <StatusBadge value={r.status} />
                 <span className="text-zinc-500">{r.reason || 'No reason given'}</span>
                 <span className="ml-auto text-zinc-500">{formatDate(r.created_at)}</span>
               </li>

@@ -60,23 +60,16 @@ const getAccount = createServerFn({ method: 'GET' })
     const { env } = await import('cloudflare:workers');
     const request = getRequest();
     const user = await getSessionUser(env.DB, request);
-    if (!user)
-      return {
-        user: null,
-        orders: [] as OrderRow[],
-        returns: [] as ReturnRow[],
-        addresses: [] as AddressRow[],
-        totalOrders: 0,
-        page: 1,
-        pageCount: 1,
-      };
+    if (!user) {
+      const orders: OrderRow[] = [];
+      const returns: ReturnRow[] = [];
+      const addresses: AddressRow[] = [];
+      return { user: null, orders, returns, addresses, totalOrders: 0, page: 1, pageCount: 1 };
+    }
     // Orders are matched by user_id only. Guest orders are claimed into the
     // account solely when the account email is verified — an unverified
     // signup with someone else's email sees nothing.
-    await claimVerifiedGuestOrders(
-      env.DB,
-      user as { id: string; email: string; emailVerified?: boolean }
-    );
+    await claimVerifiedGuestOrders(env.DB, user);
     const d = getDb(env.DB);
     const accountOrders = await loadAccountOrders(env.DB, user.id, data.page);
     const addresses = await d

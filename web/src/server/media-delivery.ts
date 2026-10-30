@@ -1,7 +1,10 @@
+import * as z from 'zod';
 import type { WorkerEnv } from './env';
 import { variantKey } from './media';
 import { canonicalizeMediaUrls, mediaKeysInContent } from './media';
 import { getSettings } from './settings';
+
+const purgeResponseSchema = z.object({ success: z.boolean().optional() });
 
 export async function publishedMediaContent(db: D1Database, html: string) {
   const settings = await getSettings(db),
@@ -108,8 +111,8 @@ export async function purgePublicMedia(env: WorkerEnv, urls: string[]) {
       signal: AbortSignal.timeout(10_000),
     }
   );
-  const result = (await response.json()) as { success?: boolean };
-  if (!response.ok || !result.success) throw Error('Public media purge failed');
+  const result = purgeResponseSchema.safeParse(await response.json());
+  if (!response.ok || !result.data?.success) throw Error('Public media purge failed');
 }
 
 export async function publishMediaObject(

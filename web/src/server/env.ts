@@ -18,7 +18,7 @@ export type WorkerEnv = Cloudflare.Env & {
   MEDIA_PURGE_TOKEN?: string;
 };
 
-export const workerEnv = env as WorkerEnv;
+export const workerEnv: WorkerEnv = env;
 
 export const runtimeConfigSchema = z.object({
   BETTER_AUTH_SECRET: z.string().min(32).optional(),

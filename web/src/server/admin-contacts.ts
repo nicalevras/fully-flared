@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { OrderStatus } from '../db/schema';
 
 export function normalizeContactEmail(value: string): string {
   return value.trim().toLowerCase();
@@ -12,7 +13,7 @@ export type ContactLookupInput = z.infer<typeof contactLookupInputSchema>;
 export type ContactOrderRow = {
   id: string;
   number: string;
-  status: string;
+  status: OrderStatus;
   payment_status: string;
   total_cents: number;
   currency: string;
@@ -75,12 +76,14 @@ export async function contactHistory(
     .bind(email)
     .all<ContactOrderRow>();
   const accountOrders = account
-    ? await db
-        .prepare(
-          `SELECT ${ORDER_COLUMNS} FROM orders WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 50`
-        )
-        .bind(account.id)
-        .all<ContactOrderRow>()
-    : { results: [] as ContactOrderRow[] };
-  return { email, guest: guest.results, account: accountOrders.results };
+    ? (
+        await db
+          .prepare(
+            `SELECT ${ORDER_COLUMNS} FROM orders WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 50`
+          )
+          .bind(account.id)
+          .all<ContactOrderRow>()
+      ).results
+    : [];
+  return { email, guest: guest.results, account: accountOrders };
 }

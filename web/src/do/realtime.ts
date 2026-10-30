@@ -1,3 +1,4 @@
+import * as z from 'zod';
 import { DurableObject } from 'cloudflare:workers';
 import { STAFF_SESSION_HEADER } from './staff-session-header';
 
@@ -7,6 +8,11 @@ const ALLOWED_TOPICS = new Set(['order', 'inventory', 'catalog', '*']);
 const MAX_TOPICS = 10;
 
 type SocketState = { topics: string[]; sessionId: string };
+const attachmentTopicsSchema = z.object({ topics: z.array(z.string()) });
+const socketMessageSchema = z.object({
+  action: z.string().optional(),
+  topic: z.string().optional(),
+});
 
 export function sanitizeTopics(input: string[]): string[] {
   const topics = input
@@ -17,8 +23,7 @@ export function sanitizeTopics(input: string[]): string[] {
 
 /** Topics restored from a serialized attachment after hibernation/eviction. */
 export function restoreTopics(serialized: unknown): string[] {
-  const state = serialized as SocketState | null;
-  return sanitizeTopics(Array.isArray(state?.topics) ? state.topics : []);
+  return sanitizeTopics(attachmentTopicsSchema.safeParse(serialized).data?.topics ?? []);
 }
 
 export function shouldDeliver(topics: string[], event: string): boolean {
@@ -79,7 +84,7 @@ export class RealtimeDO extends DurableObject {
     const sessionId = request.headers.get(STAFF_SESSION_HEADER);
     if (!sessionId) return new Response('Staff session required', { status: 403 });
     const pair = new WebSocketPair();
-    const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
+    const { 0: client, 1: server } = pair;
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({ topics, sessionId } satisfies SocketState);
     return new Response(null, { status: 101, webSocket: client });
@@ -89,7 +94,7 @@ export class RealtimeDO extends DurableObject {
     try {
       const text = typeof message === 'string' ? message : new TextDecoder().decode(message);
       if (text.length > 4096) throw new Error('Message too large');
-      const data = JSON.parse(text) as { action?: string; topic?: string };
+      const data = socketMessageSchema.parse(JSON.parse(text));
       const state = stateOf(ws);
       if (data.action === 'subscribe' && data.topic) {
         state.topics = sanitizeTopics([...state.topics, data.topic]);

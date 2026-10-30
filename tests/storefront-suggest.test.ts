@@ -34,7 +34,14 @@ beforeEach(async () => {
       .bind(
         id,
         `hat-${i}`,
-        JSON.stringify({ id, slug: `hat-${i}`, title: `Cotton Hat ${i}`, priceCents: 1000 })
+        JSON.stringify({
+          id,
+          slug: `hat-${i}`,
+          title: `Cotton Hat ${i}`,
+          status: 'active',
+          priceCents: 1000,
+          imageKey: null,
+        })
       )
       .run();
   }
@@ -49,6 +56,14 @@ describe('storefront search suggestions', () => {
     const result = await suggestCatalog(db, {}, 'cotton hat');
     expect(result.cards).toHaveLength(SUGGEST_SIZE);
     expect(result.hasMore).toBe(true);
+  });
+
+  it('fails loudly on a published card that is not a card', async () => {
+    await db
+      .prepare(`UPDATE catalog_cards SET card_json = ? WHERE product_id = 'p10'`)
+      .bind(JSON.stringify({ id: 'p10', slug: 'hat-10', title: 'Cotton Hat 10' }))
+      .run();
+    await expect(suggestCatalog(db, {}, 'cotton hat')).rejects.toThrow();
   });
 
   it('palette suggestions are empty when no listing is published', async () => {

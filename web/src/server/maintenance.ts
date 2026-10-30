@@ -1,3 +1,4 @@
+import * as z from 'zod';
 import type { WorkerEnv } from './env';
 import { getStripeProvider, providerWithBudget } from './payments';
 import { getSettings } from './settings';
@@ -8,7 +9,6 @@ import { recoverAuthorizedCheckouts } from './authorized-checkout';
 import { reconcileRefundOperations } from './refunds';
 import {
   enqueueOutboxRecoveryPage,
-  type OutboxRecoveryCursor,
   queueAbandonedReminder,
   commitWithEmails,
   emailStatement,
@@ -36,12 +36,14 @@ type Task =
   | 'replica'
   | 'gc'
   | 'media-publication';
-type Progress = {
-  stage?: number;
-  cursor?: string;
-  checked?: number;
-  outboxCursor?: OutboxRecoveryCursor;
-};
+const progressSchema = z
+  .object({
+    stage: z.number().optional(),
+    cursor: z.string().optional(),
+    checked: z.number().optional(),
+    outboxCursor: z.object({ createdAt: z.string(), id: z.string() }).optional(),
+  })
+  .loose();
 type MaintenanceRun = {
   id: string;
   task: Task;
@@ -140,11 +142,12 @@ export async function runMaintenance(env: WorkerEnv, runId: string) {
     .bind(token, new Date(Date.now() + 120_000).toISOString(), now, runId, now, now)
     .run();
   if (!claim.meta.changes) return;
-  const run = (await db
+  const run = await db
     .prepare('SELECT task,cutoff,progress_json FROM maintenance_runs WHERE id=? AND claim_token=?')
     .bind(runId, token)
-    .first<{ task: Task; cutoff: string; progress_json: string }>())!;
-  const progress = JSON.parse(run.progress_json) as Progress;
+    .first<{ task: Task; cutoff: string; progress_json: string }>();
+  if (!run) throw new Error(`Maintenance run ${runId} lost its claim`);
+  const progress = progressSchema.parse(JSON.parse(run.progress_json));
   let done = false;
   let retryAt = at();
   const assertClaim = async () => {
@@ -250,8 +253,10 @@ export async function runMaintenance(env: WorkerEnv, runId: string) {
       if (permit.kind !== 'acquired') throw Error('Reconciliation admission unavailable');
       try {
         const stages = ['sessions', 'orders', 'refunds', 'stock', 'totals'] as const;
+        const stage = stages[progress.stage ?? 0];
+        if (!stage) throw new Error(`Reconciliation stage ${progress.stage} does not exist`);
         const report = await reconcileStripe(db, provider, {
-          stage: stages[progress.stage ?? 0]!,
+          stage,
           cutoff: run.cutoff,
           cursorPrefix: `${runId}:`,
           claim: { runId, token },
@@ -406,8 +411,7 @@ export async function wakeDueMaintenance(
   );
   let failed = 0,
     eligible = 0;
-  for (let index = 0; index < checks.length; index++) {
-    const check = checks[index]!;
+  for (const [index, check] of checks.entries()) {
     if (check.status === 'rejected') {
       failed++;
       console.error(

@@ -24,8 +24,8 @@ export interface CheckoutRequest {
   shippingCountries: string[];
   automaticTax: boolean;
   expiresAtEpochSeconds: number;
-  shippingAddress?: ShippingAddress;
-  customerId?: string;
+  shippingAddress?: ShippingAddress | undefined;
+  customerId?: string | undefined;
 }
 
 export interface CheckoutResult {
@@ -358,8 +358,7 @@ export class StripeProvider implements PaymentProvider {
           ...(req.collectShipping
             ? {
                 shipping_address_collection: {
-                  allowed_countries:
-                    req.shippingCountries as Stripe.Checkout.SessionCreateParams.ShippingAddressCollection.AllowedCountry[],
+                  allowed_countries: req.shippingCountries,
                 },
               }
             : {}),

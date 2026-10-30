@@ -1,6 +1,7 @@
 import { sha256Hex } from '../lib/hash';
 import { cancelOrdersStatements } from './order-cancellation';
 import type { CheckoutRequest, PaymentProvider } from './payments';
+import { checkoutRequestSchema } from '../schemas/checkout';
 import { acquireCheckoutPermit, type AdmissionStub } from './checkout-admission';
 import { operationalRecipients, commitWithEmails, emailStatement } from './email';
 import { recoveryContext, preparationDue, type RecoveryContext } from './recovery-eligibility';
@@ -122,6 +123,13 @@ export async function loadIntent(
     .first<CheckoutIntentRow>();
 }
 
+/** Reloads an intent the caller has just read or written in this request. */
+export async function requireIntent(db: D1Database, intentId: string): Promise<CheckoutIntentRow> {
+  const intent = await loadIntent(db, intentId);
+  if (!intent) throw new Error(`Checkout intent ${intentId} disappeared`);
+  return intent;
+}
+
 /** Unsettled intents the given intent replaced, oldest first, for recovery. */
 export async function supersededIntentIds(db: D1Database, intentId: string): Promise<string[]> {
   const { results } = await db
@@ -161,34 +169,32 @@ const RECONCILE_DELAY_MS = 60_000;
  *  timeouts, connection loss, 429 and 5xx: the session may exist, the
  *  intent parks in reconciliation and replays the same operation. */
 export function isDefiniteProviderRejection(error: unknown): boolean {
-  const e = error as { statusCode?: unknown; type?: unknown };
-  if (typeof e?.statusCode === 'number')
+  const statusCode = errorField(error, 'statusCode');
+  if (typeof statusCode === 'number')
     return (
-      e.statusCode >= 400 &&
-      e.statusCode < 500 &&
-      e.statusCode !== 408 &&
-      e.statusCode !== 409 &&
-      e.statusCode !== 429
+      statusCode >= 400 &&
+      statusCode < 500 &&
+      statusCode !== 408 &&
+      statusCode !== 409 &&
+      statusCode !== 429
     );
-  return e?.type === 'StripeInvalidRequestError' || e?.type === 'StripeCardError';
+  const type = errorField(error, 'type');
+  return type === 'StripeInvalidRequestError' || type === 'StripeCardError';
+}
+
+/** Reads a property from a thrown value, which may be any type. */
+function errorField(error: unknown, key: string): unknown {
+  return typeof error === 'object' && error !== null ? Reflect.get(error, key) : undefined;
 }
 
 /** Stripe messages may echo personal data. Record identifiers and known static
  * failure classes rather than dumping messages, request bodies or headers. */
 export function checkoutFailureDetails(error: unknown) {
-  const diagnostic = error as {
-    name?: unknown;
-    type?: unknown;
-    code?: unknown;
-    param?: unknown;
-    requestId?: unknown;
-    statusCode?: unknown;
-    message?: unknown;
-    cause?: { code?: unknown; name?: unknown };
-  } | null;
+  const field = (key: string) => errorField(error, key);
   const safeField = (value: unknown) =>
     typeof value === 'string' && /^[a-zA-Z0-9_.[\]-]{1,160}$/.test(value) ? value : undefined;
-  const message = typeof diagnostic?.message === 'string' ? diagnostic.message : '';
+  const rawMessage = field('message');
+  const message = typeof rawMessage === 'string' ? rawMessage : '';
   const reason = message.includes('Failed to get session commit token')
     ? 'd1_commit_token'
     : message.startsWith('D1_ERROR:')
@@ -204,14 +210,15 @@ export function checkoutFailureDetails(error: unknown) {
               : ['fetch failed', 'Failed to fetch', 'Network connection lost.'].includes(message)
                 ? 'transport_failure'
                 : undefined;
+  const statusCode = field('statusCode');
   return {
-    error: safeField(diagnostic?.name) ?? 'unknown',
-    type: safeField(diagnostic?.type),
-    code: safeField(diagnostic?.code),
-    param: safeField(diagnostic?.param),
-    requestId: safeField(diagnostic?.requestId),
-    status: typeof diagnostic?.statusCode === 'number' ? diagnostic.statusCode : undefined,
-    causeCode: safeField(diagnostic?.cause?.code),
+    error: safeField(field('name')) ?? 'unknown',
+    type: safeField(field('type')),
+    code: safeField(field('code')),
+    param: safeField(field('param')),
+    requestId: safeField(field('requestId')),
+    status: typeof statusCode === 'number' ? statusCode : undefined,
+    causeCode: safeField(errorField(field('cause'), 'code')),
     reason,
   };
 }
@@ -240,7 +247,8 @@ async function parkForReconciliation(
 ): Promise<void> {
   const at = now();
   const recipients = stopCreation ? await operationalRecipients(db) : [];
-  const identities = recipients.map((to) => `checkout-unresolved-${intentId}-${to}`);
+  const identity = (to: string) => `checkout-unresolved-${intentId}-${to}`;
+  const identities = recipients.map(identity);
   await commitWithEmails(
     db,
     [
@@ -258,8 +266,8 @@ async function parkForReconciliation(
           at,
           intentId
         ),
-      ...recipients.map((to, i) =>
-        emailStatement(db, identities[i]!, {
+      ...recipients.map((to) =>
+        emailStatement(db, identity(to), {
           to,
           subject: 'Checkout needs manual reconciliation',
           text: `Checkout intent ${intentId} needs provider reconciliation. Creation has stopped; no replacement was created.`,
@@ -324,7 +332,9 @@ export async function runIntentOperation(
     return { timeoutMs: Math.min(10_000, remaining) };
   };
   try {
-    const payload = JSON.parse(intent.provider_payload_json) as CheckoutRequest;
+    const payload: CheckoutRequest = checkoutRequestSchema.parse(
+      JSON.parse(intent.provider_payload_json)
+    );
     const sessionId = intent.stripe_session_id ?? order.stripe_checkout_session_id;
     let session: { sessionId: string; url: string } | null = null;
     if (sessionId) {
