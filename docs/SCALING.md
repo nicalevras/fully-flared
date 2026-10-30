@@ -361,6 +361,70 @@ A D1 DELETE through a secondary index reads about five rows per deleted row
 `meta.changes` includes rows written by triggers, so loops that compare a
 batch size use `RETURNING` row counts instead.
 
+## Per-operation costs after the 2026-10-30 remediation
+
+The full audit of `e7e30e8` (2026-10-30) measured per-operation costs on local
+Miniflare D1. Phases 3 and 6 of the remediation changed the rows below. Every
+figure is a local count from the named test. None is a deployed measurement.
+
+| Operation                                       | At `e7e30e8`                            | Now                                                  | Test                                     |
+| ----------------------------------------------- | --------------------------------------- | ---------------------------------------------------- | ---------------------------------------- |
+| Client navigation to a product page             | 2 server-function requests              | 1, with availability in the loader's reply           | `web/tests-dom/availability.test.tsx`    |
+| Hover on a link for 30 ms                       | 1 loader call                           | 0 (`defaultPreloadDelay: 75`)                        | `web/tests-dom/preload.test.tsx`         |
+| Storefront search, 2,500 matches at 20k         | 7,500 FTS rows                          | 101 FTS rows (201 total)                             | `tests/catalog-search-reads.test.ts`     |
+| Admin order search `ORD-26` at 50k orders       | 98,893 rows                             | 51 rows                                              | `tests/admin-order-search-reads.test.ts` |
+| Checkout supersede lookup, 5,000 intents        | 5,030 rows                              | 20 rows                                              | `tests/checkout-supersede-reads.test.ts` |
+| GC state read, 400 terminal builds              | 802 rows                                | 3 rows                                               | `tests/catalog-gc-reads.test.ts`         |
+| Invalidation drain, one 100-tag chunk           | 96,050 rows                             | 500 rows                                             | `tests/invalidation-drain-reads.test.ts` |
+| Cron `catalogWorkDue` probe, 5 pending of 1,605 | 1,605 rows                              | 4 rows                                               | `tests/catalog-work-due-reads.test.ts`   |
+| Add to cart                                     | 9 rows written for a new cart, no limit | same rows, 30 cart writes a minute per IP            | `tests/cart-rate-limit.test.ts`          |
+| Repeat visit, hashed `/assets/*` files          | about 20 revalidation requests          | `Cache-Control: public, max-age=31536000, immutable` | `tests/assets-headers.test.ts`           |
+
+The audit found three D1 read paths that grew faster than the data and could
+each use the 25 billion included monthly rows alone: the checkout supersede
+lookup (SC-02, past about 1,500 checkouts a day), GC (SC-01, past about 3,150
+product edits a day) and the invalidation drain (SC-03, about 5 billion rows per
+full-catalog event at 100k products). The queries that drove those growth
+curves now read bounded rows: `LIMIT 20` for the lookup, live builds only for
+the GC state read with 100 builds pruned per delivery, and about 5 rows per
+deleted row for the drain. The monthly ceilings were not re-derived, and the
+100k gate has not run on this code.
+
+Hover preloads never read stock. A click after a hover makes 1 server-function
+request and 1 stock read, the same as a click without a hover.
+
+For requests, the audit assumed one landing page and four client navigations
+per visit: 23 + 4 × 2 = 31 Workers requests, or about 320,000 visits a month
+inside the 10 million included requests. With one request per navigation, a
+first visit is 23 + 4 = 27. A repeat visit whose browser honours the immutable
+asset header makes no asset requests, which gives 3 + 4 = 7. Both figures are
+arithmetic on local counts. Whether Workers Cache bills first-visit asset
+requests is measured on a deployed preview in the separate deploy plan (D-9).
+A tab on an old deploy that fails a navigation adds one full page load.
+
+### Storage taken by full-text search (SC-12)
+
+Migration 0028 indexes admin search tables with trigram FTS5. Measured with
+`dbstat` on a local database, `orders_fts` takes about 222 bytes per order:
+22.2 MB for 100,000 orders against 12.0 MB for the `orders` table itself.
+`products_fts` (`unicode61`) took 4.9 MB for 20,000 products, and `media_fts`
+took 1.8 MB for 20,000 files. At 1 million orders, `orders_fts` is about 222 MB,
+or 4.4% of the 5 GB of D1 storage that Workers Paid includes. A D1 database
+cannot grow past 10 GB, so count the FTS tables when you plan for that limit.
+No code change follows from these figures.
+
+### Log volume at full sampling (SC-15)
+
+`web/wrangler.jsonc` sets `observability.head_sampling_rate` to 1, so every
+invocation is logged. The comment there gives the reason: sampling would drop
+the webhook and checkout errors that reconciliation exists to catch. Workers
+Paid includes 20 million log events a month, then $0.60 per million. The audit
+estimated 3 to 11 Worker invocations per visit at `e7e30e8`, so the included
+events cover about 2 to 6 million visits, more than the request allowance
+above. From December 1, 2026, Workers Logs moves to Cloudflare Observability
+pricing. Check the log volume against that pricing before then, and lower the
+rate only if the bill calls for it.
+
 ## Current delivery/operations implementation, not measured capacity
 
 Catalog writes wake the bounded publisher from transactional work revisions.
