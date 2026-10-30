@@ -19,7 +19,8 @@ const SALE_GUARD =
 const RESERVE_GUARD = 'on_hand - reserved >=';
 const RELEASE_STOCK =
   "reserved=reserved-COALESCE((SELECT SUM(qty) FROM reservations WHERE order_id=? AND sku=stock.sku AND status='active'),0)";
-const RELEASE_STATUS = "UPDATE reservations SET status='released' WHERE order_id=? AND status='active'";
+const RELEASE_STATUS =
+  "UPDATE reservations SET status='released' WHERE order_id=? AND status='active'";
 const RESTOCK_ONCE = 'restocked_at IS NULL';
 const RESTOCK_COMMITTED = "status='committed'";
 
@@ -175,7 +176,12 @@ function explore(guards) {
       const broken = violation(next.state);
       const id = key(next.state);
       if (broken) {
-        return { break: broken, lines: trace(seen, from, next.action), end: next.state, states: seen.size };
+        return {
+          break: broken,
+          lines: trace(seen, from, next.action),
+          end: next.state,
+          states: seen.size,
+        };
       }
       if (seen.has(id)) continue;
       seen.set(id, { action: next.action, prev: from });
@@ -217,5 +223,9 @@ console.log(
 console.log(
   'property: on_hand stays at least reserved, reserved matches active holds, and restock does not exceed units sold'
 );
-console.log(`guards: ${Object.entries(guards).map(([name, present]) => `${name}=${present ? 'present' : 'MISSING'}`).join(' ')}`);
+console.log(
+  `guards: ${Object.entries(guards)
+    .map(([name, present]) => `${name}=${present ? 'present' : 'MISSING'}`)
+    .join(' ')}`
+);
 console.log(`root: ${root}`);

@@ -1,6 +1,6 @@
 ---
 name: verify-stock-sale
-description: "Prove a non-backorder SKU is never oversold, and a restock never invents a unit, across every order of reserve, release, sale, and restock. Use when editing markOrderPaid, reservationStatements, reservationStatementsSetBased, releaseOrderHoldsStmts, restockOrderStatements, or scripts/verify-stock-sale.mjs."
+description: 'Prove a non-backorder SKU is never oversold, and a restock never invents a unit, across every order of reserve, release, sale, and restock. Use when editing markOrderPaid, reservationStatements, reservationStatementsSetBased, releaseOrderHoldsStmts, restockOrderStatements, or scripts/verify-stock-sale.mjs.'
 ---
 
 # Verify stock sale
