@@ -40,7 +40,7 @@ import { StatusBadge } from '../../components/StatusBadge';
 import type { OrderStatus, PaymentStatus } from '../../db/schema';
 import { btnPrimary, pageSub, pageTitle } from '../../components/ui';
 import { AdminDataTableShell } from '../../components/AdminDataTable';
-import { roleCan, roles, type StaffRole } from '../../lib/permissions';
+import { roleCan, roleFor } from '../../lib/permissions';
 
 type Stats = {
   storeName: string;
@@ -78,7 +78,7 @@ const getData = createServerFn({ method: 'GET' })
     requireStaffPermission(context.staff, 'report', 'view');
     const { env } = await import('cloudflare:workers');
     const db = env.DB;
-    const role = roles[context.staff.role as StaffRole];
+    const role = roleFor(context.staff.role);
     const [
       settings,
       revenue,
@@ -150,9 +150,10 @@ export const Route = createFileRoute('/admin/')({
         search: { q: '', mode: 'number', view: 'queue', payment: 'all', from: '', to: '' },
       });
   },
-  validateSearch: (search: Record<string, unknown>): { days?: 7 | 30 | 90 } => ({
-    days: ([7, 30, 90].includes(Number(search.days)) ? Number(search.days) : 30) as 7 | 30 | 90,
-  }),
+  validateSearch: (search: Record<string, unknown>): { days?: 7 | 30 | 90 } => {
+    const days = Number(search.days);
+    return { days: days === 7 || days === 30 || days === 90 ? days : 30 };
+  },
   loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => getData({ data: { days: deps.days ?? 30 } }),
   component: AdminHome,
