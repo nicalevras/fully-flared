@@ -1,5 +1,6 @@
 import * as z from 'zod';
 import { emailString, idString } from './common';
+import { MEDIA_MAX_BYTES } from '../server/media';
 
 const addressFields = {
   name: z.string().trim().min(1).max(200),
@@ -38,10 +39,6 @@ export type ReportQuery = z.infer<typeof reportQuerySchema>;
 export const mediaUploadMetaSchema = z.object({
   filename: z.string().min(1).max(255),
   contentType: z.enum(['image/jpeg', 'image/png', 'image/webp', 'image/gif']),
-  sizeBytes: z
-    .number()
-    .int()
-    .min(1)
-    .max(5 * 1024 * 1024),
+  sizeBytes: z.number().int().min(1).max(MEDIA_MAX_BYTES),
 });
 export type MediaUploadMeta = z.infer<typeof mediaUploadMetaSchema>;

@@ -100,7 +100,8 @@ const previewQuoteFn = createServerFn({ method: 'POST' })
 
 const getData = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
-  .handler(async () => {
+  .handler(async ({ context }) => {
+    requireStaffPermission(context.staff, 'shipping', 'view');
     const { env } = await import('cloudflare:workers');
     const zones = await env.DB.prepare(
       'SELECT id, name, countries_json FROM shipping_zones ORDER BY name'

@@ -9,6 +9,7 @@ import {
   TableRow,
 } from '../../components/ui/table';
 import { staffMiddleware } from '../../server/staff-middleware';
+import { requireStaffPermission } from '../../server/session';
 import { Link, createFileRoute, useRouter, useRouterState } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import { useAdminAction, type AdminPayload } from '../../components/AdminNav';
@@ -81,7 +82,8 @@ const getData = createServerFn({ method: 'GET' })
       })
     )
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    requireStaffPermission(context.staff, 'collection', 'view');
     const { env } = await import('cloudflare:workers');
     const db = env.DB;
     const cq = data.cq.trim();

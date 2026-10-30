@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { staffMiddleware } from '../../../server/staff-middleware';
+import { requireStaffPermission } from '../../../server/session';
 import { useStoreCurrency } from '../../../lib/use-store-currency';
 import {
   Link,
@@ -63,7 +64,8 @@ import type { DataTableFeatures } from '../../../components/data-table-features'
 const getData = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
   .validator(validateServerInput(productDiscoveryInputSchema))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    requireStaffPermission(context.staff, 'product', 'view');
     const { env } = await import('cloudflare:workers');
     return adminProductDiscovery(env.DB, data);
   });

@@ -69,7 +69,8 @@ const getData = createServerFn({ method: 'GET' })
       })
     )
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    requireStaffPermission(context.staff, 'media', 'view');
     const { env } = await import('cloudflare:workers');
     const q = data.q.trim();
     // < 3 chars cannot hit the trigram index; return nothing rather than scan.
@@ -99,7 +100,8 @@ const getData = createServerFn({ method: 'GET' })
 export const getMediaDetail = createServerFn({ method: 'GET' })
   .middleware([staffMiddleware])
   .validator(validateServerInput(z.object({ mediaId: z.string().min(1) })))
-  .handler(async ({ data }): Promise<{ usedCount: number } | null> => {
+  .handler(async ({ data, context }): Promise<{ usedCount: number } | null> => {
+    requireStaffPermission(context.staff, 'media', 'view');
     const { env } = await import('cloudflare:workers');
     const row = await env.DB.prepare('SELECT r2_key FROM media WHERE id = ?')
       .bind(data.mediaId)

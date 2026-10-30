@@ -7,10 +7,13 @@ import {
   checkoutQuoteSchema,
 } from '../schemas/checkout';
 import { normalizeNetwork } from '../server/network';
+import { storefrontLimited } from '../server/storefront-limit';
 import { calculateDiscount, quoteOrder } from '../server/checkout';
 import { AuthError, getRequestAuth, getSessionUser } from '../server/session';
 import { accountActionSchema } from '../schemas/account';
 import { saveAddress } from '../server/account-addresses';
+import { APIError } from 'better-auth/api';
+import type { Auth } from './auth';
 
 type RateLimiterBinding = { limit: (opts: { key: string }) => Promise<{ success: boolean }> };
 
@@ -70,13 +73,28 @@ export const validateDiscountFn = createServerFn({ method: 'POST' })
     return { valid: true as const, code: discount.code, amountCents: discount.amountCents };
   });
 
+/** Every quote spends the storefront budget; a quote with a code also spends the discount-guess budget. */
+export async function quoteLimitError(
+  env: { AUTH_LIMITER?: RateLimiterBinding; STOREFRONT_LIMITER?: RateLimiterBinding },
+  request: Request,
+  discountCode: string | undefined
+): Promise<string | null> {
+  if (await storefrontLimited(env.STOREFRONT_LIMITER, 'quote', request))
+    return 'Too many checkout requests';
+  const network = normalizeNetwork(request.headers.get('CF-Connecting-IP') ?? 'unknown');
+  if (discountCode && (await discountAttemptLimited(env, network)))
+    return 'Too many discount attempts';
+  return null;
+}
+
 export const checkoutQuoteFn = createServerFn({ method: 'POST' })
   .validator(validateServerInput(checkoutQuoteSchema))
   .handler(async ({ data }) => {
     const { env } = await import('cloudflare:workers');
-    if (data.discountCode && (await discountAttemptLimited(env, discountNetworkIdentity()))) {
+    const limited = await quoteLimitError(env, getRequest(), data.discountCode);
+    if (limited) {
       setResponseStatus(429);
-      throw new Error('Too many discount attempts');
+      throw new Error(limited);
     }
     const user = data.discountCode ? await getSessionUser(env.DB, getRequest()) : null;
     return quoteOrder(env.DB, { ...data, discountUsageEmail: user?.email ?? null });
@@ -138,14 +156,20 @@ export const accountActionFn = createServerFn({ method: 'POST' })
     if (data.confirmEmail !== user.email) {
       return { ok: false as const, error: 'Type your account email to confirm deletion' };
     }
-    const auth = await getRequestAuth(db, request);
-    try {
-      await auth.api.deleteUser({ headers: request.headers, body: {} });
-    } catch (err) {
-      return {
-        ok: false as const,
-        error: err instanceof Error ? err.message : 'Account deletion failed',
-      };
-    }
-    return { ok: true as const };
+    return deleteSignedInAccount(await getRequestAuth(db, request), request.headers);
   });
+
+/** Better Auth deletes without a password only from a session younger than freshAge. */
+export async function deleteSignedInAccount(
+  auth: Auth,
+  headers: Headers
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await auth.api.deleteUser({ headers, body: {} });
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof APIError && err.body?.code === 'SESSION_EXPIRED')
+      return { ok: false, error: 'Sign in again to delete your account' };
+    return { ok: false, error: err instanceof Error ? err.message : 'Account deletion failed' };
+  }
+}
