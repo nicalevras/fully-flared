@@ -3,9 +3,10 @@
 ## Read and publication paths
 
 D1 is authoritative. KV holds content-addressed pages: 24 product cards on
-home, 48 in collections, 48 collection summaries on discovery, and 50 post
-summaries in the journal. Product, collection metadata and editorial documents
-are immutable, with small mutable pointers. Layout holds at most eight
+home and in the `all` listing behind /shop (`HOME_PAGE_SIZE`, so 4,167 pages at
+100k products), 48 in collections, 48 collection summaries on discovery, and 50
+post summaries in the journal. Product, collection metadata and editorial
+documents are immutable, with small mutable pointers. Layout holds at most eight
 navigation collections, four collection teasers and three post previews.
 Stock is never in catalog KV. Availability uses its separate short cache below.
 Readers validate schema, requested identity and complete artifact hashes. A KV
@@ -74,9 +75,10 @@ normalized 60-second cache policy. For classified public HTML, the gateway
 strips cookies and authorization before rendering; those private headers cannot
 personalize a shared response. Private routes, server-function endpoints and
 cookie-setting responses bypass storage and carry no-store headers.
-Cart counts are no longer rendered into public SSR HTML (the
-badge hydrates from a private server function), so a cached page never
-freezes one shopper's cart.
+Cart counts are no longer rendered into public SSR HTML. The badge reads the
+nonsecret cart-count cookie in the browser (`cartCountFromCookie` in
+`__root.tsx`) and makes no request, so a cached page never freezes one
+shopper's cart.
 
 Invalidation is scoped: catalog changes record `Cache-Tag` targets and
 the purges execute inside the cache-owning entrypoint, because Workers
@@ -279,8 +281,9 @@ There is no automated backup export. Recovery is D1 Time Travel only (30
 days on Paid, 7 days on Free, always on, in-place restore undoable via the
 returned bookmark; see "Backups and recovery" in the root README). Off-site
 per-table `wrangler d1 export` copies are records, not a restore mechanism:
-a whole-database export cannot handle the `products_fts` virtual table, and
-exported rows cannot be imported into a migrated database. Store size does
+a whole-database export fails on the seven FTS5 virtual tables, a table export
+carries no indexes or triggers, and exported rows cannot be imported into a
+migrated database. Store size does
 not affect recovery: Time Travel has no row or SQL-size cap of ours to hit.
 
 Local tests cover races, a realistic catalog fixture, restore, HTTP boundaries
@@ -301,9 +304,10 @@ before claiming it and again before deleting its D1 mirror.
 Inventory, root enumeration, mark expansion and sweeping use persisted keyset
 cursors and pages of at most 100 rows. A directory expansion visits one bounded
 128-entry node. Shared content-addressed nodes are marked once per sweep. The
-work uses the same 40-statement/800-KV/900-combined/5,000-row/8-MiB/90-bind
-invocation limits as publication; KV list operations count too. KV enumeration
-uses `list_complete`, including empty pages with a continuation cursor.
+work uses the same 400-statement/800-KV/900-combined/5,000-row/8-MiB/90-bind
+invocation limits as publication (`CATALOG_BUDGET_LIMITS` in `catalog-exec.ts`).
+KV list operations count too. KV enumeration uses `list_complete`, including
+empty pages with a continuation cursor.
 
 Current references and their reachable pages/directories/documents remain roots.
 Superseded reference history remains a root for seven days. After the last
@@ -356,6 +360,70 @@ A D1 DELETE through a secondary index reads about five rows per deleted row
 500), so the drain's floor is about 5 × chunk size, not the number pending.
 `meta.changes` includes rows written by triggers, so loops that compare a
 batch size use `RETURNING` row counts instead.
+
+## Per-operation costs after the 2026-10-30 remediation
+
+The full audit of `e7e30e8` (2026-10-30) measured per-operation costs on local
+Miniflare D1. Phases 3 and 6 of the remediation changed the rows below. Every
+figure is a local count from the named test. None is a deployed measurement.
+
+| Operation                                       | At `e7e30e8`                            | Now                                                  | Test                                     |
+| ----------------------------------------------- | --------------------------------------- | ---------------------------------------------------- | ---------------------------------------- |
+| Client navigation to a product page             | 2 server-function requests              | 1, with availability in the loader's reply           | `web/tests-dom/availability.test.tsx`    |
+| Hover on a link for 30 ms                       | 1 loader call                           | 0 (`defaultPreloadDelay: 75`)                        | `web/tests-dom/preload.test.tsx`         |
+| Storefront search, 2,500 matches at 20k         | 7,500 FTS rows                          | 101 FTS rows (201 total)                             | `tests/catalog-search-reads.test.ts`     |
+| Admin order search `ORD-26` at 50k orders       | 98,893 rows                             | 51 rows                                              | `tests/admin-order-search-reads.test.ts` |
+| Checkout supersede lookup, 5,000 intents        | 5,030 rows                              | 20 rows                                              | `tests/checkout-supersede-reads.test.ts` |
+| GC state read, 400 terminal builds              | 802 rows                                | 3 rows                                               | `tests/catalog-gc-reads.test.ts`         |
+| Invalidation drain, one 100-tag chunk           | 96,050 rows                             | 500 rows                                             | `tests/invalidation-drain-reads.test.ts` |
+| Cron `catalogWorkDue` probe, 5 pending of 1,605 | 1,605 rows                              | 4 rows                                               | `tests/catalog-work-due-reads.test.ts`   |
+| Add to cart                                     | 9 rows written for a new cart, no limit | same rows, 30 cart writes a minute per IP            | `tests/cart-rate-limit.test.ts`          |
+| Repeat visit, hashed `/assets/*` files          | about 20 revalidation requests          | `Cache-Control: public, max-age=31536000, immutable` | `tests/assets-headers.test.ts`           |
+
+The audit found three D1 read paths that grew faster than the data and could
+each use the 25 billion included monthly rows alone: the checkout supersede
+lookup (SC-02, past about 1,500 checkouts a day), GC (SC-01, past about 3,150
+product edits a day) and the invalidation drain (SC-03, about 5 billion rows per
+full-catalog event at 100k products). The queries that drove those growth
+curves now read bounded rows: `LIMIT 20` for the lookup, live builds only for
+the GC state read with 100 builds pruned per delivery, and about 5 rows per
+deleted row for the drain. The monthly ceilings were not re-derived, and the
+100k gate has not run on this code.
+
+Hover preloads never read stock. A click after a hover makes 1 server-function
+request and 1 stock read, the same as a click without a hover.
+
+For requests, the audit assumed one landing page and four client navigations
+per visit: 23 + 4 × 2 = 31 Workers requests, or about 320,000 visits a month
+inside the 10 million included requests. With one request per navigation, a
+first visit is 23 + 4 = 27. A repeat visit whose browser honours the immutable
+asset header makes no asset requests, which gives 3 + 4 = 7. Both figures are
+arithmetic on local counts. Whether Workers Cache bills first-visit asset
+requests is measured on a deployed preview in the separate deploy plan (D-9).
+A tab on an old deploy that fails a navigation adds one full page load.
+
+### Storage taken by full-text search (SC-12)
+
+Migration 0028 indexes admin search tables with trigram FTS5. Measured with
+`dbstat` on a local database, `orders_fts` takes about 222 bytes per order:
+22.2 MB for 100,000 orders against 12.0 MB for the `orders` table itself.
+`products_fts` (`unicode61`) took 4.9 MB for 20,000 products, and `media_fts`
+took 1.8 MB for 20,000 files. At 1 million orders, `orders_fts` is about 222 MB,
+or 4.4% of the 5 GB of D1 storage that Workers Paid includes. A D1 database
+cannot grow past 10 GB, so count the FTS tables when you plan for that limit.
+No code change follows from these figures.
+
+### Log volume at full sampling (SC-15)
+
+`web/wrangler.jsonc` sets `observability.head_sampling_rate` to 1, so every
+invocation is logged. The comment there gives the reason: sampling would drop
+the webhook and checkout errors that reconciliation exists to catch. Workers
+Paid includes 20 million log events a month, then $0.60 per million. The audit
+estimated 3 to 11 Worker invocations per visit at `e7e30e8`, so the included
+events cover about 2 to 6 million visits, more than the request allowance
+above. From December 1, 2026, Workers Logs moves to Cloudflare Observability
+pricing. Check the log volume against that pricing before then, and lower the
+rate only if the bill calls for it.
 
 ## Current delivery/operations implementation, not measured capacity
 
@@ -423,8 +491,9 @@ persists a created_at/id cursor for a fixed coverage cutoff. It never loops back
 while already queued mail remains pending. The consumer retains existing send
 claims, retry caps and ten-minute stale-send recovery. Delivery is not exactly once.
 
-Prepared migration 0017 adds retry/age/attempt/claim indexes. EXPLAIN QUERY PLAN,
-rows-read measurements, focused recovery tests, clean CI/build verification and
-local migration application remain pending. See the
+Migration 0017 adds retry/age/attempt/claim indexes. It applies locally: the
+whole local chain applies cleanly and records `0017_due_recovery_indexes.sql` in
+`d1_migrations`. EXPLAIN QUERY PLAN, rows-read measurements and focused recovery
+tests remain pending. See the
 [checkpoint ledger](archive/RECOVERY-WATCHDOG.md). No savings or deployed capacity
 claim follows from these source changes alone.
