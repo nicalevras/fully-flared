@@ -1,10 +1,11 @@
-import { useAvailability } from '../lib/availability';
+import { inBrowser, seedAvailability, useAvailability } from '../lib/availability';
+import { pageAvailability } from '../server/page-availability';
 import { Link, createFileRoute, stripSearchParams } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import { getShopProductsPage, getStorefrontLayout } from '../server/catalog-read';
 import { requestCanonicalBase } from '../server/canonical-base';
 import { validateServerInput } from '../server/function-boundary';
-import { homePageInputSchema } from '../schemas/checkout';
+import { shopPageInputSchema } from '../schemas/checkout';
 import { storefrontPageSearch } from '../lib/search-params';
 import { ProductCard } from '../components/ProductCard';
 import { openSearchPalette } from '../components/SearchPalette';
@@ -15,7 +16,7 @@ import { cn } from '@/lib/utils';
 import { absoluteUrl, pagedPath, seoMeta } from '../lib/seo';
 
 const getShop = createServerFn({ method: 'GET' })
-  .validator(validateServerInput(homePageInputSchema))
+  .validator(validateServerInput(shopPageInputSchema))
   .handler(async ({ data }) => {
     const { env } = await import('cloudflare:workers');
     const [catalog, layout] = await Promise.all([
@@ -29,6 +30,11 @@ const getShop = createServerFn({ method: 'GET' })
       pageCount: catalog.pageCount,
       storeName: layout.storeName,
       canonicalBaseUrl: requestCanonicalBase(layout.canonicalBaseUrl),
+      availability: await pageAvailability(
+        data.live,
+        catalog.products.map((p) => p.id),
+        'products'
+      ),
     };
   });
 
@@ -36,7 +42,8 @@ export const Route = createFileRoute('/_shop/shop')({
   validateSearch: storefrontPageSearch,
   search: { middlewares: [stripSearchParams({ page: 1 })] },
   loaderDeps: ({ search: { page } }) => ({ page }),
-  loader: async ({ deps }) => getShop({ data: { page: deps.page } }),
+  loader: async ({ deps }) =>
+    seedAvailability(await getShop({ data: { page: deps.page, live: inBrowser() } })),
   staleTime: 20_000,
   head: ({ loaderData }) => {
     if (!loaderData) return { meta: [{ title: 'Shop all' }] };
@@ -54,8 +61,13 @@ export const Route = createFileRoute('/_shop/shop')({
 });
 
 function ShopPage() {
-  const { products, total, page, pageCount } = Route.useLoaderData();
-  const availability = useAvailability(products.map((p) => p.id));
+  const { products, total, page, pageCount, availability: seed } = Route.useLoaderData();
+  const availability = useAvailability(
+    products.map((p) => p.id),
+    'products',
+    '',
+    seed
+  );
 
   return (
     <main className="py-10 lg:py-14">

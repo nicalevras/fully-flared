@@ -1,4 +1,5 @@
-import { useAvailability } from '../lib/availability';
+import { inBrowser, seedAvailability, useAvailability } from '../lib/availability';
+import { pageAvailability } from '../server/page-availability';
 import { useState } from 'react';
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
@@ -18,7 +19,11 @@ import { Label } from '@/components/ui/label';
 const search = createServerFn({ method: 'GET' })
   .validator(
     validateServerInput(
-      z.object({ q: z.string().max(200), cursor: z.string().max(500).optional() })
+      z.object({
+        q: z.string().max(200),
+        cursor: z.string().max(500).optional(),
+        live: z.boolean().default(false),
+      })
     )
   )
   .handler(async ({ data }) => {
@@ -27,13 +32,21 @@ const search = createServerFn({ method: 'GET' })
       storefrontLimited(env.STOREFRONT_LIMITER, 'search', getRequest())
     );
     if (result.limited) setResponseStatus(429);
-    return result;
+    return {
+      ...result,
+      availability: await pageAvailability(
+        data.live,
+        result.cards.map((p) => p.id),
+        'products'
+      ),
+    };
   });
 
 export const Route = createFileRoute('/_shop/search')({
   validateSearch: catalogSearch,
   loaderDeps: ({ search: { q, cursor } }) => ({ q, cursor }),
-  loader: async ({ deps }) => search({ data: deps }),
+  loader: async ({ deps }) =>
+    seedAvailability(await search({ data: { ...deps, live: inBrowser() } })),
   head: () => ({ meta: [{ title: 'Search' }, { name: 'robots', content: 'noindex' }] }),
   component: SearchPage,
 });
@@ -76,7 +89,8 @@ function SearchPage() {
   const availability = useAvailability(
     results.map((p) => p.id),
     'products',
-    q
+    q,
+    data.availability
   );
   return (
     <main className="py-10 lg:py-14">
