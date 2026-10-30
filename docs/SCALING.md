@@ -99,14 +99,16 @@ product status and configured quantity limits, without invented stock counts;
 confirmed responses update badges and controls. Cached product JSON-LD omits
 stock availability.
 
-On client navigation (and hover preloads) the home, shop, collection, search and
-product loaders return availability inside their own server-function call, and the
-page uses it without a second request while it is under 10 seconds old (the
-preload stale time). SSR loaders never include it, because their data is
-dehydrated into publicly cached HTML; after an SSR page load the page still makes
-one availability request. Measured locally, a navigation to a product page makes
-1 server-function call instead of 2. First-visit request counts on a deployed
-preview are not measured here.
+On a client navigation, the home, shop, collection, search and product loaders
+return availability inside their own server-function call. The page uses it without
+a second request while it is under 10 seconds old. Hover preloads never read stock:
+the loader sees `preload` and leaves availability out. A click after a hover reuses
+the preloaded page data and makes one availability request. SSR loaders never
+include availability, because their data is dehydrated into publicly cached HTML,
+so after an SSR page load the page still makes one availability request. Measured
+locally, a click to a product page makes 1 server-function call and 1 stock read,
+with or without a hover first, and the hover itself reads no stock. First-visit
+request counts on a deployed preview are not measured here.
 
 The server helper performs one parameterized, indexed D1 query for the batch of
 missing products. Internal Workers Cache API entries are per product and mode,

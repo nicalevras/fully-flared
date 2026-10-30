@@ -79,8 +79,10 @@ const getProduct = createServerFn({ method: 'GET' })
   });
 
 export const Route = createFileRoute('/_shop/products/$slug')({
-  loader: async ({ params }) =>
-    seedAvailability(await getProduct({ data: { slug: params.slug, live: inBrowser() } })),
+  loader: async ({ params, preload }) =>
+    seedAvailability(
+      await getProduct({ data: { slug: params.slug, live: inBrowser() && !preload } })
+    ),
   staleTime: 20_000,
   notFoundComponent: ProductNotFound,
   head: ({ loaderData }) => {

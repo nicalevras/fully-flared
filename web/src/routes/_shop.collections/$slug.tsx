@@ -34,9 +34,11 @@ export const Route = createFileRoute('/_shop/collections/$slug')({
   validateSearch: storefrontPageSearch,
   search: { middlewares: [stripSearchParams({ page: 1 })] },
   loaderDeps: ({ search: { page } }) => ({ page }),
-  loader: async ({ params, deps }) =>
+  loader: async ({ params, deps, preload }) =>
     seedAvailability(
-      await getCollection({ data: { slug: params.slug, page: deps.page, live: inBrowser() } })
+      await getCollection({
+        data: { slug: params.slug, page: deps.page, live: inBrowser() && !preload },
+      })
     ),
   notFoundComponent: CollectionNotFound,
   head: ({ loaderData }) => {

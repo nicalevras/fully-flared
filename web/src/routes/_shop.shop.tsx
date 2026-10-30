@@ -42,8 +42,8 @@ export const Route = createFileRoute('/_shop/shop')({
   validateSearch: storefrontPageSearch,
   search: { middlewares: [stripSearchParams({ page: 1 })] },
   loaderDeps: ({ search: { page } }) => ({ page }),
-  loader: async ({ deps }) =>
-    seedAvailability(await getShop({ data: { page: deps.page, live: inBrowser() } })),
+  loader: async ({ deps, preload }) =>
+    seedAvailability(await getShop({ data: { page: deps.page, live: inBrowser() && !preload } })),
   staleTime: 20_000,
   head: ({ loaderData }) => {
     if (!loaderData) return { meta: [{ title: 'Shop all' }] };

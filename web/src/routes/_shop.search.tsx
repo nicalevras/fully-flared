@@ -45,8 +45,8 @@ const search = createServerFn({ method: 'GET' })
 export const Route = createFileRoute('/_shop/search')({
   validateSearch: catalogSearch,
   loaderDeps: ({ search: { q, cursor } }) => ({ q, cursor }),
-  loader: async ({ deps }) =>
-    seedAvailability(await search({ data: { ...deps, live: inBrowser() } })),
+  loader: async ({ deps, preload }) =>
+    seedAvailability(await search({ data: { ...deps, live: inBrowser() && !preload } })),
   head: () => ({ meta: [{ title: 'Search' }, { name: 'robots', content: 'noindex' }] }),
   component: SearchPage,
 });

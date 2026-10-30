@@ -41,7 +41,8 @@ const getHome = createServerFn({ method: 'GET' })
   });
 
 export const Route = createFileRoute('/_shop/')({
-  loader: async () => seedAvailability(await getHome({ data: { live: inBrowser() } })),
+  loader: async ({ preload }) =>
+    seedAvailability(await getHome({ data: { live: inBrowser() && !preload } })),
   staleTime: 20_000,
   head: ({ loaderData }) => ({
     meta: loaderData
