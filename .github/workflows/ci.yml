@@ -3,8 +3,9 @@ name: CI
 on:
   push:
     branches: [main]
+  # Every PR runs CI, including stacked PRs whose base is another feature
+  # branch. No branches filter means any base branch matches.
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -90,9 +91,10 @@ jobs:
 
   # Per-change preview deployment (plan Step 0). Requires the repo secrets
   # CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID; the job is skipped (not
-  # failed) on forks or clones that do not have them.
+  # failed) on forks or clones that do not have them. Only PRs into main
+  # deploy; stacked PRs (base is another branch) run CI but never deploy.
   preview-deploy:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
     needs: [lint-and-test, build-web]
     runs-on: ubuntu-latest
     steps:
