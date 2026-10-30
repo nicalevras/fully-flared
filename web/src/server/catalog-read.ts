@@ -46,6 +46,8 @@ export type CatalogKv = {
 export const IMMUTABLE_KV_CACHE_TTL = 86_400;
 type EnvLike = { CATALOG_KV?: CatalogKv };
 type Json = Record<string, unknown>;
+const isJson = (value: unknown): value is Json =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
 
 async function kvValue(
   kv: CatalogKv | undefined,
@@ -71,7 +73,7 @@ function decode<T>(
   try {
     const body: unknown = JSON.parse(raw),
       parsed = schema.safeParse(body);
-    if (parsed.success && valid(parsed.data, body as Json)) return parsed.data;
+    if (parsed.success && isJson(body) && valid(parsed.data, body)) return parsed.data;
   } catch {
     /* Invalid public cache values use the exact durable mirror. */
   }
@@ -104,10 +106,14 @@ export async function loadDirectoryNode(
     const valid = (node: DirectoryNode, body: Json) =>
       contentRevision(JSON.stringify(body)) === hash &&
       (node.kind === 'pages'
-        ? node.entries.every((e, i) => i === 0 || node.entries[i - 1]!.page < e.page)
-        : node.entries.every(
-            (e, i) => e.from <= e.to && (i === 0 || node.entries[i - 1]!.to < e.from)
-          ));
+        ? node.entries.every((e, i, all) => {
+            const prev = all[i - 1];
+            return !prev || prev.page < e.page;
+          })
+        : node.entries.every((e, i, all) => {
+            const prev = all[i - 1];
+            return e.from <= e.to && (!prev || prev.to < e.from);
+          }));
     const cached = decode(await kvValue(kv, directoryKey(hash), true), directoryNodeSchema, valid);
     if (cached) return cached;
     const row = await db
@@ -393,10 +399,11 @@ export function getStorefrontLayout(
       if (row?.root_hash) ref = { revision: row.root_hash };
     }
     if (ref) {
-      const key = layoutKey(ref.revision);
+      const { revision } = ref;
+      const key = layoutKey(revision);
       const valid = (value: z.infer<typeof layoutModelSchema>, body: Json) =>
-        value.revision === ref!.revision &&
-        contentRevision(JSON.stringify({ ...body, revision: '' })) === ref!.revision &&
+        value.revision === revision &&
+        contentRevision(JSON.stringify({ ...body, revision: '' })) === revision &&
         Boolean(publishedLimits(value.limits));
       const model =
         decode(await kvValue(kv, key, true), layoutModelSchema, valid) ??
