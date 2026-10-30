@@ -41,7 +41,7 @@ const provider = {
 } satisfies PaymentProvider;
 vi.mock('../web/src/server/payments', () => ({ getStripeProvider: () => provider }));
 
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, env: Cloudflare.Env, dispose: () => Promise<void>;
 let admission: ReturnType<typeof fakeAdmissionNamespace>;
 let guestCookie: string | undefined;
 let cart: CartCreds;
@@ -59,7 +59,7 @@ const codeBody = z.object({ code: z.string() });
 
 beforeEach(async () => {
   guestCookie = undefined;
-  ({ db, dispose } = await createTestDb());
+  ({ db, env, dispose } = await createTestDb());
   admission = fakeAdmissionNamespace({
     admission_starts_per_second: 100,
     admission_burst: 200,
@@ -185,7 +185,7 @@ async function post(
         confirmedQuote: opts.confirmedQuote ?? quoted,
       }),
     }),
-    { DB: db, CHECKOUT_ADMISSION: admission.namespace } as never
+    { ...env, CHECKOUT_ADMISSION: admission.namespace }
   );
 }
 
@@ -206,7 +206,7 @@ function postWithoutBootstrap(intentId: string) {
         lines: [{ sku: 'TEE-1', qty: 1 }],
       }),
     }),
-    { DB: db, CHECKOUT_ADMISSION: admission.namespace } as never
+    { ...env, CHECKOUT_ADMISSION: admission.namespace }
   );
 }
 
@@ -550,7 +550,7 @@ it('an exhausted deadline parks the retry instead of calling the provider', asyn
         lines: [{ sku: 'TEE-1', qty: 1 }],
       }),
     }),
-    { DB: db, CHECKOUT_ADMISSION: admission.namespace } as never,
+    { ...env, CHECKOUT_ADMISSION: admission.namespace },
     { deadlineMs: Date.now() - 1 }
   );
   expect(res.status).toBe(202);
@@ -929,7 +929,7 @@ it('new HTTP checkout requires confirmed quote and creates no commerce state wit
         lines: [{ sku: 'TEE-1', qty: 1 }],
       }),
     }),
-    { DB: db, CHECKOUT_ADMISSION: admission.namespace } as never
+    { ...env, CHECKOUT_ADMISSION: admission.namespace }
   );
   expect(response.status).toBe(400);
   expect(await count('orders')).toBe(0);

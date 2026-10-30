@@ -1,7 +1,11 @@
 import { expect, vi } from 'vitest';
 import type { JobMessage } from '../../web/src/schemas/queue';
 import { CATALOG_BUDGET_LIMITS } from '../../web/src/server/catalog-exec';
-import { messageBatch, queueMessage } from './queue';
+import type { WorkerEnv } from '../../web/src/server/env';
+import { withOverrides } from './fixtures';
+import { gatewayContext } from './gateway';
+import { fakeQueue, messageBatch, queueMessage } from './queue';
+import { realtimeWithBroadcast } from './realtime';
 
 function callMember(target: object, prop: string | symbol, args: unknown[]): unknown {
   const member: unknown = Reflect.get(target, prop);
@@ -25,7 +29,8 @@ export async function catalogQueueHarness(
     put(key: string, value: string): Promise<void>;
     delete?(key: string): Promise<void>;
     beginInvocation?(): void;
-  }
+  },
+  bindings: WorkerEnv
 ) {
   const { default: worker } = await import('../../web/src/server');
   const native = new WeakMap<object, D1PreparedStatement>();
@@ -102,7 +107,7 @@ export async function catalogQueueHarness(
       acked = false;
       retried = false;
       let sent = false;
-      let sendOptions: { delaySeconds?: number } | undefined;
+      let sendOptions: QueueSendOptions | undefined;
       await worker.queue(
         messageBatch('store-catalog', [
           queueMessage(job, {
@@ -114,41 +119,29 @@ export async function catalogQueueHarness(
             },
           }),
         ]),
-        {
-          QUEUE_NAMES: { CATALOG_JOBS: 'store-catalog', DLQ: 'store-jobs-dlq' },
+        withOverrides(bindings, {
           DB: counted,
           CATALOG_KV: binding,
-          CATALOG_JOBS: {
-            async send(_body: JobMessage, options?: { delaySeconds?: number }) {
+          CATALOG_JOBS: fakeQueue((_body, options) => {
+            other++;
+            sendOptions = options;
+            if (failSend) {
+              failSend = false;
+              throw new Error('Injected continuation send failure');
+            }
+            sent = true;
+          }),
+          REALTIME: realtimeWithBroadcast(bindings.REALTIME, async () => {
+            other++;
+          }),
+        }),
+        gatewayContext(
+          Object.assign(() => ({ fetch: async () => new Response(null, { status: 404 }) }), {
+            async purgeInvalidations() {
               other++;
-              sendOptions = options;
-              if (failSend) {
-                failSend = false;
-                throw new Error('Injected continuation send failure');
-              }
-              sent = true;
             },
-          },
-          REALTIME: {
-            getByName() {
-              return {
-                async broadcast() {
-                  other++;
-                },
-              };
-            },
-          },
-        } as never,
-        {
-          waitUntil() {},
-          exports: {
-            PublicStorefront: {
-              async purgeInvalidations() {
-                other++;
-              },
-            },
-          },
-        } as never
+          })
+        )
       );
       expect(d1 + kvOps + other).toBeLessThanOrEqual(900);
       return { d1, kv: kvOps, other, rows, acked, retried, continued: sent, sendOptions };

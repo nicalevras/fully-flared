@@ -40,9 +40,9 @@ class Kv {
     this.map.delete(key);
   }
 }
-let db: D1Database, dispose: () => Promise<void>, kv: Kv;
+let db: D1Database, env: Cloudflare.Env, dispose: () => Promise<void>, kv: Kv;
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env, dispose } = await createTestDb());
   kv = new Kv();
   await seedProduct(db);
   await buildCatalogReadModels(db, kv);
@@ -299,7 +299,7 @@ it(
   { timeout: 180_000 },
   async () => {
     const scan = await editCollectionDuringIndexScan();
-    const queue = await catalogQueueHarness(db, kv);
+    const queue = await catalogQueueHarness(db, kv, env);
     vi.useFakeTimers({ toFake: ['Date'] });
     let complete = false;
     for (let i = 0; i < 180; i++) {
@@ -334,7 +334,7 @@ it(
   { timeout: 300_000 },
   async () => {
     const scan = await editCollectionDuringIndexScan();
-    const queue = await catalogQueueHarness(db, kv);
+    const queue = await catalogQueueHarness(db, kv, env);
     vi.useFakeTimers({ toFake: ['Date'] });
     let complete = false;
     for (let i = 0; i < 260 && !complete; i++) {

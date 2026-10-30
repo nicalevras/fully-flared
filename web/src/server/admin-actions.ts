@@ -3,6 +3,7 @@ import { adjustStock, adjustStockIdempotent } from './inventory';
 import { canonicalizeMediaUrls, mediaKeysInContent, mediaRawSpellings } from './media';
 import { parseCsv } from './csv';
 import { getStripeProvider } from './payments';
+import type { WorkerEnv } from './env';
 import { getSettings } from './settings';
 import { emailStatement, commitWithEmails, enqueueJob } from './email';
 import { broadcastAdminRealtime } from './realtime';
@@ -80,7 +81,7 @@ export type AdminActionResult =
  *  ledger rows via adjustStock. */
 export async function refundOrder(
   db: D1Database,
-  env: Cloudflare.Env,
+  env: WorkerEnv,
   orderId: string,
   amountCents?: number,
   restock = false,

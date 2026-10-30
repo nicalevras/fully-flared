@@ -2,7 +2,7 @@ import * as z from 'zod';
 import { sha256Hex } from '../lib/hash';
 import { shippingAddressSchema } from '../schemas/checkout';
 import { loadIntent, requireIntent, type CheckoutIntentRow } from './checkout-intents';
-import { acquireCheckoutPermit, type AdmissionStub } from './checkout-admission';
+import { acquireCheckoutPermit, type AdmissionNamespace } from './checkout-admission';
 import {
   CheckoutError,
   markOrderPaid,
@@ -392,7 +392,7 @@ export async function runAuthorizedCheckout(
   db: D1Database,
   provider: PaymentProvider,
   intentId: string,
-  admission: { getByName(name: string): AdmissionStub } | undefined,
+  admission: AdmissionNamespace | undefined,
   deadline = Date.now() + 30_000
 ): Promise<void> {
   const permit = await acquireCheckoutPermit(admission, 'settle');
@@ -706,7 +706,7 @@ export async function runAuthorizedCheckout(
 export async function recoverAuthorizedCheckouts(
   db: D1Database,
   provider: PaymentProvider | null,
-  admission: { getByName(name: string): AdmissionStub } | undefined,
+  admission: AdmissionNamespace | undefined,
   limit = 20,
   dueBefore = now(),
   context?: RecoveryContext

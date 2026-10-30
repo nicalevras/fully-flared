@@ -101,6 +101,9 @@ export type AdmissionStub = {
   release(permitId: string): Promise<unknown>;
 };
 
+/** The part of the CHECKOUT_ADMISSION namespace that checkout uses. */
+export type AdmissionNamespace = { getByName(name: string): AdmissionStub };
+
 export type AdmissionPermit =
   | { kind: 'acquired'; release: () => Promise<void> }
   | { kind: 'busy'; retryAfterSeconds: number }
@@ -112,7 +115,7 @@ export type AdmissionPermit =
  *  A missing binding or a failed RPC is `unavailable` (the caller
  *  fails closed with 503); a full budget is `busy` (429). */
 export async function acquireCheckoutPermit(
-  namespace: { getByName(name: string): AdmissionStub } | undefined,
+  namespace: AdmissionNamespace | undefined,
   lane: 'start' | 'settle'
 ): Promise<AdmissionPermit> {
   if (!namespace) return { kind: 'unavailable' };

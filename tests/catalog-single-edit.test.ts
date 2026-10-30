@@ -93,12 +93,12 @@ it(
   'publishes one price edit as exactly its own keys in one queue delivery',
   { timeout: 600_000 },
   async () => {
-    const { db, dispose } = await createTestDb();
+    const { db, env, dispose } = await createTestDb();
     const kv = new RecordingKv();
     try {
       await seed(db);
       await buildCatalogReadModels(db, kv);
-      const queue = await catalogQueueHarness(db, kv);
+      const queue = await catalogQueueHarness(db, kv, env);
       let drained = false;
       for (let guard = 0; guard < 2_000 && !drained; guard++) {
         const delivery = await queue.deliver();

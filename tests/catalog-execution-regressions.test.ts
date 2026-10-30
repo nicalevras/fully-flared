@@ -41,7 +41,7 @@ it(
   '48-product collection pages checkpoint within the physical statement budget',
   { timeout: 180_000 },
   async () => {
-    const { db, dispose } = await createTestDb();
+    const { db, env, dispose } = await createTestDb();
     const kv = new Kv();
     try {
       const ids = JSON.stringify(Array.from({ length: 400 }, (_, i) => `rule-page-${i}`));
@@ -62,7 +62,7 @@ it(
           )
           .bind(JSON.stringify({ type: 'title_contains', value: 'rule-page-' })),
       ]);
-      const queue = await catalogQueueHarness(db, kv);
+      const queue = await catalogQueueHarness(db, kv, env);
       let previous = '',
         stagnant = 0,
         done = false;

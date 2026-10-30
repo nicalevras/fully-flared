@@ -2,7 +2,7 @@ import { sha256Hex } from '../lib/hash';
 import { cancelOrdersStatements } from './order-cancellation';
 import type { CheckoutRequest, PaymentProvider } from './payments';
 import { checkoutRequestSchema } from '../schemas/checkout';
-import { acquireCheckoutPermit, type AdmissionStub } from './checkout-admission';
+import { acquireCheckoutPermit, type AdmissionNamespace } from './checkout-admission';
 import { operationalRecipients, commitWithEmails, emailStatement } from './email';
 import { recoveryContext, preparationDue, type RecoveryContext } from './recovery-eligibility';
 
@@ -563,7 +563,7 @@ export async function reconcileCheckoutIntents(
   db: D1Database,
   provider: PaymentProvider | null,
   limit = 20,
-  admission?: { getByName(name: string): AdmissionStub },
+  admission?: AdmissionNamespace,
   dueBefore = now(),
   context?: RecoveryContext
 ): Promise<number> {

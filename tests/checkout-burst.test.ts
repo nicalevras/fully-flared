@@ -38,7 +38,7 @@ it(
   '1,000 arrivals: admitted complete exactly once, the rest are clean 429s',
   { timeout: 600_000 },
   async () => {
-    const { db, dispose } = await createTestDb();
+    const { db, env: bindings, dispose } = await createTestDb();
     try {
       await seedProduct(db, { onHand: 5000, priceCents: 2000 });
       const carts = await Promise.all(
@@ -80,7 +80,7 @@ it(
         sessionFor(req)
       );
       const admission = fakeAdmissionNamespace();
-      const env = { DB: db, CHECKOUT_ADMISSION: admission.namespace } as never;
+      const env = { ...bindings, CHECKOUT_ADMISSION: admission.namespace };
 
       const quoted = await quoteOrder(db, {
         email: 'burst@example.invalid',
