@@ -253,8 +253,8 @@ function CartPage() {
             </fieldset>
           ) : zones.length === 0 ? (
             <p className="mt-5 text-[13px] leading-5 text-zinc-500">
-              Shipping is not configured. Checkout requires an explicit rate, including a $0 rate
-              for free shipping. The store owner can add zones in Admin → Shipping.
+              Delivery is not available yet, so orders cannot be placed right now. Please check back
+              soon.
             </p>
           ) : (
             <p className="mt-5 text-[13px] leading-5 text-zinc-500">
