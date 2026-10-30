@@ -1,17 +1,22 @@
-import { expect, it, vi } from 'vitest';
-import type Stripe from '../web/node_modules/stripe';
+import { afterEach, expect, it, vi } from 'vitest';
 import { StripeProvider, type CheckoutRequest } from '../web/src/server/payments';
-import { at, present } from './helpers/fixtures';
+import { at } from './helpers/fixtures';
+import { paramKeys, stubStripeHttp } from './helpers/stripe-http';
 
 vi.mock('../web/src/server/env', () => ({ workerEnv: {} }));
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+function sessionCreated(id: string) {
+  return stubStripeHttp(() =>
+    Response.json({ id, object: 'checkout.session', url: 'https://checkout.stripe.com/fixture' })
+  );
+}
 
 it('uses Stripe 23 supported card allowlist for manual-capture Checkout Sessions', async () => {
   const provider = new StripeProvider('sk_test_fixture', 'whsec_fixture');
-  const stripe = (provider as unknown as { stripe: Stripe }).stripe;
-  const create = vi.spyOn(stripe.checkout.sessions, 'create').mockResolvedValue({
-    id: 'cs_fixture',
-    url: 'https://checkout.stripe.com/fixture',
-  } as Stripe.Response<Stripe.Checkout.Session>);
+  const requests = sessionCreated('cs_fixture');
   const request: CheckoutRequest = {
     orderId: 'order-fixture',
     attemptId: 'attempt-fixture',
@@ -38,22 +43,21 @@ it('uses Stripe 23 supported card allowlist for manual-capture Checkout Sessions
     },
   };
   await provider.createCheckoutSession(request);
-  const params = present(at(create.mock.calls, 0)[0], 'the session params');
-  expect(params.allowed_payment_method_types).toEqual(['card']);
-  expect(params).not.toHaveProperty('payment_method_types');
-  expect(params.payment_intent_data?.capture_method).toBe('manual');
-  expect(params.customer).toBe('cus_fixture');
-  expect(params).not.toHaveProperty('shipping_address_collection');
-  create.mockRestore();
+  const { url, params } = at(requests, 0);
+  expect(url.pathname).toBe('/v1/checkout/sessions');
+  expect(paramKeys(params, 'allowed_payment_method_types')).toEqual([
+    'allowed_payment_method_types[0]',
+  ]);
+  expect(params.get('allowed_payment_method_types[0]')).toBe('card');
+  expect(paramKeys(params, 'payment_method_types')).toEqual([]);
+  expect(params.get('payment_intent_data[capture_method]')).toBe('manual');
+  expect(params.get('customer')).toBe('cus_fixture');
+  expect(paramKeys(params, 'shipping_address_collection')).toEqual([]);
 });
 
 it('enables automatic tax without any per-product tax code', async () => {
   const provider = new StripeProvider('sk_test_fixture', 'whsec_fixture');
-  const stripe = (provider as unknown as { stripe: Stripe }).stripe;
-  const create = vi.spyOn(stripe.checkout.sessions, 'create').mockResolvedValue({
-    id: 'cs_fixture_tax',
-    url: 'https://checkout.stripe.com/fixture',
-  } as Stripe.Response<Stripe.Checkout.Session>);
+  const requests = sessionCreated('cs_fixture_tax');
   const request: CheckoutRequest = {
     orderId: 'order-fixture-tax',
     attemptId: 'attempt-fixture-tax',
@@ -69,19 +73,15 @@ it('enables automatic tax without any per-product tax code', async () => {
     expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + 1920,
   };
   await provider.createCheckoutSession(request);
-  const params = present(at(create.mock.calls, 0)[0], 'the session params');
-  expect(params.automatic_tax).toEqual({ enabled: true });
-  expect(params.line_items?.[0]?.price_data?.product_data).not.toHaveProperty('tax_code');
-  create.mockRestore();
+  const { params } = at(requests, 0);
+  expect(paramKeys(params, 'automatic_tax')).toEqual(['automatic_tax[enabled]']);
+  expect(params.get('automatic_tax[enabled]')).toBe('true');
+  expect(paramKeys(params, 'line_items[0][price_data][product_data][tax_code]')).toEqual([]);
 });
 
 it('forwards every shipping country to Stripe unfiltered, so Stripe rejects unsupported codes', async () => {
   const provider = new StripeProvider('sk_test_fixture', 'whsec_fixture');
-  const stripe = (provider as unknown as { stripe: Stripe }).stripe;
-  const create = vi.spyOn(stripe.checkout.sessions, 'create').mockResolvedValue({
-    id: 'cs_fixture_countries',
-    url: 'https://checkout.stripe.com/fixture',
-  } as Stripe.Response<Stripe.Checkout.Session>);
+  const requests = sessionCreated('cs_fixture_countries');
   await provider.createCheckoutSession({
     orderId: 'order-fixture-countries',
     attemptId: 'attempt-fixture-countries',
@@ -95,9 +95,11 @@ it('forwards every shipping country to Stripe unfiltered, so Stripe rejects unsu
     automaticTax: false,
     expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + 1920,
   });
-  expect(create.mock.calls[0]?.[0]?.shipping_address_collection?.allowed_countries).toEqual([
-    'US',
-    'QQ',
+  const { params } = at(requests, 0);
+  expect(paramKeys(params, 'shipping_address_collection[allowed_countries]')).toEqual([
+    'shipping_address_collection[allowed_countries][0]',
+    'shipping_address_collection[allowed_countries][1]',
   ]);
-  create.mockRestore();
+  expect(params.get('shipping_address_collection[allowed_countries][0]')).toBe('US');
+  expect(params.get('shipping_address_collection[allowed_countries][1]')).toBe('QQ');
 });
