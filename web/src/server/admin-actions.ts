@@ -460,6 +460,7 @@ export async function runAdminAction(
             delta: f.delta,
             reason: (f.reason as 'restock') || 'restock',
             ...(f.note !== undefined ? { note: f.note } : {}),
+            ...(f.expectedOnHand !== undefined ? { expectedOnHand: f.expectedOnHand } : {}),
             extraStatements: [
               auditStmt(db, actor.id, 'stock.adjust', 'stock', f.sku, {
                 delta: f.delta,
@@ -509,8 +510,8 @@ export async function runAdminAction(
               f.value,
               f.minPurchaseCents,
               f.usageLimit ?? null,
-              f.startsAt || null,
-              f.expiresAt || null,
+              f.startsAt ?? null,
+              f.expiresAt ?? null,
               now()
             ),
           auditStmt(db, actor.id, 'discount.create', 'discount', discountId),
@@ -541,7 +542,7 @@ export async function runAdminAction(
               f.value,
               f.minPurchaseCents,
               f.usageLimit ?? null,
-              f.expiresAt || null,
+              f.expiresAt ?? null,
               f.discountId
             ),
           auditStmt(db, actor.id, 'discount.update', 'discount', f.discountId),

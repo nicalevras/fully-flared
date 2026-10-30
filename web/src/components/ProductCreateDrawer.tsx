@@ -39,6 +39,7 @@ import { ConfirmDialog, type ConfirmRequest } from './ConfirmDialog';
 import { SeoPreview } from './SeoPreview';
 import { roleCan } from '../lib/permissions';
 import { parseMoneyCents } from '../lib/format';
+import { FieldError } from './FieldError';
 import { btnPrimary, btnSmall, hintCls, inputCls, labelCls, textareaCls } from './ui';
 import { Button } from './ui/button';
 import {
@@ -74,15 +75,6 @@ export const getCollectionOptions = createServerFn({ method: 'GET' })
 type StagedImage = { key: string; file: File; src: string; alt: string };
 
 const adminApi = getRouteApi('/admin');
-
-function FieldError({ id, message }: { id: string; message: string | undefined }) {
-  if (!message) return null;
-  return (
-    <p id={id} className="mt-1 text-xs text-red-700" role="alert">
-      {message}
-    </p>
-  );
-}
 
 export function ProductCreateDrawer({
   open,

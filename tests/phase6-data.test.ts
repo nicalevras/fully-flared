@@ -4,6 +4,7 @@ import { env } from './helpers/cloudflare-workers-stub';
 import { deleteAccountAtomically } from '../web/src/server/account-deletion';
 import { pruneRetention } from '../web/src/server/operations';
 import { calculateDiscount } from '../web/src/server/checkout';
+import { MAX_EMAIL_ATTEMPTS } from '../web/src/server/outbox';
 import { present } from './helpers/fixtures';
 import { actionData, responseJson, z } from './helpers/json';
 import { noNext, routeResponse } from './helpers/route';
@@ -248,9 +249,16 @@ describe('M7: retention prunes auth and terminal queue rows', () => {
       .run();
     await db
       .prepare(
-        "INSERT INTO outbox(id,type,payload_json,status,attempts,created_at) VALUES('ob-dead','email.send','{}','failed',3,?),('ob-retry','email.send','{}','failed',1,?),('ob-recent','email.send','{}','failed',3,?)"
+        "INSERT INTO outbox(id,type,payload_json,status,attempts,created_at) VALUES('ob-dead','email.send','{}','failed',?,?),('ob-retry','email.send','{}','failed',?,?),('ob-recent','email.send','{}','failed',?,?)"
       )
-      .bind(iso(31 * day), iso(31 * day), iso(day))
+      .bind(
+        MAX_EMAIL_ATTEMPTS,
+        iso(31 * day),
+        MAX_EMAIL_ATTEMPTS - 1,
+        iso(31 * day),
+        MAX_EMAIL_ATTEMPTS,
+        iso(day)
+      )
       .run();
     await db
       .prepare(

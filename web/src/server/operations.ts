@@ -2,6 +2,8 @@
 // handled by D1 Time Travel (see README "Backups and recovery"); there is
 // no automated backup export.
 
+import { MAX_EMAIL_ATTEMPTS } from './outbox';
+
 export async function pruneRetention(
   db: D1Database,
   cutoffMs = Date.now()
@@ -65,7 +67,7 @@ export async function pruneRetention(
       .run(),
     db
       .prepare(
-        `DELETE FROM outbox WHERE id IN (SELECT id FROM outbox WHERE status = 'failed' AND attempts >= 3 AND created_at < ? ORDER BY created_at,id LIMIT 1000)`
+        `DELETE FROM outbox WHERE id IN (SELECT id FROM outbox WHERE status = 'failed' AND attempts >= ${MAX_EMAIL_ATTEMPTS} AND created_at < ? ORDER BY created_at,id LIMIT 1000)`
       )
       .bind(thirtyDaysAgo)
       .run(),

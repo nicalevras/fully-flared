@@ -24,6 +24,8 @@ import {
 import * as z from 'zod';
 import { validateServerInput } from '../../server/function-boundary';
 import { failingCatalogWork, type FailingCatalogWork } from '../../server/catalog-operations';
+import { failedEmailCount } from '../../server/outbox';
+import { MailIcon } from 'lucide-react';
 import {
   ArrowRightIcon,
   BoxIcon,
@@ -52,6 +54,7 @@ type Stats = {
   returnsPending: number;
   deadWebhooks: Array<{ event_id: string; type: string; attempts: number; received_at: string }>;
   deadWebhookCount: number;
+  failedEmails: number;
   canReplay: boolean;
   catalogFailures: FailingCatalogWork;
   recent: Array<{
@@ -87,6 +90,7 @@ const getData = createServerFn({ method: 'GET' })
       deadWebhooks,
       deadCount,
       catalogFailures,
+      failedEmails,
     ] = await Promise.all([
       getSettings(db),
       paidRevenueByCurrency(db),
@@ -114,6 +118,7 @@ const getData = createServerFn({ method: 'GET' })
         .prepare("SELECT COUNT(*) AS n FROM webhook_inbox WHERE status IN ('dead','failed')")
         .first<{ n: number }>(),
       failingCatalogWork(db),
+      failedEmailCount(db),
     ]);
     const toIso = new Date().toISOString();
     const fromIso = new Date(Date.now() - data.days * 86_400_000).toISOString();
@@ -131,6 +136,7 @@ const getData = createServerFn({ method: 'GET' })
       recent: recent.results,
       deadWebhooks: deadWebhooks.results,
       deadWebhookCount: deadCount?.n ?? 0,
+      failedEmails,
       canReplay: role?.authorize({ webhook: ['replay'] }).success ?? false,
       catalogFailures,
     };
@@ -176,6 +182,7 @@ function AdminHome() {
     s.lowStockSkus > 0 ||
     s.pendingOrders > 0 ||
     s.deadWebhookCount > 0 ||
+    s.failedEmails > 0 ||
     s.catalogFailures.count > 0;
   const pillWhite =
     'inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full border border-zinc-300 bg-white px-4 text-[13px] font-medium text-zinc-950 transition-colors hover:border-zinc-950 disabled:pointer-events-none disabled:opacity-40';
@@ -293,6 +300,21 @@ function AdminHome() {
               >
                 Review
               </Link>
+            </div>
+          )}
+          {s.failedEmails > 0 && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 py-4">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white text-[#ff4d00]">
+                <MailIcon className="h-[18px] w-[18px]" />
+              </span>
+              <div className="min-w-0 flex-1 basis-56">
+                <p className="text-sm font-medium text-zinc-950">
+                  {s.failedEmails} email{s.failedEmails === 1 ? '' : 's'} could not be sent
+                </p>
+                <p className="text-[13px] text-zinc-500">
+                  Every retry failed. Check the email provider settings.
+                </p>
+              </div>
             </div>
           )}
           {s.deadWebhookCount > 0 && (

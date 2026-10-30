@@ -66,6 +66,13 @@ export function utcToLocalDateTimeInput(iso: string, timeZone?: string): string 
   return `${part('year')}-${part('month')}-${part('day')}T${part('hour')}:${part('minute')}`;
 }
 
+/** `datetime-local` input value read in the editor's zone -> UTC ISO
+ * instant. Empty or invalid input yields null. */
+export function localDateTimeInputToIso(local: string): string | null {
+  const date = new Date(local);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
 export type LoadedSchedule = { localValue: string; iso: string };
 
 /** Resolve the ISO instant to send for a post save. An unchanged local

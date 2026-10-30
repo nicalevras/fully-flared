@@ -2,7 +2,7 @@
   "version": "6",
   "dialect": "sqlite",
   "id": "77adb588-c042-423f-8a2e-eeab3f0fb5ca",
-  "prevId": "387e238b-6b42-406e-a513-49df5fd54dc9",
+  "prevId": "5226d8ee-5a80-4229-b730-739618a55060",
   "tables": {
     "account": {
       "name": "account",
@@ -3396,7 +3396,7 @@
           "name": "outbox_claim_due_idx",
           "columns": ["status", "claimed_at", "id"],
           "isUnique": false,
-          "where": "\"outbox\".\"attempts\"<3"
+          "where": "\"outbox\".\"attempts\"<8"
         }
       },
       "foreignKeys": {},
