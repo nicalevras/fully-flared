@@ -13,6 +13,8 @@ import { fakeAdmissionNamespace } from './helpers/admission';
 import { checkoutCart, reviewSession } from './helpers/checkout-review';
 import { addCartLine, cartCookieHeader, ensureCart } from '../web/src/server/cart';
 import { heldOrder } from './helpers/pending-intent';
+import { present } from './helpers/fixtures';
+import { responseJson, z } from './helpers/json';
 vi.mock('../web/src/server/session', () => ({ getSessionUser: async () => null }));
 vi.mock('../web/src/server/turnstile', () => ({ verifyTurnstile: async () => true }));
 
@@ -30,10 +32,10 @@ const provider = {
   })),
 };
 vi.mock('../web/src/server/payments', () => ({ getStripeProvider: () => provider }));
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, env: Env, dispose: () => Promise<void>;
 const actor = { id: 'owner', role: 'owner' };
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env, dispose } = await createTestDb());
   await seedProduct(db, { onHand: 20 });
   await db
     .prepare(
@@ -96,7 +98,10 @@ async function row(o: { orderId: string }) {
   return db.prepare('SELECT status,payment_status FROM orders WHERE id=?').bind(o.orderId).first();
 }
 async function count(table: string) {
-  return (await db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first<{ n: number }>())!.n;
+  return present(
+    await db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first<{ n: number }>(),
+    `the ${table} count`
+  ).n;
 }
 async function returnFor(o: { orderId: string }) {
   await db
@@ -118,7 +123,7 @@ it('fulfills a zero-total session without a PaymentIntent once, and permits non-
   // Approval is non-monetary and does not restock; refunds go through return.refund.
   expect(
     (
-      await runAdminAction(db, {} as never, { id: actor.id, role: 'manager' }, 'return.approve', {
+      await runAdminAction(db, env, { id: actor.id, role: 'manager' }, 'return.approve', {
         returnId: 'return',
       })
     ).ok
@@ -218,11 +223,11 @@ it('refunds a late paid order if coupon capacity is now exhausted, without commi
   expect(await count('refunds')).toBe(1);
   expect(provider.refund).toHaveBeenCalledTimes(1);
   expect(await expectLedgerMatchesCounters(db, 'TEE-1')).toEqual({ on_hand: 20, reserved: 1 });
-  const refund = await db.prepare('SELECT id FROM refunds').first<{ id: string }>();
-  await settleRefund(db, refund!.id, 'succeeded', 're_expired');
+  const refund = present(await db.prepare('SELECT id FROM refunds').first<{ id: string }>());
+  await settleRefund(db, refund.id, 'succeeded', 're_expired');
   const email = await db
     .prepare('SELECT payload_json FROM outbox WHERE id=?')
-    .bind(`refund-${refund!.id}`)
+    .bind(`refund-${refund.id}`)
     .first<{ payload_json: string }>();
   expect(email?.payload_json).toContain('could not be completed or was canceled');
   expect(email?.payload_json).not.toContain('items sold out');
@@ -277,7 +282,7 @@ it('blocks currency changes while pending or permanently locked, but permits a c
   const o = await order('currency');
   await expect(setSetting(db, 'currency', 'EUR')).rejects.toThrow();
   expect(
-    await runAdminAction(db, {} as never, actor, 'settings.set', { key: 'currency', value: 'EUR' })
+    await runAdminAction(db, env, actor, 'settings.set', { key: 'currency', value: 'EUR' })
   ).toMatchObject({ ok: false, status: 409 });
   await cancelOrderById(db, o.orderId);
   await setSetting(db, 'currency', 'EUR');
@@ -293,10 +298,10 @@ it('allows an unchanged currency write while locked, but still rejects an actual
   const o = await order('currency-unchanged');
   await event(o, 'currency-unchanged');
   expect(
-    await runAdminAction(db, {} as never, actor, 'settings.set', { key: 'currency', value: 'USD' })
+    await runAdminAction(db, env, actor, 'settings.set', { key: 'currency', value: 'USD' })
   ).toMatchObject({ ok: true });
   expect(
-    await runAdminAction(db, {} as never, actor, 'settings.set', { key: 'currency', value: 'EUR' })
+    await runAdminAction(db, env, actor, 'settings.set', { key: 'currency', value: 'EUR' })
   ).toMatchObject({ ok: false, status: 409 });
 });
 
@@ -340,7 +345,7 @@ it.each(['return.reject', 'return.approve'])(
       purpose: 'return',
       returnId: 'return',
     });
-    const result = await runAdminAction(db, {} as never, actor, action, {
+    const result = await runAdminAction(db, env, actor, action, {
       returnId: 'return',
       refund: false,
       restock: true,
@@ -360,7 +365,7 @@ it('rejects refund insertion after return rejection wins', async () => {
   const o = await order('rejected');
   await event(o, 'rejected');
   await returnFor(o);
-  await runAdminAction(db, {} as never, actor, 'return.reject', { returnId: 'return' });
+  await runAdminAction(db, env, actor, 'return.reject', { returnId: 'return' });
   await expect(
     requestRefund(db, provider, {
       orderId: o.orderId,
@@ -384,7 +389,7 @@ it('serializes return rejection against refund creation without charging after r
       purpose: 'return',
       returnId: 'return',
     }),
-    runAdminAction(db, {} as never, actor, 'return.reject', { returnId: 'return' }),
+    runAdminAction(db, env, actor, 'return.reject', { returnId: 'return' }),
   ]);
   const ret = await db.prepare("SELECT status FROM returns WHERE id='return'").first();
   if (ret?.status === 'rejected') {
@@ -458,10 +463,13 @@ it('uses persisted order currency even if a subsequent settings read differs', a
 it('preparing checkout preserves the cart and does not run conversion cleanup', async () => {
   const cart = await ensureCart(db, null);
   await addCartLine(db, cart.creds, 'TEE-1', 1);
-  const identity = await db
-    .prepare('SELECT revision FROM carts WHERE id=?')
-    .bind(cart.creds.id)
-    .first<{ revision: number }>();
+  const identity = present(
+    await db
+      .prepare('SELECT revision FROM carts WHERE id=?')
+      .bind(cart.creds.id)
+      .first<{ revision: number }>(),
+    'the cart revision'
+  );
   provider.createCheckout.mockResolvedValue({
     sessionId: 'cs_convert_fail',
     url: 'https://checkout.stripe.invalid/convert-fail',
@@ -487,7 +495,7 @@ it('preparing checkout preserves the cart and does not run conversion cleanup', 
       body: JSON.stringify({
         intentId: '123e4567-e89b-42d3-a456-426614174002',
         cartId: cart.creds.id,
-        cartRevision: identity!.revision,
+        cartRevision: identity.revision,
         shippingAddress: {
           name: 'Fixture',
           line1: '1 Test St',
@@ -526,7 +534,9 @@ it('preparing checkout preserves the cart and does not run conversion cleanup', 
     } as never
   );
   expect(response.status).toBe(200);
-  expect((await response.json()).state).toBe('review_ready');
+  expect((await responseJson(response, z.object({ state: z.string() }))).state).toBe(
+    'review_ready'
+  );
   const cookies = response.headers.getSetCookie().join(';');
   expect(cookies).not.toContain('Max-Age=0');
   expect(
@@ -536,7 +546,7 @@ it('preparing checkout preserves the cart and does not run conversion cleanup', 
 
 it('baseline keeps populated coupons and claims intact, and leaves invalid old coupons unredeemable', async () => {
   await dispose();
-  ({ db, dispose } = await createTestDb());
+  ({ db, env, dispose } = await createTestDb());
   await seedProduct(db);
   // The baseline guard rejects the invalid 125% coupon outright; the
   // calculation must still treat it as unredeemable below.

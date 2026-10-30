@@ -1,13 +1,17 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestDb, seedProduct } from './helpers/d1';
 import { runAdminAction } from '../web/src/server/admin-actions';
+import { withOverrides } from './helpers/fixtures';
+import { actionData, actionFailure, z } from './helpers/json';
 
 let db: D1Database;
+let env: Env;
 let dispose: () => Promise<void>;
 
 beforeAll(async () => {
   const t = await createTestDb();
   db = t.db;
+  env = t.env;
   dispose = t.dispose;
   await seedProduct(db, { onHand: 5 });
   const now = new Date().toISOString();
@@ -32,13 +36,18 @@ describe('admin customer export and deletion', () => {
   it('exports the customer profile and order history', async () => {
     const result = await runAdminAction(
       db,
-      {} as never,
+      env,
       { id: 'owner-1', role: 'owner' },
       'customer.export',
       { userId: 'cust-1' }
     );
-    expect(result.ok).toBe(true);
-    const data = result.data as { profile: { email: string }; orders: Array<{ number: string }> };
+    const data = actionData(
+      result,
+      z.object({
+        profile: z.object({ email: z.string() }),
+        orders: z.array(z.object({ number: z.string() })),
+      })
+    );
     expect(data.profile.email).toBe('casey@example.com');
     expect(data.orders.map((o) => o.number)).toEqual(['1001']);
   });
@@ -46,13 +55,12 @@ describe('admin customer export and deletion', () => {
   it('support cannot export (403 permission gate)', async () => {
     const result = await runAdminAction(
       db,
-      {} as never,
+      env,
       { id: 'sup-1', role: 'support' },
       'customer.export',
       { userId: 'cust-1' }
     );
-    expect(result.ok).toBe(false);
-    expect(result.status).toBe(403);
+    expect(actionFailure(result).status).toBe(403);
   });
 
   it('media.delete removes the original and every generated variant from R2 (B8)', async () => {
@@ -64,16 +72,20 @@ describe('admin customer export and deletion', () => {
       .bind(now)
       .run();
     const deleted: string[] = [];
-    const env = {
-      MEDIA: {
-        delete: async (k: string) => {
-          deleted.push(k);
-        },
+    const media = withOverrides(env.MEDIA, {
+      delete: async (keys) => {
+        deleted.push(...[keys].flat());
       },
-    } as never;
-    const result = await runAdminAction(db, env, { id: 'owner-1', role: 'owner' }, 'media.delete', {
-      mediaId: 'm1',
     });
+    const result = await runAdminAction(
+      db,
+      withOverrides(env, { MEDIA: media }),
+      { id: 'owner-1', role: 'owner' },
+      'media.delete',
+      {
+        mediaId: 'm1',
+      }
+    );
     expect(result.ok).toBe(true);
     expect(deleted.sort()).toEqual([
       'img-1.jpg',
@@ -100,7 +112,7 @@ describe('admin customer export and deletion', () => {
     };
     const result = await runAdminAction(
       db,
-      {} as never,
+      env,
       { id: 'owner-1', role: 'owner' },
       'customer.delete',
       { userId: 'cust-1' },

@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest';
 import { createTestDb } from './helpers/d1';
 import { readProductDocument } from '../web/src/server/catalog-read';
+import { published } from './helpers/fixtures';
 
 it('assembles 5000 complete product documents with sorted variants and media', async () => {
   const { db, dispose } = await createTestDb();
@@ -26,16 +27,16 @@ it('assembles 5000 complete product documents with sorted variants and media', a
         put: async (key: string, value: string) => {
           values.set(key, value);
         },
-      } as never,
+      },
     };
     const start = performance.now();
     const built = await buildCatalogReadModels(db, env.CATALOG_KV);
     expect(built.products).toBe(5000);
     expect(built.docsChanged).toBe(5000);
     for (const slug of ['product-1', 'product-2500', 'product-5000']) {
-      const detail = await readProductDocument(db, env.CATALOG_KV, slug);
-      expect(detail?.variants.map((v) => v.priceCents)).toEqual([100, 200]);
-      expect(detail?.images.map((image) => image.key)).toEqual(['first.jpg', 'second.jpg']);
+      const detail = published(await readProductDocument(db, env.CATALOG_KV, slug));
+      expect(detail.variants.map((v) => v.priceCents)).toEqual([100, 200]);
+      expect(detail.images.map((image) => image.key)).toEqual(['first.jpg', 'second.jpg']);
     }
     console.warn(
       `5000-product assembly: ${Math.round(performance.now() - start)}ms; 10000 variants and 10000 media links, complete output. Local fixture only.`

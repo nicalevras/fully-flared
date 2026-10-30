@@ -39,7 +39,7 @@ function counting(target: D1Database) {
       return typeof v === 'function' ? v.bind(t) : v;
     },
   });
-  return { proxy: proxy as D1Database, count: () => prepares };
+  return { proxy, count: () => prepares };
 }
 
 const input = (n: number) => ({

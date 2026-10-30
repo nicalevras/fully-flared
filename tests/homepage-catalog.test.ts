@@ -55,12 +55,12 @@ describe('homepage catalogue D1 fallback path', () => {
   });
 
   it('pages the complete catalogue with a true total (no KV, no 500-cap slice)', async () => {
-    const first = await getShopProductsPage(db, {} as never, 1);
+    const first = await getShopProductsPage(db, {}, 1);
     expect(first.products).toHaveLength(24);
     expect(first.total).toBe(25);
     expect(first.pageCount).toBe(2);
 
-    const second = await getShopProductsPage(db, {} as never, 2);
+    const second = await getShopProductsPage(db, {}, 2);
     expect(second.products.map((p) => p.slug)).toEqual(['prod-1']);
     expect(second.total).toBe(25);
   });

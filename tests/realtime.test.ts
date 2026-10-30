@@ -6,7 +6,7 @@ describe('realtime topic state (hibernation/eviction survival)', () => {
     const attached = { topics: sanitizeTopics(['order', 'inventory']) };
     // The runtime serializes the attachment; a fresh (post-eviction) object
     // deserializes it and must deliver to the same topics.
-    const revived = JSON.parse(JSON.stringify(attached)) as unknown;
+    const revived: unknown = JSON.parse(JSON.stringify(attached));
     const topics = restoreTopics(revived);
     expect(topics).toEqual(['order', 'inventory']);
     expect(shouldDeliver(topics, 'order.created')).toBe(true);

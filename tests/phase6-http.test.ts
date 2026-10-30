@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb } from './helpers/d1';
 import { env } from './helpers/cloudflare-workers-stub';
 import { privateResponse } from '../web/src/server/public-cache';
-import { roles } from '../web/src/lib/permissions';
+import { roles, type statement } from '../web/src/lib/permissions';
 import { requireStaffPermission } from '../web/src/server/session';
+import { present } from './helpers/fixtures';
+import { noNext, routeResponse } from './helpers/route';
 
 let db: D1Database, dispose: () => Promise<void>;
 beforeEach(async () => {
@@ -38,14 +40,18 @@ describe('M1: media is cacheable for signed-in shoppers', () => {
       .run();
     env.MEDIA = r2(objects);
     const { Route } = await import('../web/src/routes/media/$key');
-    const handler = Route.options.server!.handlers!.GET! as (ctx: {
-      request: Request;
-      params: { key: string };
-    }) => Promise<Response>;
-    return handler({
-      request: new Request(`https://shop.test${path}`, { headers: { cookie: 'session=abc' } }),
-      params: { key: 'img-1.jpg' },
-    });
+    const handlers = present(Route.options.server?.handlers, 'the media handlers');
+    if (typeof handlers === 'function') throw new Error('Expected direct route handlers');
+    const handler = present(handlers.GET, 'the media GET handler');
+    return routeResponse(
+      await handler({
+        request: new Request(`https://shop.test${path}`, { headers: { cookie: 'session=abc' } }),
+        context: undefined,
+        params: { key: 'img-1.jpg' },
+        pathname: '/media/$key',
+        next: noNext,
+      })
+    );
   }
 
   it('a cookie on the request does not make a media response private', () => {
@@ -153,19 +159,28 @@ describe('L4: CSRF covers /api', () => {
 });
 
 describe('M4: read permissions', () => {
-  const grants: Record<string, Record<string, boolean>> = {
-    'report.view': { owner: true, admin: true, manager: true, support: false, warehouse: false },
-    'order.view': { owner: true, admin: true, manager: true, support: true, warehouse: true },
-    'settings.view': { owner: true, admin: true, manager: false, support: false, warehouse: false },
-  };
+  const staffRoles = ['owner', 'admin', 'manager', 'support', 'warehouse'] as const;
+  const grants: [keyof typeof statement, string, Record<(typeof staffRoles)[number], boolean>][] = [
+    [
+      'report',
+      'view',
+      { owner: true, admin: true, manager: true, support: false, warehouse: false },
+    ],
+    ['order', 'view', { owner: true, admin: true, manager: true, support: true, warehouse: true }],
+    [
+      'settings',
+      'view',
+      { owner: true, admin: true, manager: false, support: false, warehouse: false },
+    ],
+  ];
   it('the grant table matches decision 3', () => {
-    for (const [permission, byRole] of Object.entries(grants)) {
-      const [resource, action] = permission.split('.') as [string, string];
-      for (const [role, expected] of Object.entries(byRole)) {
-        const result = roles[role as keyof typeof roles].authorize({ [resource]: [action] });
+    for (const [resource, action, byRole] of grants) {
+      const permission = `${resource}.${action}`;
+      for (const role of staffRoles) {
+        const expected = byRole[role];
+        const result = roles[role].authorize({ [resource]: [action] });
         expect(result.success, `${role} ${permission}`).toBe(expected);
-        const check = () =>
-          requireStaffPermission({ id: 's', role } as never, resource as never, action as never);
+        const check = () => requireStaffPermission({ role }, resource, action);
         if (expected) expect(check).not.toThrow();
         else expect(check).toThrow();
       }

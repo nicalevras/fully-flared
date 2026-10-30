@@ -4,29 +4,33 @@ import { wakeDueMaintenance, runMaintenance } from '../web/src/server/maintenanc
 import { enqueueOutboxRecoveryPage } from '../web/src/server/email';
 import { recoveryContext } from '../web/src/server/recovery-eligibility';
 import { workerEnv, type WorkerEnv } from '../web/src/server/env';
+import { fakeQueue, messageBatch, queueMessage } from './helpers/queue';
+import { at } from './helpers/fixtures';
+import { z } from './helpers/json';
+
+const outboxJob = z.object({ outboxId: z.string() });
 
 let db: D1Database, dispose: () => Promise<void>;
-const names = { JOBS: 'money', NOTIFICATIONS: 'mail', CATALOG_JOBS: 'catalog', DLQ: 'dead' };
-const jobs = vi.fn(),
-  mail = vi.fn(),
-  catalog = vi.fn();
+const jobs = vi.fn<(body: unknown) => Promise<void>>(),
+  mail = vi.fn<(body: unknown) => Promise<void>>(),
+  catalog = vi.fn<(body: unknown) => Promise<void>>();
 let env: WorkerEnv;
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  let bindings: Env;
+  ({ db, env: bindings, dispose } = await createTestDb());
   jobs.mockReset();
   mail.mockReset();
   catalog.mockReset();
   env = {
-    DB: db,
-    QUEUE_NAMES: names,
-    JOBS: { send: jobs },
-    NOTIFICATIONS: { send: mail },
-    CATALOG_JOBS: { send: catalog },
-  } as unknown as WorkerEnv;
+    ...bindings,
+    JOBS: fakeQueue(jobs),
+    NOTIFICATIONS: fakeQueue(mail),
+    CATALOG_JOBS: fakeQueue(catalog),
+  };
   workerEnv.NOTIFICATIONS = env.NOTIFICATIONS;
 });
 afterEach(async () => {
-  delete workerEnv.NOTIFICATIONS;
+  Reflect.deleteProperty(workerEnv, 'NOTIFICATIONS');
   vi.restoreAllMocks();
   await dispose();
 });
@@ -91,7 +95,7 @@ it('outbox pages stop at the cutoff and resume the failed position without sendi
   expect(failed).toMatchObject({ queued: 0, done: false, retry: true, cursor: first.cursor });
   const last = await enqueueOutboxRecoveryPage(db, context, failed.cursor);
   expect(last).toMatchObject({ queued: 3, done: true, retry: false });
-  expect(mail.mock.calls.map(([job]) => job.outboxId)).not.toContain('future');
+  expect(mail.mock.calls.map(([job]) => outboxJob.parse(job).outboxId)).not.toContain('future');
   expect(
     (await db.prepare("SELECT COUNT(*) n FROM outbox WHERE status='pending'").first())?.n
   ).toBe(29);
@@ -132,7 +136,10 @@ it('misrouted email and outbox maintenance are forwarded before ack and never ex
   const ack = vi.fn(),
     retry = vi.fn();
   await worker.queue(
-    { queue: 'money', messages: messages.map((body) => ({ body, ack, retry })) } as never,
+    messageBatch(
+      env.QUEUE_NAMES.JOBS,
+      messages.map((body) => queueMessage(body, { ack, retry }))
+    ),
     env,
     {} as never
   );
@@ -144,7 +151,7 @@ it('misrouted email and outbox maintenance are forwarded before ack and never ex
   ).toBe('pending');
   mail.mockRejectedValueOnce(new Error('forward failed'));
   await worker.queue(
-    { queue: 'money', messages: [{ body: messages[0], ack, retry }] } as never,
+    messageBatch(env.QUEUE_NAMES.JOBS, [queueMessage(at(messages, 0), { ack, retry })]),
     env,
     {} as never
   );

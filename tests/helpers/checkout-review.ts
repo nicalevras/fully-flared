@@ -1,4 +1,5 @@
 import { ensureCart, addCartLine, cartIdentity } from '../../web/src/server/cart';
+import { present } from './fixtures';
 
 export const fixtureShippingAddress = {
   name: 'Fixture',
@@ -14,7 +15,7 @@ export async function checkoutCart(db: D1Database) {
   await addCartLine(db, creds, 'TEE-1', 1);
   return {
     cartId: creds.id,
-    cartRevision: (await cartIdentity(db, creds))!.revision,
+    cartRevision: present(await cartIdentity(db, creds), 'the new cart').revision,
     shippingAddress: fixtureShippingAddress,
     cookie: `cart=${creds.id}.${creds.token}`,
   };
