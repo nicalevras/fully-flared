@@ -11,6 +11,7 @@ import {
 } from '../web/src/server/checkout-admission';
 import { parseAdmissionConfig } from '../web/src/schemas/limits';
 import { fakeAdmissionNamespace } from './helpers/admission';
+import type { AdmissionNamespace } from '../web/src/server/checkout-admission';
 import { responseJson, z } from './helpers/json';
 import type { ProviderCall } from './helpers/payments';
 import type { PaymentProvider } from '../web/src/server/payments';
@@ -164,12 +165,12 @@ it('client helper fails closed: missing binding or RPC error is unavailable, ful
 
 // --------------------------------------------------------------- route
 
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, env: Cloudflare.Env, dispose: () => Promise<void>;
 let cart: Awaited<ReturnType<typeof checkoutCart>>;
 const INTENT = '123e4567-e89b-42d3-a456-426614174200';
 
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env, dispose } = await createTestDb());
   await seedProduct(db, { onHand: 10, priceCents: 2000 });
   cart = await checkoutCart(db);
   vi.clearAllMocks();
@@ -190,7 +191,7 @@ afterEach(async () => {
 
 const GUEST_COOKIE = 'guest_checkout=admission-test-token';
 
-async function post(intentId: string, admission?: unknown) {
+async function post(intentId: string, admission?: AdmissionNamespace) {
   const quoted = await quoteOrder(db, {
     email: 'guest@example.invalid',
     lines: [{ sku: 'TEE-1', qty: 1 }],
@@ -212,7 +213,7 @@ async function post(intentId: string, admission?: unknown) {
         lines: [{ sku: 'TEE-1', qty: 1 }],
       }),
     }),
-    { DB: db, ...(admission !== undefined ? { CHECKOUT_ADMISSION: admission } : {}) } as never
+    { ...env, CHECKOUT_ADMISSION: admission }
   );
 }
 
@@ -291,7 +292,7 @@ it('replays of an existing intent never consume admission capacity', async () =>
         lines: [{ sku: 'TEE-1', qty: 1 }],
       }),
     }),
-    { DB: db, CHECKOUT_ADMISSION: exhausted.namespace } as never
+    { ...env, CHECKOUT_ADMISSION: exhausted.namespace }
   );
   expect(replay.status).toBe(200);
   expect((await responseJson(replay, z.object({ state: z.string() }))).state).toBe('review_ready');

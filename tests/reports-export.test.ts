@@ -3,6 +3,8 @@ import { env } from './helpers/cloudflare-workers-stub';
 import { createTestDb } from './helpers/d1';
 import { Route } from '../web/src/routes/api/reports';
 import { parseCsv } from '../web/src/server/csv';
+import { present } from './helpers/fixtures';
+import { noNext, routeResponse } from './helpers/route';
 
 vi.mock('../web/src/server/session', async (original) => ({
   ...(await original<typeof import('../web/src/server/session')>()),
@@ -19,13 +21,18 @@ afterAll(async () => {
 });
 
 async function get(query: string) {
-  const handlers = Route.options.server!.handlers;
+  const handlers = present(Route.options.server?.handlers, 'the reports handlers');
   if (typeof handlers === 'function') throw new Error('Expected direct route handlers');
-  const handler = handlers!.GET;
-  if (typeof handler !== 'function') throw new Error('Expected GET handler');
-  return handler({
-    request: new Request(`http://localhost:8799/api/reports?${query}`),
-  } as never) as Promise<Response>;
+  const handler = present(handlers.GET, 'the reports GET handler');
+  return routeResponse(
+    await handler({
+      request: new Request(`http://localhost:8799/api/reports?${query}`),
+      context: undefined,
+      params: {},
+      pathname: '/api/reports',
+      next: noNext,
+    })
+  );
 }
 
 async function seedMonth(prefix: string, month: string, count: number) {

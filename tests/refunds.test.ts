@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createTestDb, seedProduct, expectLedgerMatchesCounters } from './helpers/d1';
+import type { WorkerEnv } from '../web/src/server/env';
 import {
   createPendingOrder,
   createOrderAccessToken,
@@ -17,7 +18,6 @@ vi.mock('../web/src/server/payments', () => ({
 import { refundOrder } from '../web/src/server/admin-actions';
 import { pendingIntent } from './helpers/pending-intent';
 import { present } from './helpers/fixtures';
-import type { WorkerEnv } from '../web/src/server/env';
 
 let db: D1Database;
 let env: Env;

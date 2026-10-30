@@ -263,7 +263,7 @@ it('return refund permission cannot be bypassed; pending returns remain retryabl
     { returnId: 'safety-return', amountCents: 100 }
   );
   expect(denied).toMatchObject({ ok: false, status: 403 });
-  const spy = vi.spyOn(payments, 'getStripeProvider').mockReturnValue(provider as never);
+  const spy = vi.spyOn(payments, 'getStripeProvider').mockReturnValue(provider);
   try {
     expect(
       (

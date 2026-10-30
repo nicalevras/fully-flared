@@ -608,7 +608,7 @@ export class WebhookSignatureError extends Error {
   }
 }
 
-export function getStripeProvider(env: WorkerEnv): StripeProvider | null {
+export function getStripeProvider(env: WorkerEnv): PaymentProvider | null {
   if (!env.STRIPE_SECRET_KEY || !env.STRIPE_WEBHOOK_SECRET) return null;
   return new StripeProvider(env.STRIPE_SECRET_KEY, env.STRIPE_WEBHOOK_SECRET);
 }

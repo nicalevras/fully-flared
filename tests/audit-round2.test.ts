@@ -445,13 +445,13 @@ it('uses persisted order currency even if a subsequent settings read differs', a
       }),
     }),
     {
-      DB: db,
+      ...env,
       CHECKOUT_ADMISSION: fakeAdmissionNamespace({
         admission_starts_per_second: 100,
         admission_burst: 200,
         admission_max_active: 200,
       }).namespace,
-    } as never
+    }
   );
   expect(response.status).toBe(200);
   expect(provider.createCheckout).toHaveBeenCalledWith(
@@ -525,13 +525,14 @@ it('preparing checkout preserves the cart and does not run conversion cleanup', 
       }),
     }),
     {
+      ...env,
       DB: proxied,
       CHECKOUT_ADMISSION: fakeAdmissionNamespace({
         admission_starts_per_second: 100,
         admission_burst: 200,
         admission_max_active: 200,
       }).namespace,
-    } as never
+    }
   );
   expect(response.status).toBe(200);
   expect((await responseJson(response, z.object({ state: z.string() }))).state).toBe(

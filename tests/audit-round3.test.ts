@@ -19,6 +19,8 @@ import { heldOrder } from './helpers/pending-intent';
 import { at, present } from './helpers/fixtures';
 import { fakeQueue } from './helpers/queue';
 import { z } from './helpers/json';
+import { stubStripeHttp } from './helpers/stripe-http';
+import { gatewayContext } from './helpers/gateway';
 
 const outboxJob = z.object({ outboxId: z.string() });
 vi.mock('@tanstack/react-start/server-entry', () => ({ default: { fetch: vi.fn() } }));
@@ -355,11 +357,14 @@ it('instruments the combined nightly cron without a maintenance queue', async ()
     retrieveCheckoutSession: async (id) => sessions.find((s) => s.id === id) ?? null,
     retrieveRefund: async (id) => ({ id, status: 'pending' }),
   };
-  vi.spyOn(payments, 'getStripeProvider').mockReturnValue(provider as never);
-  workerEnv.EMAIL = { send: vi.fn() };
-  workerEnv.JOBS = fakeQueue();
-  workerEnv.NOTIFICATIONS = fakeQueue();
-  workerEnv.CATALOG_JOBS = fakeQueue();
+  vi.spyOn(payments, 'getStripeProvider').mockReturnValue(provider);
+  const quiet = {
+    EMAIL: { send: vi.fn() },
+    JOBS: fakeQueue(),
+    NOTIFICATIONS: fakeQueue(),
+    CATALOG_JOBS: fakeQueue(),
+  };
+  Object.assign(workerEnv, quiet);
   const { default: worker } = await import('../web/src/server');
   let statements = 0;
   let batchCalls = 0;
@@ -367,22 +372,17 @@ it('instruments the combined nightly cron without a maintenance queue', async ()
     statements += sql.length;
     if (sql.length > 1) batchCalls++;
   });
-  const pending: Promise<unknown>[] = [];
+  const ctx = gatewayContext(
+    Object.assign(() => ({ fetch: async () => new Response(null, { status: 404 }) }), {
+      purgeInvalidations: async () => {},
+    })
+  );
   await worker.scheduled(
     { cron: '0 3 * * *', scheduledTime: Date.now(), noRetry: () => {} },
-    {
-      ...workerEnv,
-      DB: traced,
-      CHECKOUT_ADMISSION: fakeAdmissionNamespace().namespace,
-    } as never,
-    {
-      waitUntil: (p: Promise<unknown>) => pending.push(p),
-      exports: {
-        PublicStorefront: { purgeInvalidations: async () => {} },
-      },
-    } as never
+    { ...env, ...quiet, DB: traced, CHECKOUT_ADMISSION: fakeAdmissionNamespace().namespace },
+    ctx
   );
-  await Promise.all(pending);
+  await Promise.all(ctx.pending);
   expect(statements).toBeLessThan(1000);
   console.warn(
     `Combined cron fixture: D1 statements=${statements}, multi-statement batches=${batchCalls}; 100 sessions, 25 refunds and 25 emails. Local instrumentation, not a deployed limit test.`
@@ -393,22 +393,21 @@ it('instruments the combined nightly cron without a maintenance queue', async ()
 
 it('distinguishes confirmed missing Stripe objects from outages', async () => {
   const provider = new StripeProvider('sk_test_fixture', 'whsec_fixture');
-  const stripe = (
-    provider as unknown as {
-      stripe: { checkout: { sessions: { retrieve: (id: string) => Promise<unknown> } } };
-    }
-  ).stripe;
-  const retrieve = vi.spyOn(stripe.checkout.sessions, 'retrieve');
-  retrieve.mockRejectedValueOnce(
-    new Stripe.errors.StripeInvalidRequestError({
-      message: 'missing',
-      statusCode: 404,
-      code: 'resource_missing',
-    })
-  );
-  expect(await provider.retrieveCheckoutSession('cs_missing')).toBeNull();
-  retrieve.mockRejectedValueOnce(new Error('provider outage'));
-  await expect(provider.retrieveCheckoutSession('cs_outage')).rejects.toThrow('provider outage');
+  stubStripeHttp(({ url }) => {
+    if (url.pathname.endsWith('/cs_outage')) throw new TypeError('provider outage');
+    return Response.json(
+      { error: { type: 'invalid_request_error', code: 'resource_missing', message: 'missing' } },
+      { status: 404 }
+    );
+  });
+  try {
+    expect(await provider.retrieveCheckoutSession('cs_missing')).toBeNull();
+    await expect(provider.retrieveCheckoutSession('cs_outage')).rejects.toBeInstanceOf(
+      Stripe.errors.StripeConnectionError
+    );
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 
 it('builds preview artifacts inside the preview job before deployment', () => {

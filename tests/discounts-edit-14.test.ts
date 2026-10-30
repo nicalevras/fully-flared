@@ -1,15 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb } from './helpers/d1';
 import { runAdminAction } from '../web/src/server/admin-actions';
+import { actionData, z } from './helpers/json';
 
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, env: Cloudflare.Env, dispose: () => Promise<void>;
 const owner = { id: 'owner', role: 'owner' };
-const env = {} as Cloudflare.Env;
+const created = z.object({ discountId: z.string() });
 let firstId = '';
 let secondId = '';
 
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env, dispose } = await createTestDb());
   const first = await runAdminAction(db, env, owner, 'discount.create', {
     code: 'FIRST10',
     type: 'percentage',
@@ -20,8 +21,8 @@ beforeEach(async () => {
     type: 'percentage',
     value: 20,
   });
-  if (first.ok) firstId = (first.data as { discountId: string }).discountId;
-  if (second.ok) secondId = (second.data as { discountId: string }).discountId;
+  firstId = actionData(first, created).discountId;
+  secondId = actionData(second, created).discountId;
 });
 afterEach(async () => {
   await dispose();

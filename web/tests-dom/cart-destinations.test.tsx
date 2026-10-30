@@ -2,13 +2,13 @@
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it } from 'vitest';
-import { Route as CartRoute } from '@/routes/_shop.cart';
+import { Route } from '@/routes/_shop.cart';
 import { cartView, line, zone } from './fixtures';
 import { renderPage } from './render-route';
 
 it('US listed once; default is first shippable', async () => {
   await renderPage(
-    CartRoute.options.component,
+    Route.options.component,
     cartView([line('TEE-1')], [zone('north', ['CA', 'US']), zone('europe', ['GB', 'US'])])
   );
   const country = await screen.findByRole('combobox', { name: 'Country' });
@@ -22,7 +22,7 @@ it('US listed once; default is first shippable', async () => {
 });
 
 it('no admin copy', async () => {
-  await renderPage(CartRoute.options.component, cartView([line('TEE-1')], []));
+  await renderPage(Route.options.component, cartView([line('TEE-1')], []));
   const summary = await screen.findByLabelText('Order summary');
 
   expect(summary.textContent).not.toMatch(/admin|store owner/i);

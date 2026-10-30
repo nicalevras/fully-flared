@@ -15,7 +15,7 @@ const forbidden = { name: 'AuthError', code: 'FORBIDDEN' };
 
 describe('admin read handlers check the caller role (MS-4, R-05)', () => {
   it('support cannot list discounts; a manager can', async () => {
-    const page = { q: '', page: 1, size: 25 };
+    const page = { q: '', page: 1, size: 25 } as const;
     await expect(adminDiscounts(db, { role: 'support' }, page)).rejects.toMatchObject(forbidden);
     await expect(adminDiscounts(db, { role: 'manager' }, page)).resolves.toMatchObject({
       total: 0,

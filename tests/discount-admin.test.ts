@@ -3,12 +3,11 @@ import { createTestDb } from './helpers/d1';
 import { runAdminAction } from '../web/src/server/admin-actions';
 import { calculateDiscount } from '../web/src/server/checkout';
 
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, env: Cloudflare.Env, dispose: () => Promise<void>;
 const owner = { id: 'owner', role: 'owner' };
-const env = {};
 
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env, dispose } = await createTestDb());
 });
 afterEach(async () => {
   await dispose();

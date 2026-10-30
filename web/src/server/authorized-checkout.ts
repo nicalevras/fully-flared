@@ -2,7 +2,7 @@ import * as z from 'zod';
 import { sha256Hex } from '../lib/hash';
 import { shippingAddressSchema } from '../schemas/checkout';
 import { loadIntent, requireIntent, type CheckoutIntentRow } from './checkout-intents';
-import { acquireCheckoutPermit, type AdmissionStub } from './checkout-admission';
+import { acquireCheckoutPermit, type AdmissionNamespace } from './checkout-admission';
 import {
   CheckoutError,
   markOrderPaid,
@@ -101,7 +101,20 @@ export async function recordAuthorizedEvent(
   return true;
 }
 
-function identity(intent: CheckoutIntentRow, session: StripeSessionLite) {
+type ReviewIntent = Pick<
+  CheckoutIntentRow,
+  | 'id'
+  | 'order_id'
+  | 'quote_json'
+  | 'stripe_session_id'
+  | 'provider_payload_json'
+  | 'shipping_address_json'
+>;
+
+function identity(
+  intent: Pick<CheckoutIntentRow, 'id' | 'order_id' | 'stripe_session_id'>,
+  session: StripeSessionLite
+) {
   return (
     session.id === intent.stripe_session_id &&
     session.metadata?.order_id === intent.order_id &&
@@ -113,7 +126,7 @@ function identity(intent: CheckoutIntentRow, session: StripeSessionLite) {
 export async function prepareReview(
   db: D1Database,
   provider: PaymentProvider,
-  intent: CheckoutIntentRow,
+  intent: ReviewIntent,
   deadline: number
 ): Promise<ReviewQuote> {
   if (intent.quote_json) {
@@ -354,7 +367,7 @@ async function allocate(db: D1Database, intent: CheckoutIntentRow, claim: Paymen
   ]);
 }
 
-function intentAddress(intent: CheckoutIntentRow) {
+function intentAddress(intent: Pick<CheckoutIntentRow, 'id' | 'shipping_address_json'>) {
   if (!intent.shipping_address_json)
     throw new Error(`Checkout intent ${intent.id} has no shipping address`);
   return shippingAddressSchema.parse(JSON.parse(intent.shipping_address_json));
@@ -392,7 +405,7 @@ export async function runAuthorizedCheckout(
   db: D1Database,
   provider: PaymentProvider,
   intentId: string,
-  admission: { getByName(name: string): AdmissionStub } | undefined,
+  admission: AdmissionNamespace | undefined,
   deadline = Date.now() + 30_000
 ): Promise<void> {
   const permit = await acquireCheckoutPermit(admission, 'settle');
@@ -706,7 +719,7 @@ export async function runAuthorizedCheckout(
 export async function recoverAuthorizedCheckouts(
   db: D1Database,
   provider: PaymentProvider | null,
-  admission: { getByName(name: string): AdmissionStub } | undefined,
+  admission: AdmissionNamespace | undefined,
   limit = 20,
   dueBefore = now(),
   context?: RecoveryContext

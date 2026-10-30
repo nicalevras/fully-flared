@@ -3,7 +3,13 @@ import { createTestDb, seedProduct } from './helpers/d1';
 import { readListingPage } from '../web/src/server/catalog-read';
 import { getStorefrontLayout } from '../web/src/server/catalog-read';
 import { ALL_LISTING } from '../web/src/server/catalog-models';
-import { RealtimeDO } from '../web/src/do/realtime';
+import {
+  broadcastToSockets,
+  onSocketClose,
+  onSocketError,
+  onSocketMessage,
+  type RealtimeSocket,
+} from '../web/src/do/realtime';
 import { processOutboxRow } from '../web/src/server/email';
 import { createPendingOrder, reprocessStaleInbox } from '../web/src/server/checkout';
 import { attachStripeSession } from './helpers/attach-session';
@@ -103,24 +109,20 @@ it('records failed WebSocket operations without message, close reason or excepti
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   const log = vi.spyOn(console, 'log').mockImplementation(() => {});
   const error = vi.spyOn(console, 'error').mockImplementation(() => {});
-  vi.stubGlobal('WebSocketRequestResponsePair', class {});
-  const ws = {
+  const ws: RealtimeSocket = {
     send: () => {
       throw new Error(sensitive);
     },
     close: () => {
       throw new Error(sensitive);
     },
+    serializeAttachment: () => {},
     deserializeAttachment: () => ({ topics: ['order'] }),
-  } as unknown as WebSocket;
-  const object = new RealtimeDO(
-    { setWebSocketAutoResponse() {}, getWebSockets: () => [ws] } as never,
-    {} as never
-  );
-  await object.webSocketMessage(ws, sensitive);
-  await object.webSocketClose(ws, 1000, sensitive, true);
-  await object.webSocketError(ws, new Error(sensitive));
-  await object.broadcast('order.paid', { private: sensitive });
+  };
+  await onSocketMessage(ws, sensitive);
+  await onSocketClose(ws, 1000, sensitive, true);
+  await onSocketError(ws);
+  await broadcastToSockets(db, [ws], 'order.paid', { private: sensitive });
   expect(warn.mock.calls.length).toBeGreaterThanOrEqual(4);
   for (const spy of [warn, log, error])
     expect(JSON.stringify(spy.mock.calls)).not.toContain(sensitive);

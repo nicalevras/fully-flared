@@ -92,7 +92,8 @@ const EDITORIAL_DOC_STATEMENTS = 10;
 const LAYOUT_STATEMENTS = 15;
 const RETIRE_STATEMENTS = 7;
 
-type KvLike = ReclaimKv & {
+/** The catalog KV operations the publisher uses. */
+export type KvLike = ReclaimKv & {
   get(key: string): Promise<string | null>;
   put(key: string, value: string): Promise<void>;
   delete?(key: string): Promise<void>;

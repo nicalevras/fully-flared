@@ -3,6 +3,7 @@ import { adjustStock, adjustStockIdempotent } from './inventory';
 import { canonicalizeMediaUrls, mediaKeysInContent, mediaRawSpellings } from './media';
 import { parseCsv } from './csv';
 import { getStripeProvider } from './payments';
+import type { WorkerEnv } from './env';
 import { getSettings } from './settings';
 import { emailStatement, commitWithEmails, enqueueJob } from './email';
 import { broadcastAdminRealtime } from './realtime';
@@ -21,8 +22,7 @@ function validSetting(key: string, value: string) {
   }
 }
 import { zodIssues } from '../schemas/common';
-import { ACTION_PERMISSIONS, isStaffRole, roleFor } from '../lib/permissions';
-import type { Auth } from '../lib/auth';
+import { ACTION_PERMISSIONS, isStaffRole, roleFor, type StaffRole } from '../lib/permissions';
 
 export const CSV_IMPORT_MAX_ROWS = 1000;
 import { AccountDeletionError, deleteAccountAtomically } from './account-deletion';
@@ -80,7 +80,7 @@ export type AdminActionResult =
  *  ledger rows via adjustStock. */
 export async function refundOrder(
   db: D1Database,
-  env: Cloudflare.Env,
+  env: WorkerEnv,
   orderId: string,
   amountCents?: number,
   restock = false,
@@ -319,13 +319,27 @@ async function mediaSaveFailure(
   return null;
 }
 
+/** The Better Auth admin-plugin endpoints staff actions call; the configured Auth satisfies it. */
+export type AdminAuth = {
+  api: {
+    userHasPermission(input: {
+      body: { userId: string; role: StaffRole; permissions: Record<string, string[]> };
+    }): Promise<{ success: boolean }>;
+    setRole(input: {
+      body: { userId: string; role: StaffRole | 'customer' };
+      headers: Headers;
+    }): Promise<unknown>;
+    revokeUserSessions(input: { body: { userId: string }; headers: Headers }): Promise<unknown>;
+  };
+};
+
 /** Whether the actor's stored role grants the permissions, through Better
  *  Auth when it is wired and the local access-control table otherwise. A
  *  role outside the table grants nothing on either path. */
 async function actorCan(
   actor: { id: string; role: string },
   permissions: Record<string, string[]>,
-  authContext: { auth: Auth; headers: Headers } | undefined
+  authContext: { auth: AdminAuth; headers: Headers } | undefined
 ): Promise<boolean> {
   const role = actor.role;
   if (!isStaffRole(role)) return false;
@@ -342,7 +356,7 @@ export async function runAdminAction(
   actor: { id: string; role: string },
   action: string,
   payload: Record<string, unknown>,
-  authContext?: { auth: Auth; headers: Headers },
+  authContext?: { auth: AdminAuth; headers: Headers },
   requestOrigin?: string
 ): Promise<AdminActionResult> {
   const parsedAction = adminActionSchema.safeParse({ ...payload, action });

@@ -7,6 +7,7 @@ import { workerEnv, type WorkerEnv } from '../web/src/server/env';
 import { fakeQueue, messageBatch, queueMessage } from './helpers/queue';
 import { at } from './helpers/fixtures';
 import { z } from './helpers/json';
+import { gatewayContext } from './helpers/gateway';
 
 const outboxJob = z.object({ outboxId: z.string() });
 
@@ -141,7 +142,7 @@ it('misrouted email and outbox maintenance are forwarded before ack and never ex
       messages.map((body) => queueMessage(body, { ack, retry }))
     ),
     env,
-    {} as never
+    gatewayContext()
   );
   expect(mail).toHaveBeenCalledTimes(2);
   expect(ack).toHaveBeenCalledTimes(2);
@@ -153,7 +154,7 @@ it('misrouted email and outbox maintenance are forwarded before ack and never ex
   await worker.queue(
     messageBatch(env.QUEUE_NAMES.JOBS, [queueMessage(at(messages, 0), { ack, retry })]),
     env,
-    {} as never
+    gatewayContext()
   );
   expect(ack).toHaveBeenCalledTimes(2);
   expect(retry).toHaveBeenCalledTimes(1);

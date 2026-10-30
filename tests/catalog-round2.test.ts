@@ -44,7 +44,7 @@ class EnforcingKv {
   }
 }
 
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, env: Cloudflare.Env, dispose: () => Promise<void>;
 let kv: EnforcingKv;
 
 async function product(id: string, title: string, createdAt: string) {
@@ -99,7 +99,7 @@ async function seedProducts(n: number) {
 }
 
 async function driveUnits(max = 500): Promise<number> {
-  const queue = await catalogQueueHarness(db, kv);
+  const queue = await catalogQueueHarness(db, kv, env);
   let units = 0;
   for (; units < max; units++) {
     kv.beginInvocation();
@@ -112,7 +112,7 @@ async function driveUnits(max = 500): Promise<number> {
 }
 
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env, dispose } = await createTestDb());
   kv = new EnforcingKv();
 });
 
@@ -128,7 +128,7 @@ describe('Round 2 bounded catalog execution', () => {
         await db.prepare("UPDATE products SET title='After' WHERE id='captured'").run();
       }
     };
-    const queue = await catalogQueueHarness(db, kv);
+    const queue = await catalogQueueHarness(db, kv, env);
     for (let i = 0; i < 100; i++) {
       const delivery = await queue.deliver();
       expect(delivery.retried).toBe(false);
@@ -177,7 +177,7 @@ describe('Round 2 bounded catalog execution', () => {
         )
         .bind(JSON.stringify(variants)),
     ]);
-    const queue = await catalogQueueHarness(db, kv);
+    const queue = await catalogQueueHarness(db, kv, env);
     for (let i = 0; i < 3; i++) {
       const result = await queue.deliver();
       expect(result.retried).toBe(false);
@@ -190,7 +190,7 @@ describe('Round 2 bounded catalog execution', () => {
   it('retries a failed continuation send without acknowledging the message', async () => {
     // Large enough that the first invocation cannot finish the publish.
     await seedProducts(501);
-    const queue = await catalogQueueHarness(db, kv);
+    const queue = await catalogQueueHarness(db, kv, env);
     queue.failNextSend();
     const failed = await queue.deliver();
     expect(failed.retried).toBe(true);

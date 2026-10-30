@@ -10,49 +10,67 @@ import {
   storefrontPageSearch,
   successSearch,
 } from '../web/src/lib/search-params';
+import { rawSearch } from './helpers/route';
 
 describe('route search parsers', () => {
   it('admin pages accept only whole numbers in range and fall back to 1', () => {
-    expect(pageSearch({ page: 3 })).toEqual({ page: 3 });
-    expect(pageSearch({ page: MAX_PAGE })).toEqual({ page: MAX_PAGE });
+    expect(pageSearch({ ...rawSearch, page: 3 })).toEqual({ page: 3 });
+    expect(pageSearch({ ...rawSearch, page: MAX_PAGE })).toEqual({ page: MAX_PAGE });
     for (const page of [undefined, '3', 0, -1, 2.5, MAX_PAGE + 1, null, true])
-      expect(pageSearch({ page })).toEqual({ page: 1 });
-    expect(orderPagesSearch({ page: 2, returnsPage: 'x' })).toEqual({ page: 2, returnsPage: 1 });
+      expect(pageSearch({ ...rawSearch, page })).toEqual({ page: 1 });
+    expect(orderPagesSearch({ ...rawSearch, page: 2, returnsPage: 'x' })).toEqual({
+      page: 2,
+      returnsPage: 1,
+    });
   });
 
   it('storefront and account pages coerce numeric text within their bounds', () => {
-    expect(storefrontPageSearch({ page: '7' })).toEqual({ page: 7 });
-    expect(storefrontPageSearch({ page: ' 3 ' })).toEqual({ page: 3 });
-    expect(storefrontPageSearch({ page: 100_000 })).toEqual({ page: 100_000 });
+    expect(storefrontPageSearch({ ...rawSearch, page: '7' })).toEqual({ page: 7 });
+    expect(storefrontPageSearch({ ...rawSearch, page: ' 3 ' })).toEqual({ page: 3 });
+    expect(storefrontPageSearch({ ...rawSearch, page: 100_000 })).toEqual({ page: 100_000 });
     for (const page of [undefined, '', 'abc', '2.5', 0, 100_001, {}])
-      expect(storefrontPageSearch({ page })).toEqual({ page: 1 });
-    expect(accountSearch({ page: '100001' })).toEqual({ page: 100_001 });
-    expect(accountSearch({ page: MAX_PAGE + 1 })).toEqual({ page: 1 });
+      expect(storefrontPageSearch({ ...rawSearch, page })).toEqual({ page: 1 });
+    expect(accountSearch({ ...rawSearch, page: '100001' })).toEqual({ page: 100_001 });
+    expect(accountSearch({ ...rawSearch, page: MAX_PAGE + 1 })).toEqual({ page: 1 });
   });
 
   it('text params keep strings within their length and drop anything else', () => {
-    expect(catalogSearch({})).toEqual({ q: '', cursor: undefined, page: 1 });
-    expect(catalogSearch({ q: 'tee', cursor: 'c1', page: '3' })).toEqual({
+    expect(catalogSearch(rawSearch)).toEqual({ q: '', cursor: undefined, page: 1 });
+    expect(catalogSearch({ ...rawSearch, q: 'tee', cursor: 'c1', page: '3' })).toEqual({
       q: 'tee',
       cursor: 'c1',
       page: 3,
     });
-    expect(catalogSearch({ q: 'tee', cursor: 'c1' })).toEqual({ q: 'tee', cursor: 'c1', page: 2 });
-    expect(catalogSearch({ q: 'tee', page: 4 })).toEqual({ q: 'tee', cursor: undefined, page: 1 });
-    expect(catalogSearch({ q: 'x'.repeat(201), cursor: 'x'.repeat(501) })).toEqual({
+    expect(catalogSearch({ ...rawSearch, q: 'tee', cursor: 'c1' })).toEqual({
+      q: 'tee',
+      cursor: 'c1',
+      page: 2,
+    });
+    expect(catalogSearch({ ...rawSearch, q: 'tee', page: 4 })).toEqual({
+      q: 'tee',
+      cursor: undefined,
+      page: 1,
+    });
+    expect(catalogSearch({ ...rawSearch, q: 'x'.repeat(201), cursor: 'x'.repeat(501) })).toEqual({
       q: '',
       cursor: undefined,
       page: 1,
     });
-    expect(catalogSearch({ q: 5 })).toEqual({ q: '', cursor: undefined, page: 1 });
-    expect(successSearch({})).toEqual({ order: '', t: '' });
-    expect(successSearch({ order: 'ord_1', t: 'abc' })).toEqual({ order: 'ord_1', t: 'abc' });
-    expect(successSearch({ order: 'x'.repeat(101), t: 'x'.repeat(201) })).toEqual({
+    expect(catalogSearch({ ...rawSearch, q: 5 })).toEqual({ q: '', cursor: undefined, page: 1 });
+    expect(successSearch(rawSearch)).toEqual({ order: '', t: '' });
+    expect(successSearch({ ...rawSearch, order: 'ord_1', t: 'abc' })).toEqual({
+      order: 'ord_1',
+      t: 'abc',
+    });
+    expect(successSearch({ ...rawSearch, order: 'x'.repeat(101), t: 'x'.repeat(201) })).toEqual({
       order: '',
       t: '',
     });
-    expect(resetSearch({ token: 'tok' })).toEqual({ token: 'tok', error: undefined });
-    expect(resetSearch({ token: 123 })).toEqual({ token: undefined, error: undefined });
+    expect(resetSearch({ ...rawSearch, token: 'tok' })).toEqual({ token: 'tok', error: undefined });
+    expect(resetSearch({ ...rawSearch, token: 123 })).toEqual({
+      token: undefined,
+      error: undefined,
+    });
   });
 
   it('page sizes accept only the offered row counts', () => {

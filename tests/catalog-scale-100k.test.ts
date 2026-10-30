@@ -52,7 +52,7 @@ it(
   // Includes physical handler work, revision acknowledgement and replica sweep.
   { timeout: 3_600_000 },
   async () => {
-    const { db, dispose } = await createTestDb({ transportRetry: true });
+    const { db, env, dispose } = await createTestDb({ transportRetry: true });
     const kv = new FakeKv();
     try {
       const rows = Array.from({ length: 100_000 }, (_, i) => ({
@@ -128,7 +128,7 @@ it(
       // KV stub hard-fails any invocation past the 1,000-op platform
       // limit. Stop when the bootstrap build completes (the seeded
       // capture backlog is acknowledged separately below).
-      const queue = await catalogQueueHarness(db, kv);
+      const queue = await catalogQueueHarness(db, kv, env);
       let invocations = 0;
       for (let guard = 0; guard < 100_000; guard++) {
         kv.beginInvocation();

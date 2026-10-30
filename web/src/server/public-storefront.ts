@@ -22,21 +22,29 @@ export class PublicStorefront extends WorkerEntrypoint<Cloudflare.Env, { store: 
     return publicCacheResponse(response, cacheTagsForPath(pathname));
   }
 
-  /** Purges this entrypoint's cached responses for the given tags.
-   *  Throws when the cache API is unavailable so the caller keeps the
-   *  invalidation rows pending instead of losing them silently. */
+  /** Purges this entrypoint's cached responses for the given tags. */
   async purgeInvalidations(tags: string[]): Promise<void> {
-    if (!tags.length) return;
-    if (!this.ctx.cache) throw new Error('Workers Cache API unavailable');
-    const result = await this.ctx.cache.purge({ tags });
-    if (!result.success) {
-      console.error(
-        JSON.stringify({
-          event: 'public_cache_purge_rejected',
-          codes: result.errors?.map((error) => error.code),
-        })
-      );
-      throw new Error('Public cache purge was rejected');
-    }
+    return purgePublicCache(this.ctx.cache, tags);
+  }
+}
+
+/** Purges cached responses for the given tags through the cache-owning
+ *  entrypoint's cache handle. Throws when the cache API is unavailable so
+ *  the caller keeps the invalidation rows pending instead of losing them silently. */
+export async function purgePublicCache(
+  cache: Pick<CacheContext, 'purge'> | undefined,
+  tags: string[]
+): Promise<void> {
+  if (!tags.length) return;
+  if (!cache) throw new Error('Workers Cache API unavailable');
+  const result = await cache.purge({ tags });
+  if (!result.success) {
+    console.error(
+      JSON.stringify({
+        event: 'public_cache_purge_rejected',
+        codes: result.errors?.map((error) => error.code),
+      })
+    );
+    throw new Error('Public cache purge was rejected');
   }
 }

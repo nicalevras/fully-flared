@@ -16,11 +16,11 @@ class Kv {
   }
 }
 
-let db: D1Database;
+let db: D1Database, env: Cloudflare.Env;
 let dispose: () => Promise<void>;
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ['Date'] });
-  ({ db, dispose } = await createTestDb());
+  ({ db, env, dispose } = await createTestDb());
 });
 afterEach(async () => {
   vi.useRealTimers();
@@ -39,7 +39,7 @@ async function idleCatalogue(kv: Kv) {
 
 it('backs off instead of re-enqueueing immediately while another invocation holds the lease', async () => {
   const kv = new Kv();
-  const queue = await catalogQueueHarness(db, kv);
+  const queue = await catalogQueueHarness(db, kv, env);
   const lease = await claimCatalogLease(db);
   expect(lease).not.toBeNull();
   const delivery = await queue.deliver();
@@ -69,7 +69,7 @@ it('advances garbage collection even while catalogue work is due', async () => {
     )
     .bind(now, now, now, now)
     .run();
-  const queue = await catalogQueueHarness(db, kv);
+  const queue = await catalogQueueHarness(db, kv, env);
   const result = await queue.deliver({ type: 'maintenance.run', runId: 'gc-busy' });
   expect(result.retried).toBe(false);
   expect(await db.prepare('SELECT phase FROM catalog_gc_state').first()).toMatchObject({
@@ -97,7 +97,7 @@ it('publishes a small catalogue in at most two queue deliveries', async () => {
         .bind(`SKU-${i}`, createdAt),
     ]);
   }
-  const queue = await catalogQueueHarness(db, kv);
+  const queue = await catalogQueueHarness(db, kv, env);
   let deliveries = 0;
   for (let continued = true; continued && deliveries < 50; deliveries++) {
     const delivery = await queue.deliver();

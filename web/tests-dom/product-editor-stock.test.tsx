@@ -5,7 +5,7 @@ import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/rea
 import { beforeEach, expect, it, vi } from 'vitest';
 import { ProductEditor, type ProductDetail } from '@/components/ProductEditor';
 import type { AdminPayload } from '@/components/AdminNav';
-import { Route as ProductsRoute } from '@/routes/admin/products/index';
+import { Route } from '@/routes/admin/products/index';
 import { renderRoute } from './render-route';
 
 type ActionResult = { ok: true } | { ok: false; uncertain: true; error: string };
@@ -105,7 +105,7 @@ const stockAdjusts = () =>
 it('after invalidate, the delta uses the new on_hand', async () => {
   productDetail.mockResolvedValue(product(5));
   const router = createRouter({
-    routeTree: ProductsRoute,
+    routeTree: Route,
     history: createMemoryHistory({ initialEntries: ['/?edit=p1'] }),
   });
   await router.load();

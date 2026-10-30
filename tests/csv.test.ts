@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseCsv, toCsv } from '../web/src/server/csv';
 import { createTestDb } from './helpers/d1';
 import { runAdminAction } from '../web/src/server/admin-actions';
+import { actionData, z } from './helpers/json';
 
 describe('RFC 4180 CSV parser', () => {
   it('parses quoted fields with commas, quotes, and newlines', () => {
@@ -35,7 +36,7 @@ describe('RFC 4180 CSV parser', () => {
 describe('CSV product import with per-row errors', () => {
   it('imports valid rows and reports each bad row by number', async () => {
     // 500 sequential D1 batches on Miniflare exceed the 5s default.
-    const { db, dispose } = await createTestDb();
+    const { db, env, dispose } = await createTestDb();
     try {
       const lines = ['title,slug,sku,price_cents,stock'];
       for (let i = 1; i <= 500; i++) {
@@ -45,13 +46,15 @@ describe('CSV product import with per-row errors', () => {
       }
       const result = await runAdminAction(
         db,
-        {} as never,
+        env,
         { id: 'owner-1', role: 'owner' },
         'import.productsCsv',
         { csv: lines.join('\n') }
       );
-      expect(result.ok).toBe(true);
-      const data = result.data as { imported: number; errors: Array<{ row: number }> };
+      const data = actionData(
+        result,
+        z.object({ imported: z.number(), errors: z.array(z.object({ row: z.number() })) })
+      );
       expect(data.imported).toBe(495);
       expect(data.errors.map((e) => e.row)).toEqual([101, 201, 301, 401, 501]);
       const ledger = await db
@@ -63,13 +66,13 @@ describe('CSV product import with per-row errors', () => {
     }
   }, 60_000);
   it('rejects files over the 1,000-row cap before importing anything', async () => {
-    const { db, dispose } = await createTestDb();
+    const { db, env, dispose } = await createTestDb();
     try {
       const lines = ['title,slug,sku,price_cents,stock'];
       for (let i = 1; i <= 1001; i++) lines.push(`Product ${i},product-${i},SKU-${i},1000,1`);
       const result = await runAdminAction(
         db,
-        {} as never,
+        env,
         { id: 'owner-1', role: 'owner' },
         'import.productsCsv',
         { csv: lines.join('\n') }

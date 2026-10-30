@@ -25,7 +25,7 @@ import {
   supersededIntentIds,
   type CheckoutIntentRow,
 } from '../../server/checkout-intents';
-import { acquireCheckoutPermit } from '../../server/checkout-admission';
+import { acquireCheckoutPermit, type AdmissionNamespace } from '../../server/checkout-admission';
 import type { WorkerEnv } from '../../server/env';
 
 // This route intentionally stays a raw server route, like media upload
@@ -390,9 +390,7 @@ async function respondForIntent(
   opts: {
     permitHeld?: boolean;
     deadlineMs?: number;
-    admission?: {
-      getByName(name: string): import('../../server/checkout-admission').AdmissionStub;
-    };
+    admission?: AdmissionNamespace | undefined;
   } = {}
 ): Promise<Response> {
   // Ownership before anything else: a mismatch must not reveal another

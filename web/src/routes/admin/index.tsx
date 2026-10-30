@@ -142,14 +142,21 @@ const getData = createServerFn({ method: 'GET' })
     };
   });
 
+/** Staff without report access land on the orders queue instead of the dashboard. */
+export function guardAdminHome({
+  context,
+}: {
+  context: { staff?: { role?: string | null | undefined } | null | undefined };
+}): void {
+  if (!roleCan(context.staff?.role, 'report', 'view'))
+    throw redirect({
+      to: '/admin/orders',
+      search: { q: '', mode: 'number', view: 'queue', payment: 'all', from: '', to: '' },
+    });
+}
+
 export const Route = createFileRoute('/admin/')({
-  beforeLoad: ({ context }) => {
-    if (!roleCan(context.staff?.role, 'report', 'view'))
-      throw redirect({
-        to: '/admin/orders',
-        search: { q: '', mode: 'number', view: 'queue', payment: 'all', from: '', to: '' },
-      });
-  },
+  beforeLoad: guardAdminHome,
   validateSearch: (search: Record<string, unknown>): { days?: 7 | 30 | 90 } => {
     const days = Number(search.days);
     return { days: days === 7 || days === 30 || days === 90 ? days : 30 };

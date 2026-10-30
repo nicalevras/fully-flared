@@ -36,14 +36,18 @@ const getNavigation = createServerFn({ method: 'GET' }).handler(async () => {
     throw error;
   }
 });
+/** Signed-out visitors go to sign-in with their page as the return path; staff who
+ *  owe two-factor setup go to the account page. */
+export async function enterAdmin({ location }: { location: { href: string } }) {
+  const navigation = await getNavigation();
+  if (navigation.redirect === '/auth/sign-in')
+    throw redirect({ to: navigation.redirect, search: { redirect: location.href } });
+  if (navigation.redirect) throw redirect({ to: navigation.redirect });
+  return navigation;
+}
+
 export const Route = createFileRoute('/admin')({
-  beforeLoad: async ({ location }) => {
-    const navigation = await getNavigation();
-    if (navigation.redirect === '/auth/sign-in')
-      throw redirect({ to: navigation.redirect, search: { redirect: location.href } });
-    if (navigation.redirect) throw redirect({ to: navigation.redirect });
-    return navigation;
-  },
+  beforeLoad: enterAdmin,
   errorComponent: ({ reset }: ErrorComponentProps) => (
     <main className="p-8">
       <h1>Admin could not load</h1>

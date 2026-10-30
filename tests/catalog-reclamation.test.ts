@@ -229,7 +229,7 @@ it('runs idle reclamation through the actual queue handler and shares its invoca
     .run();
   await kv.put('catalog:r1:listing:all:current', '{}');
   await db.prepare('UPDATE catalog_work SET processed_revision=target_revision').run();
-  const queue = await catalogQueueHarness(db, kv);
+  const queue = await catalogQueueHarness(db, kv, env);
   const now = new Date().toISOString();
   await db
     .prepare(
