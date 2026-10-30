@@ -1,3 +1,4 @@
+import * as z from 'zod';
 import { BudgetExhausted, leaseGuardStatement, type CatalogLease } from './catalog-exec';
 import {
   contentRevision,
@@ -47,6 +48,10 @@ type Artifact = {
   retry_at: string | null;
 };
 const infer = (key: string) => (key.startsWith('catalog:r1:dir:') ? 'directory' : 'artifact');
+
+const pageCursorSchema = z.tuple([z.string(), z.number(), z.number(), z.string()]);
+const refDocumentCursorSchema = z.tuple([z.string(), z.number(), z.string()]);
+const refHistoryCursorSchema = z.tuple([z.string(), z.number(), z.number()]);
 
 function guard(db: D1Database, s: State, lease: CatalogLease): D1PreparedStatement[] {
   return [
@@ -132,7 +137,9 @@ export async function runCatalogGcUnit(
         'DELETE FROM catalog_gc_marks WHERE key IN (SELECT key FROM catalog_gc_marks LIMIT 100)'
       ),
     ]);
-    if ((result[2]!.meta.changes ?? 0) < PAGE) {
+    const deleted = result.at(-1);
+    if (!deleted) throw new Error('Catalog GC reset batch returned no delete result');
+    if ((deleted.meta.changes ?? 0) < PAGE) {
       s.phase = 'inventory';
       s.step = 0;
       s.cursor = '';
@@ -184,9 +191,7 @@ export async function runCatalogGcUnit(
       return false;
     }
     if (s.step === 2) {
-      const cursor = s.cursor
-        ? (JSON.parse(s.cursor) as [string, number, number, string])
-        : ['', 0, 0, ''];
+      const cursor = s.cursor ? pageCursorSchema.parse(JSON.parse(s.cursor)) : ['', 0, 0, ''];
       const rows = await db
         .prepare(
           'SELECT listing_id,generation,page,revision FROM catalog_listing_page_revisions WHERE (listing_id,generation,page,revision)>(?,?,?,?) ORDER BY listing_id,generation,page,revision LIMIT 100'
@@ -249,7 +254,7 @@ export async function runCatalogGcUnit(
     let keys: string[] = [],
       length = 0;
     if (s.step === 0) {
-      const cursor = s.cursor ? (JSON.parse(s.cursor) as [string, number, string]) : ['', -1, ''];
+      const cursor = s.cursor ? refDocumentCursorSchema.parse(JSON.parse(s.cursor)) : ['', -1, ''];
       const rows = await db
         .prepare(
           `SELECT d.ref_key,d.publication_seq,d.document_key FROM catalog_ref_documents d
@@ -264,7 +269,7 @@ export async function runCatalogGcUnit(
       const last = rows.results.at(-1);
       if (last) s.cursor = JSON.stringify([last.ref_key, last.publication_seq, last.document_key]);
     } else if (s.step === 1) {
-      const cursor = s.cursor ? (JSON.parse(s.cursor) as [string, number, number]) : ['', -1, -1];
+      const cursor = s.cursor ? refHistoryCursorSchema.parse(JSON.parse(s.cursor)) : ['', -1, -1];
       const rows = await db
         .prepare(
           `SELECT listing_id,generation,publication_seq,root_hash FROM catalog_listing_ref_history
@@ -324,7 +329,7 @@ export async function runCatalogGcUnit(
         .all<{ key: string; target: string | null }>();
       length = rows.results.length;
       s.cursor = rows.results.at(-1)?.key ?? s.cursor;
-      keys = rows.results.filter((r) => r.target).flatMap((r) => [r.key, r.target!]);
+      keys = rows.results.flatMap((r) => (r.target ? [r.key, r.target] : []));
     } else {
       const rows = await db
         .prepare(
