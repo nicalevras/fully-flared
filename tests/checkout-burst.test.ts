@@ -3,6 +3,9 @@ import { expect, it, vi } from 'vitest';
 import { createTestDb, seedProduct } from './helpers/d1';
 import { handleCheckoutRequest } from '../web/src/routes/api/checkout';
 import { fakeAdmissionNamespace } from './helpers/admission';
+import { at } from './helpers/fixtures';
+import type { ProviderCall } from './helpers/payments';
+import type { PaymentProvider } from '../web/src/server/payments';
 import { reconcileCheckoutIntents } from '../web/src/server/checkout-intents';
 import { fixtureShippingAddress, reviewSession } from './helpers/checkout-review';
 import { sha256Hex } from '../web/src/lib/hash';
@@ -11,17 +14,17 @@ vi.mock('../web/src/server/session', () => ({ getSessionUser: async () => null }
 vi.mock('../web/src/server/turnstile', () => ({ verifyTurnstile: async () => true }));
 
 const provider = {
-  createCheckout: vi.fn(),
-  createCoupon: vi.fn(),
-  createCheckoutSession: vi.fn(),
-  createCheckoutCustomer: vi.fn(async () => 'cus_fixture'),
-  retrieveCheckoutSession: vi.fn(),
+  createCheckout: vi.fn<ProviderCall<'createCheckout'>>(),
+  createCoupon: vi.fn<ProviderCall<'createCoupon'>>(),
+  createCheckoutSession: vi.fn<ProviderCall<'createCheckoutSession'>>(),
+  createCheckoutCustomer: vi.fn<ProviderCall<'createCheckoutCustomer'>>(async () => 'cus_fixture'),
+  retrieveCheckoutSession: vi.fn<ProviderCall<'retrieveCheckoutSession'>>(),
   async verifyWebhook(payload: string) {
     const event = JSON.parse(payload);
     return { ...event, data: event.data.object };
   },
-  refund: vi.fn(async () => ({ id: 're_x', status: 'pending' })),
-};
+  refund: vi.fn<ProviderCall<'refund'>>(async () => ({ id: 're_x', status: 'pending' })),
+} satisfies PaymentProvider;
 vi.mock('../web/src/server/payments', () => ({ getStripeProvider: () => provider }));
 
 // Phase 5 burst evidence: 1,000 checkout arrivals against the default
@@ -93,11 +96,11 @@ it(
             // already bootstrapped its own capability cookie.
             headers: {
               'content-type': 'application/json',
-              cookie: `guest_checkout=burst-${i}; cart=${carts[i]!.id}.${carts[i]!.token}`,
+              cookie: `guest_checkout=burst-${i}; cart=${at(carts, i).id}.${at(carts, i).token}`,
             },
             body: JSON.stringify({
               intentId: crypto.randomUUID(),
-              cartId: carts[i]!.id,
+              cartId: at(carts, i).id,
               cartRevision: 1,
               shippingAddress: fixtureShippingAddress,
               quoteRevision: quoted.configRevision,
@@ -156,7 +159,7 @@ it(
       for (let pass = 0; pass < 10; pass++) {
         const advanced = await reconcileCheckoutIntents(
           db,
-          provider as never,
+          provider,
           1000,
           fakeAdmissionNamespace({
             admission_starts_per_second: 100,

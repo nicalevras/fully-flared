@@ -69,7 +69,7 @@ describe('atomic reservations', () => {
 
   it('commit then replayed commit/release stays consistent with the ledger', async () => {
     const ids = await reserveStock(db, [{ sku: 'TEE-1', qty: 0 }], { cartId: 'noop' }).catch(
-      () => [] as string[]
+      (): string[] => []
     );
     expect(ids).toEqual([]);
   });

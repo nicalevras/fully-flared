@@ -48,7 +48,7 @@ afterEach(async () => {
 
 describe('grouped inventory list', () => {
   it('groups SKUs under products with summed counts and zeros for a missing stock row', async () => {
-    const result = await adminInventoryList(db, { q: '', page: 1, low: false });
+    const result = await adminInventoryList(db, { q: '', page: 1, size: 25, low: false });
     expect(result.total).toBe(3);
     const hat = result.products.find((p) => p.id === 'p2');
     expect(hat).toMatchObject({
@@ -75,27 +75,27 @@ describe('grouped inventory list', () => {
         .bind(`px${i}`, `item-${i}`, `Item ${String(i).padStart(2, '0')}`, now, now)
         .run();
     }
-    const page1 = await adminInventoryList(db, { q: '', page: 1, low: false });
+    const page1 = await adminInventoryList(db, { q: '', page: 1, size: 25, low: false });
     expect(page1.products).toHaveLength(25);
-    const page2 = await adminInventoryList(db, { q: '', page: 2, low: false });
+    const page2 = await adminInventoryList(db, { q: '', page: 2, size: 25, low: false });
     expect(page2.total).toBe(28);
     expect(page2.products).toHaveLength(3);
     expect(page1.products.map((p) => p.id)).not.toContain(page2.products[0]?.id);
   });
 
   it('low-stock filter keeps only products with a SKU at 5 or fewer available', async () => {
-    const result = await adminInventoryList(db, { q: '', page: 1, low: true });
+    const result = await adminInventoryList(db, { q: '', page: 1, size: 25, low: true });
     expect(result.products.map((p) => p.title).sort()).toEqual(['Hat', 'Tee']);
   });
 
   it('title search returns the product with its matched SKUs', async () => {
-    const result = await adminInventoryList(db, { q: 'HAT-', page: 1, low: false });
+    const result = await adminInventoryList(db, { q: 'HAT-', page: 1, size: 25, low: false });
     expect(result.products).toHaveLength(1);
     expect(result.products[0]?.matchedSkus).toEqual(['HAT-1', 'HAT-2']);
-    const byTitle = await adminInventoryList(db, { q: 'mug', page: 1, low: false });
+    const byTitle = await adminInventoryList(db, { q: 'mug', page: 1, size: 25, low: false });
     expect(byTitle.products.map((p) => p.title)).toEqual(['Mug']);
     expect(byTitle.products[0]?.matchedSkus).toEqual(['MUG-1']);
-    const skuTerm = await adminInventoryList(db, { q: 'HAT-1', page: 1, low: false });
+    const skuTerm = await adminInventoryList(db, { q: 'HAT-1', page: 1, size: 25, low: false });
     expect(skuTerm.products.map((p) => p.id)).toEqual(['p2']);
     expect(skuTerm.products[0]?.matchedSkus).toEqual(['HAT-1']);
   });
@@ -118,19 +118,19 @@ describe('SKU search', () => {
   });
 
   it('SKU prefix "ab" matches SKU "AB-1" whose title lacks it', async () => {
-    const result = await adminInventoryList(db, { q: 'ab', page: 1, low: false });
+    const result = await adminInventoryList(db, { q: 'ab', page: 1, size: 25, low: false });
     expect(result.products.map((p) => p.id)).toEqual(['p4']);
     expect(result.total).toBe(1);
     expect(result.products[0]?.matchedSkus).toEqual(['AB-1']);
   });
 
   it('a SKU prefix of 3+ characters matches even though the title does not', async () => {
-    const result = await adminInventoryList(db, { q: 'ab-1', page: 1, low: false });
+    const result = await adminInventoryList(db, { q: 'ab-1', page: 1, size: 25, low: false });
     expect(result.products.map((p) => p.id)).toEqual(['p4']);
   });
 
   it('LIKE wildcards in the query are literal', async () => {
-    const result = await adminInventoryList(db, { q: '%', page: 1, low: false });
+    const result = await adminInventoryList(db, { q: '%', page: 1, size: 25, low: false });
     expect(result.total).toBe(0);
   });
 });

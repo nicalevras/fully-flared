@@ -106,6 +106,9 @@ export type DiscountRow = {
   usage_count: number;
   min_purchase_cents: number;
   usage_limit: number | null;
+  usage_per_customer: number;
+  max_discount_cents: number | null;
+  starts_at: string | null;
   expires_at: string | null;
 };
 
@@ -139,7 +142,7 @@ export async function adminDiscounts(
   const { page, offset } = pageWindow(total, input.page, input.size);
   const rows = await db
     .prepare(
-      `SELECT id, code, type, value, status, usage_count, min_purchase_cents, usage_limit, expires_at FROM discounts ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`
+      `SELECT id, code, type, value, status, usage_count, min_purchase_cents, usage_limit, usage_per_customer, max_discount_cents, starts_at, expires_at FROM discounts ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`
     )
     .bind(...(searchBind ? [searchBind] : []), input.size, offset)
     .all<DiscountRow>();

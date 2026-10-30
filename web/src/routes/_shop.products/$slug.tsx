@@ -1,4 +1,11 @@
-import { useAvailability, purchaseAvailability } from '../../lib/availability';
+import {
+  type AvailabilityById,
+  inBrowser,
+  purchaseAvailability,
+  seedAvailability,
+  useAvailability,
+} from '../../lib/availability';
+import { pageAvailability } from '../../server/page-availability';
 import { useState } from 'react';
 import { useStoreCurrency } from '../../lib/use-store-currency';
 import { Link, createFileRoute, notFound } from '@tanstack/react-router';
@@ -8,7 +15,7 @@ import { validateServerInput } from '../../server/function-boundary';
 import { loadProductPage } from '../../server/storefront-pages';
 import { requestCanonicalBase } from '../../server/canonical-base';
 import { storefrontLimited } from '../../server/storefront-limit';
-import { slugParamSchema } from '../../schemas/checkout';
+import { productPageInputSchema } from '../../schemas/checkout';
 import { formatMoney } from '../../components/ProductCard';
 import { absoluteUrl, jsonLd, seoMeta } from '../../lib/seo';
 import { CheckIcon, ReturnIcon, ShieldIcon, TruckIcon } from '../../components/icons';
@@ -47,11 +54,12 @@ type ProductDetail = {
   seoTitleTemplate: string;
   canonicalBaseUrl: string;
   currency: string;
+  availability: AvailabilityById | null;
 };
 
 const getProduct = createServerFn({ method: 'GET' })
-  .validator(validateServerInput(slugParamSchema))
-  .handler(async ({ data: slug }): Promise<ProductDetail> => {
+  .validator(validateServerInput(productPageInputSchema))
+  .handler(async ({ data: { slug, live } }): Promise<ProductDetail> => {
     const { env } = await import('cloudflare:workers');
     const { layout, doc } = await loadProductPage(env.DB, env, slug, async () => {
       if (await storefrontLimited(env.STOREFRONT_LIMITER, 'product', getRequest())) {
@@ -66,11 +74,15 @@ const getProduct = createServerFn({ method: 'GET' })
       seoTitleTemplate: layout.seoTitleTemplate,
       canonicalBaseUrl: requestCanonicalBase(layout.canonicalBaseUrl),
       currency: layout.currency,
+      availability: await pageAvailability(live, [doc.id], 'product'),
     };
   });
 
 export const Route = createFileRoute('/_shop/products/$slug')({
-  loader: async ({ params }) => getProduct({ data: params.slug }),
+  loader: async ({ params, preload }) =>
+    seedAvailability(
+      await getProduct({ data: { slug: params.slug, live: inBrowser() && !preload } })
+    ),
   staleTime: 20_000,
   notFoundComponent: ProductNotFound,
   head: ({ loaderData }) => {
@@ -122,7 +134,9 @@ export const Route = createFileRoute('/_shop/products/$slug')({
 function ProductPage() {
   const currency = useStoreCurrency();
   const product = Route.useLoaderData();
-  const availability = useAvailability([product.id], 'product', product.slug)[product.id];
+  const availability = useAvailability([product.id], 'product', product.slug, product.availability)[
+    product.id
+  ];
   const activeVariants = product.variants.filter((v) => v.status === 'active');
   const [selectedSku, setSelectedSku] = useState(activeVariants[0]?.sku ?? '');
   const [imageIdx, setImageIdx] = useState(0);

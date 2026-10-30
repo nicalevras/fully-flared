@@ -1,6 +1,7 @@
+import * as z from 'zod';
 import { cancelOrdersStatements } from './order-cancellation';
 import { recoveryContext, webhookDue, type RecoveryContext } from './recovery-eligibility';
-import { resolvePaymentOrder } from './payment-order';
+import { lookupPaymentOrder } from './payment-order';
 import { releaseOrderHoldsStmts, InsufficientStock } from './inventory';
 import { getSettings, readSettings } from './settings';
 import { inArray, eq } from 'drizzle-orm';
@@ -88,6 +89,10 @@ export async function calculateDiscount(
   amount = Math.max(0, Math.min(amount, subtotalCents));
   return { id: d.id, code: d.code, type: d.type, value: d.value, amountCents: amount };
 }
+
+const recoveryReasonRow = z.object({
+  reason: z.enum(['currency_changed', 'capacity_unavailable']),
+});
 
 export class CheckoutError extends Error {
   constructor(
@@ -315,8 +320,12 @@ export async function createPendingOrder(
       ),
     db
       .prepare(
-        `INSERT INTO checkout_intents (id, order_id, owner_type, user_id, guest_capability_hash, fingerprint, state, provider_payload_json, payload_version, coupon_idempotency_key, session_idempotency_key, session_expires_at,shipping_address_json,cart_id,cart_revision,payment_next_at,created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'reserved', ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO checkout_intents (id, order_id, owner_type, user_id, guest_capability_hash, fingerprint, state, provider_payload_json, payload_version, coupon_idempotency_key, session_idempotency_key, session_expires_at,shipping_address_json,cart_id,cart_revision,payment_next_at,created_at, updated_at, stripe_customer_id)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, 'reserved', ?7, 1, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+           (SELECT p.stripe_customer_id FROM checkout_intents p JOIN orders po ON po.id=p.order_id
+             WHERE ?12 IS NOT NULL AND p.cart_id=?12 AND p.stripe_customer_id IS NOT NULL
+               AND p.shipping_address_json IS ?11 AND po.customer_email=?17
+             ORDER BY p.created_at DESC, p.rowid DESC LIMIT 1)`
       )
       .bind(
         intent.id,
@@ -334,7 +343,8 @@ export async function createPendingOrder(
         intent.cartRevision ?? null,
         intent.sessionExpiresAt,
         at,
-        at
+        at,
+        email
       ),
     db
       .prepare(
@@ -715,19 +725,21 @@ async function applyStripeEvent(
       await handleRefundEvent(db, event.type, data, provider);
     } else if (event.type === 'charge.refunded') {
       await syncChargeRefund(db, data, provider);
-    } else if (
-      (event.type === 'charge.dispute.closed' || event.type === 'charge.dispute.created') &&
-      data.payment_intent === null
-    ) {
-      // Checkout always creates a PaymentIntent, so this dispute is not for one of our orders.
-      console.warn(
-        JSON.stringify({ event: 'webhook_dispute_unmatched', type: event.type, eventId: event.id })
-      );
     } else if (event.type === 'charge.dispute.closed' || event.type === 'charge.dispute.created') {
       const pi = typeof data.payment_intent === 'string' ? data.payment_intent : null;
-      if (!pi || !(await resolvePaymentOrder(db, pi, provider)))
+      // Checkout always creates a PaymentIntent, and Stripe lists a Session for every one of ours.
+      const lookup = pi ? await lookupPaymentOrder(db, pi, provider) : null;
+      if (data.payment_intent === null || lookup?.foreign) {
+        console.warn(
+          JSON.stringify({
+            event: 'webhook_dispute_unmatched',
+            type: event.type,
+            eventId: event.id,
+          })
+        );
+      } else if (!pi || !lookup?.order) {
         throw new Error('Dispute order has not arrived yet');
-      if (event.type === 'charge.dispute.closed') {
+      } else if (event.type === 'charge.dispute.closed') {
         if (
           data.status === 'won' ||
           data.status === 'warning_closed' ||
@@ -1128,22 +1140,21 @@ export async function markOrderPaid(
       .bind(at, order.id, order.id, transition)
   );
   // Capture why this transaction rejected recovery before another request changes settings.
-  statements.push(
-    db
-      .prepare(
-        "SELECT CASE WHEN currency!=COALESCE((SELECT value FROM settings WHERE key='currency'),'USD') THEN 'currency_changed' ELSE 'capacity_unavailable' END AS reason FROM orders WHERE id=?"
-      )
-      .bind(order.id)
-  );
+  const reasonIdx =
+    statements.push(
+      db
+        .prepare(
+          "SELECT CASE WHEN currency!=COALESCE((SELECT value FROM settings WHERE key='currency'),'USD') THEN 'currency_changed' ELSE 'capacity_unavailable' END AS reason FROM orders WHERE id=?"
+        )
+        .bind(order.id)
+    ) - 1;
   const result = await commitWithEmails(db, statements, [`receipt-${order.id}`]);
   if ((result[0]?.meta.changes ?? 0) > 0) {
     const { broadcastAdminRealtime } = await import('./realtime');
     await broadcastAdminRealtime('order.paid', { sessionId, at: now() });
     return;
   }
-  const recoveryReason = (
-    result.at(-1)!.results[0] as { reason: 'currency_changed' | 'capacity_unavailable' }
-  ).reason;
+  const recoveryReason = recoveryReasonRow.parse(result[reasonIdx]?.results[0]).reason;
   const current = await db
     .prepare('SELECT status, payment_status FROM orders WHERE id = ?')
     .bind(order.id)

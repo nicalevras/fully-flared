@@ -28,7 +28,7 @@ it('logs KV fallback without exposing exception contents', async () => {
       get: async () => {
         throw new Error(sensitive);
       },
-    } as never,
+    },
     ALL_LISTING,
     1
   );
@@ -41,7 +41,7 @@ it('logs KV fallback without exposing exception contents', async () => {
       get: async () => {
         throw new Error(sensitive);
       },
-    } as never,
+    },
   });
   expect(warn.mock.calls.length).toBe(2);
   expect(JSON.stringify(warn.mock.calls)).not.toContain(sensitive);

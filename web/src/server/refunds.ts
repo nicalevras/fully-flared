@@ -1,4 +1,8 @@
-import { releaseOrderHoldsStmts, restockOrderStatements } from './inventory';
+import {
+  releaseOrderHoldsStmts,
+  restockOrderStatements,
+  restockReturnStatements,
+} from './inventory';
 import { resolvePaymentOrder } from './payment-order';
 import type { PaymentProvider } from './payments';
 import { nextRetryIso } from './retry';
@@ -83,8 +87,14 @@ export async function settleRefund(
         `DELETE FROM discount_usage WHERE order_id=? AND EXISTS(SELECT 1 FROM orders WHERE id=? AND ${total}>=total_cents AND NOT EXISTS(SELECT 1 FROM reservations WHERE order_id=? AND status='committed'))`
       )
       .bind(row.order_id, row.order_id, row.order_id),
+    ...(row.return_id
+      ? restockReturnStatements(db, row.return_id, {
+          sql: "EXISTS(SELECT 1 FROM refunds WHERE id=? AND restock=1 AND status='succeeded')",
+          values: [refundId],
+        })
+      : []),
     ...restockOrderStatements(db, row.order_id, {
-      sql: `EXISTS(SELECT 1 FROM orders WHERE id=? AND ${total}>=total_cents) AND EXISTS(SELECT 1 FROM refunds WHERE order_id=? AND restock=1 AND status='succeeded')`,
+      sql: `EXISTS(SELECT 1 FROM orders WHERE id=? AND ${total}>=total_cents) AND EXISTS(SELECT 1 FROM refunds WHERE order_id=? AND restock=1 AND status='succeeded' AND purpose!='return')`,
       values: [row.order_id, row.order_id],
     }),
     db

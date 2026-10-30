@@ -8,6 +8,8 @@ import {
   runIntentOperation,
 } from '../web/src/server/checkout-intents';
 import { deleteAccountAtomically } from '../web/src/server/account-deletion';
+import { at, present } from './helpers/fixtures';
+import { fakeProvider, type ProviderCall } from './helpers/payments';
 
 let db: D1Database, dispose: () => Promise<void>;
 beforeEach(async () => {
@@ -24,7 +26,7 @@ async function checkout(userId?: string) {
     db,
     {
       email: 'probe@example.invalid',
-      userId,
+      ...(userId ? { userId } : {}),
       lines: [{ sku: 'TEE-1', qty: 1 }],
       shippingRateId: 'test-rate',
       shippingCountry: 'US',
@@ -50,7 +52,7 @@ async function checkout(userId?: string) {
 }
 it('a stale successful provider worker cannot attach anything to the order', async () => {
   const created = await checkout();
-  const provider = {
+  const provider = fakeProvider({
     createCheckoutCustomer: async () => 'cus_stale',
     createCheckoutSession: async () => {
       await db
@@ -59,8 +61,8 @@ it('a stale successful provider worker cannot attach anything to the order', asy
         .run();
       return { sessionId: 'cs_stale', url: 'https://stripe.test/stale' };
     },
-  };
-  expect(await runIntentOperation(db, provider as never, created.id)).toEqual({
+  });
+  expect(await runIntentOperation(db, provider, created.id)).toEqual({
     status: 'pending',
   });
   expect(
@@ -78,12 +80,12 @@ it('a failed cancellation rolls back intent retirement as well as inventory', as
       "CREATE TRIGGER reject_cancel BEFORE UPDATE OF status ON orders WHEN NEW.status='canceled' BEGIN SELECT RAISE(ABORT,'injected cancellation failure'); END"
     )
     .run();
-  const provider = {
+  const provider = fakeProvider({
     createCheckoutSession: async () => {
       throw { statusCode: 400 };
     },
-  };
-  await runIntentOperation(db, provider as never, created.id).catch(() => undefined);
+  });
+  await runIntentOperation(db, provider, created.id).catch(() => undefined);
   expect((await loadIntent(db, created.id))?.state).not.toBe('canceled');
   expect(await db.prepare("SELECT reserved FROM stock WHERE sku='TEE-1'").first('reserved')).toBe(
     1
@@ -99,7 +101,7 @@ it.each(['reserved', 'session_creating', 'reconciliation_required'])(
       .run();
     const create = vi.fn(async () => ({ sessionId: 'cs_wrong', url: 'https://stripe.test/wrong' }));
     expect(
-      await runIntentOperation(db, { createCheckoutSession: create } as never, created.id)
+      await runIntentOperation(db, fakeProvider({ createCheckoutSession: create }), created.id)
     ).toEqual({ status: 'pending' });
     expect(create).not.toHaveBeenCalled();
     expect((await loadIntent(db, created.id))?.state).toBe('reconciliation_required');
@@ -117,11 +119,15 @@ it('expired parameters preserve provider uncertainty and still allow known-sessi
     id: 'cs_known',
     status: 'open',
     url: 'https://stripe.test/known',
+    payment_status: 'unpaid',
+    amount_total: null,
+    currency: 'usd',
+    payment_intent: null,
   }));
-  const create = vi.fn();
+  const create = vi.fn<ProviderCall<'createCheckoutSession'>>();
   await runIntentOperation(
     db,
-    { retrieveCheckoutSession: retrieve, createCheckoutSession: create } as never,
+    fakeProvider({ retrieveCheckoutSession: retrieve, createCheckoutSession: create }),
     created.id
   );
   expect(retrieve).toHaveBeenCalledOnce();
@@ -170,12 +176,12 @@ it('a failure after order attachment rolls the order write back', async () => {
     .run();
   const result = await runIntentOperation(
     db,
-    {
+    fakeProvider({
       createCheckoutSession: async () => ({
         sessionId: 'cs_rollback',
         url: 'https://stripe.test/a',
       }),
-    } as never,
+    }),
     c.id
   );
   expect(result.status).toBe('pending');
@@ -192,15 +198,15 @@ it('known-session retrieval failure never authorizes a creation replay or cancel
     .prepare("UPDATE checkout_intents SET stripe_session_id='cs_known' WHERE id=?")
     .bind(c.id)
     .run();
-  const create = vi.fn();
+  const create = vi.fn<ProviderCall<'createCheckoutSession'>>();
   await runIntentOperation(
     db,
-    {
+    fakeProvider({
       retrieveCheckoutSession: async () => {
         throw { statusCode: 404 };
       },
       createCheckoutSession: create,
-    } as never,
+    }),
     c.id
   );
   expect(create).not.toHaveBeenCalled();
@@ -215,17 +221,15 @@ it('retrieval gets only the remaining orchestration budget, and no call starts a
     .prepare("UPDATE checkout_intents SET stripe_session_id='cs_known' WHERE id=?")
     .bind(c.id)
     .run();
-  const retrieve = vi.fn(async (_sessionId: string, _options: { timeoutMs: number }) => null);
-  await runIntentOperation(db, { retrieveCheckoutSession: retrieve } as never, c.id, {
+  const retrieve = vi.fn<ProviderCall<'retrieveCheckoutSession'>>(async () => null);
+  await runIntentOperation(db, fakeProvider({ retrieveCheckoutSession: retrieve }), c.id, {
     deadlineMs: Date.now() + 1500,
   });
   expect(retrieve).toHaveBeenCalledOnce();
   expect(retrieve.mock.calls[0]?.[1]).toEqual({ timeoutMs: expect.any(Number) });
-  expect((retrieve.mock.calls[0]?.[1] as { timeoutMs: number }).timeoutMs).toBeLessThanOrEqual(
-    1500
-  );
+  expect(present(at(retrieve.mock.calls, 0)[1]).timeoutMs).toBeLessThanOrEqual(1500);
   retrieve.mockClear();
-  await runIntentOperation(db, { retrieveCheckoutSession: retrieve } as never, c.id, {
+  await runIntentOperation(db, fakeProvider({ retrieveCheckoutSession: retrieve }), c.id, {
     deadlineMs: Date.now() - 1,
   });
   expect(retrieve).not.toHaveBeenCalled();
@@ -317,7 +321,7 @@ it('an expired claim cannot attach even when no newer worker has claimed it', as
   const c = await checkout();
   await runIntentOperation(
     db,
-    {
+    fakeProvider({
       createCheckoutSession: async () => {
         await db
           .prepare("UPDATE checkout_intents SET claim_expires_at='2000-01-01' WHERE id=?")
@@ -325,7 +329,7 @@ it('an expired claim cannot attach even when no newer worker has claimed it', as
           .run();
         return { sessionId: 'cs_expired_claim', url: 'https://stripe.test/a' };
       },
-    } as never,
+    }),
     c.id
   );
   expect(
@@ -346,9 +350,9 @@ it('unresolved creation-stop alerts are inserted durably only once across retrie
     .prepare("UPDATE checkout_intents SET created_at='2000-01-01' WHERE id=?")
     .bind(c.id)
     .run();
-  await runIntentOperation(db, {} as never, c.id);
+  await runIntentOperation(db, fakeProvider({}), c.id);
   const stopped = (await loadIntent(db, c.id))?.creation_stopped_at;
-  await runIntentOperation(db, {} as never, c.id);
+  await runIntentOperation(db, fakeProvider({}), c.id);
   expect((await loadIntent(db, c.id))?.creation_stopped_at).toBe(stopped);
   expect(
     await db
@@ -377,7 +381,7 @@ it('recovery without an admission controller cannot contact the provider', async
     sessionId: 'cs_no_admission',
     url: 'https://stripe.test/a',
   }));
-  await reconcileCheckoutIntents(db, { createCheckoutSession: create } as never);
+  await reconcileCheckoutIntents(db, fakeProvider({ createCheckoutSession: create }));
   expect(create).not.toHaveBeenCalled();
 });
 
@@ -388,7 +392,7 @@ it('a known session cannot be recreated when retrieval is unavailable', async ()
     .bind(c.id)
     .run();
   const create = vi.fn(async () => ({ sessionId: 'cs_duplicate', url: 'https://stripe.test/a' }));
-  await runIntentOperation(db, { createCheckoutSession: create } as never, c.id);
+  await runIntentOperation(db, fakeProvider({ createCheckoutSession: create }), c.id);
   expect(create).not.toHaveBeenCalled();
   expect((await loadIntent(db, c.id))?.state).toBe('reconciliation_required');
 });

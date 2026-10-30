@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createElement } from '../web/node_modules/react/index.js';
-import { renderToStaticMarkup } from '../web/node_modules/react-dom/server.node.js';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { DataTable, DataTableSearch } from '../web/src/components/ui/data-table';
 import type { ServerDataTableProps } from '../web/src/components/ui/data-table';
 

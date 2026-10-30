@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedProduct } from './helpers/d1';
 import { runAdminAction } from '../web/src/server/admin-actions';
+import { present } from './helpers/fixtures';
 
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, env: Env, dispose: () => Promise<void>;
 const owner = { id: 'owner', role: 'owner' };
 
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env, dispose } = await createTestDb());
 });
 afterEach(async () => {
   await dispose();
@@ -40,7 +41,7 @@ describe('product.create action', () => {
   it('sanitizes an HTML description on create', async () => {
     const payload = createPayload(['TOTE-RICH']);
     payload.description = '<p>Soft <em>cotton</em></p><script>alert(1)</script>';
-    const result = await runAdminAction(db, {} as never, owner, 'product.create', payload);
+    const result = await runAdminAction(db, env, owner, 'product.create', payload);
     expect(result.ok).toBe(true);
     const row = await db
       .prepare('SELECT description, description_text FROM products WHERE slug = ?')
@@ -54,7 +55,7 @@ describe('product.create action', () => {
   it('creates the product, variant, stock, ledger and audit rows together', async () => {
     const result = await runAdminAction(
       db,
-      {} as never,
+      env,
       owner,
       'product.create',
       createPayload(['TOTE-001'])
@@ -76,9 +77,12 @@ describe('product.create action', () => {
   });
 
   it('persists compareAtCents as the variant original price', async () => {
-    const payload = createPayload(['TOTE-SALE']);
-    payload.variants[0] = { ...payload.variants[0]!, compareAtCents: 4999 } as never;
-    const result = await runAdminAction(db, {} as never, owner, 'product.create', payload);
+    const base = createPayload(['TOTE-SALE']);
+    const payload = {
+      ...base,
+      variants: base.variants.map((variant) => ({ ...variant, compareAtCents: 4999 })),
+    };
+    const result = await runAdminAction(db, env, owner, 'product.create', payload);
     expect(result.ok).toBe(true);
     const variant = await db
       .prepare('SELECT price_cents, compare_at_cents FROM variants WHERE sku = ?')
@@ -89,13 +93,7 @@ describe('product.create action', () => {
 
   it('creates six variants with matching stock and ledger rows', async () => {
     const skus = ['TOTE-S-B', 'TOTE-S-W', 'TOTE-M-B', 'TOTE-M-W', 'TOTE-L-B', 'TOTE-L-W'];
-    const result = await runAdminAction(
-      db,
-      {} as never,
-      owner,
-      'product.create',
-      createPayload(skus)
-    );
+    const result = await runAdminAction(db, env, owner, 'product.create', createPayload(skus));
     expect(result.ok).toBe(true);
     expect(await count('variants')).toBe(6);
     expect(await count('stock')).toBe(6);
@@ -111,7 +109,7 @@ describe('product.create action', () => {
     };
     const result = await runAdminAction(
       db,
-      {} as never,
+      env,
       owner,
       'product.create',
       createPayload(['TOTE-002', 'TOTE-001'])
@@ -131,7 +129,7 @@ describe('product.create action', () => {
     try {
       const result = await runAdminAction(
         db,
-        {} as never,
+        env,
         owner,
         'product.create',
         createPayload(['TOTE-001'])
@@ -147,7 +145,7 @@ describe('product.create action', () => {
   it('denies creation to the warehouse role', async () => {
     const result = await runAdminAction(
       db,
-      {} as never,
+      env,
       { id: 'wh', role: 'warehouse' },
       'product.create',
       createPayload(['TOTE-001'])
@@ -163,7 +161,7 @@ describe('product.create action', () => {
       const payload = createPayload(skus);
       payload.slug = `perf-${n}`;
       const started = performance.now();
-      const result = await runAdminAction(db, {} as never, owner, 'product.create', payload);
+      const result = await runAdminAction(db, env, owner, 'product.create', payload);
       timings[String(n)] = {
         ms: Math.round(performance.now() - started),
         statements: 1 + 3 * n + 1,
@@ -171,6 +169,6 @@ describe('product.create action', () => {
       expect(result.ok).toBe(true);
     }
     console.warn(JSON.stringify({ event: 'product_create_perf', timings }));
-    expect(timings['100'].statements).toBe(302);
+    expect(present(timings['100']).statements).toBe(302);
   });
 });

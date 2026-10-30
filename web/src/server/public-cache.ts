@@ -282,7 +282,7 @@ export async function drainCatalogInvalidations(
     // pass even when the database clock is behind the Worker clock.
     const removed = await db
       .prepare(
-        `DELETE FROM catalog_invalidations WHERE rowid<=?3 AND EXISTS(SELECT 1 FROM json_each(?1) x WHERE json_extract(x.value,'$[0]')=scope AND json_extract(x.value,'$[1]')=scope_id)
+        `DELETE FROM catalog_invalidations WHERE (scope,scope_id) IN (SELECT json_extract(value,'$[0]'),json_extract(value,'$[1]') FROM json_each(?1)) AND rowid<=?3
         AND ((ref_key IS NULL AND created_at<=?2) OR EXISTS(SELECT 1 FROM catalog_ref_state r WHERE r.ref_key=catalog_invalidations.ref_key AND r.delivered_seq>=catalog_invalidations.ref_seq AND COALESCE(r.last_write_at,'')<=?2))`
       )
       .bind(JSON.stringify(chunk.map((group) => [group.scope, group.scopeId])), startedAt, mark)

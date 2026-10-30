@@ -3,7 +3,7 @@ import { createTestDb } from './helpers/d1';
 import { fakeAdmissionNamespace } from './helpers/admission';
 import { reconcileRefundOperations } from '../web/src/server/refunds';
 import { recoverAuthorizedCheckouts } from '../web/src/server/authorized-checkout';
-import type { PaymentProvider } from '../web/src/server/payments';
+import { fakeProvider } from './helpers/payments';
 
 let db: D1Database;
 let dispose: () => Promise<void>;
@@ -93,7 +93,7 @@ it('does not count an authorization selected but losing its claim as progress', 
     })
   );
   const retrieveCheckoutSession = vi.fn();
-  const provider = { retrieveCheckoutSession } as unknown as PaymentProvider;
+  const provider = fakeProvider({ retrieveCheckoutSession });
   expect(
     await recoverAuthorizedCheckouts(blocked, provider, fakeAdmissionNamespace().namespace, 1)
   ).toBe(0);

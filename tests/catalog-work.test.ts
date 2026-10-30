@@ -12,6 +12,7 @@ import {
   suggestCatalog,
 } from '../web/src/server/catalog-discovery';
 import { ALL_LISTING } from '../web/src/server/catalog-models';
+import { present } from './helpers/fixtures';
 import { buildCatalogReadModels, catalogWork as drainCatalogWork } from './helpers/catalog-driver';
 
 /** Drain, then simulate the queue returning after the publisher's
@@ -52,7 +53,7 @@ class FakeKv {
 
 let db: D1Database, dispose: () => Promise<void>;
 let kv: FakeKv;
-const env = () => ({ CATALOG_KV: kv as never, DB: db });
+const env = () => ({ CATALOG_KV: kv, DB: db });
 
 async function product(id: string, slug: string, title: string, createdAt: string, price = 1000) {
   await db.batch([
@@ -98,7 +99,7 @@ afterEach(async () => {
 it('triggers capture product edits transactionally; stock edits do not dirty the catalog', async () => {
   const drained = await workRow('p1');
   expect(drained?.processed_revision).toBe(drained?.target_revision);
-  const base = drained!.target_revision;
+  const base = present(drained).target_revision;
   await db.prepare("UPDATE products SET title='Alpha 2' WHERE id='p1'").run();
   const after = await workRow('p1');
   expect(after?.target_revision).toBe(base + 1);
@@ -128,7 +129,7 @@ it('a title edit patches only its containing pages inside the same generation', 
 });
 
 it('palette suggestions are the newest head of the published listing, capped', async () => {
-  const head = await getPaletteSuggestions(db, env() as never);
+  const head = await getPaletteSuggestions(db, env());
   expect(head.map((c) => c.id)).toEqual(['p1', 'p2', 'p3']);
   for (let i = 4; i <= 12; i++) {
     await product(
@@ -139,7 +140,7 @@ it('palette suggestions are the newest head of the published listing, capped', a
     );
   }
   await catalogWork(db, kv);
-  const capped = await getPaletteSuggestions(db, env() as never);
+  const capped = await getPaletteSuggestions(db, env());
   expect(capped).toHaveLength(PALETTE_SUGGESTION_SIZE);
   expect(capped[0]?.id).toBe('p12');
 });
@@ -150,7 +151,7 @@ it('a new product advances the listing generation and appears on /shop', async (
   const page = await readListingPage(db, kv, ALL_LISTING, 1);
   expect(page?.generation).toBe(2);
   expect(page?.total).toBe(4);
-  const shop = await getShopProductsPage(db, env() as never, 1);
+  const shop = await getShopProductsPage(db, env(), 1);
   expect(shop.products[0]?.id).toBe('p4');
   expect(shop.total).toBe(4);
 });
@@ -162,11 +163,11 @@ it('a price edit re-evaluates rule collection membership', async () => {
     )
     .run();
   await catalogWork(db, kv);
-  let col = await getPublishedCollection(db, env() as never, 'cheap', 1);
+  let col = await getPublishedCollection(db, env(), 'cheap', 1);
   expect(col?.total).toBe(3);
   await db.prepare("UPDATE variants SET price_cents=5000 WHERE product_id='p1'").run();
   await catalogWork(db, kv);
-  col = await getPublishedCollection(db, env() as never, 'cheap', 1);
+  col = await getPublishedCollection(db, env(), 'cheap', 1);
   expect(col?.total).toBe(2);
   expect(col?.products.map((p) => p.id)).not.toContain('p1');
 });
@@ -180,7 +181,7 @@ it('an edit landing after the claim stays due and is published by the next pass'
       "UPDATE catalog_work SET target_revision = target_revision + 1 WHERE entity_type='product' AND entity_id='p1'"
     )
     .run();
-  const claimedTarget = (await workRow('p1'))!.target_revision;
+  const claimedTarget = present(await workRow('p1')).target_revision;
   // First pass can only mark up to its claimed snapshot if the row moved;
   // regardless, a follow-up pass must converge the reader to the source.
   await catalogWork(db, kv);
@@ -197,12 +198,12 @@ it('readers serve identical results from D1 when KV is empty, and layout/search 
   kv.map.clear();
   const viaD1 = await readListingPage(db, kv, ALL_LISTING, 1);
   expect(viaD1?.cards.map((c) => c.id)).toEqual(viaKv?.cards.map((c) => c.id));
-  const layout = await getStorefrontLayout(db, env() as never);
+  const layout = await getStorefrontLayout(db, env());
   expect(layout.storeName).toBeTruthy();
   expect(layout.limits.checkout_session_minutes).toBeGreaterThan(0);
-  const found = await suggestCatalog(db, env() as never, 'alpha');
+  const found = await suggestCatalog(db, env(), 'alpha');
   expect(found.cards.map((c) => c.id)).toEqual(['p1']);
-  const none = await suggestCatalog(db, env() as never, 'zzzz');
+  const none = await suggestCatalog(db, env(), 'zzzz');
   expect(none).toEqual({ cards: [], hasMore: false });
 });
 
@@ -225,21 +226,21 @@ it('search continues past the first page with a cursor, without repeats', async 
     );
   }
   await db.batch(stmts);
-  const page1 = await searchCatalog(db, env() as never, 'seekable');
+  const page1 = await searchCatalog(db, env(), 'seekable');
   expect(page1.cards).toHaveLength(50);
   expect(page1.nextCursor).toBeTruthy();
-  const page2 = await searchCatalog(db, env() as never, 'seekable', page1.nextCursor!);
+  const page2 = await searchCatalog(db, env(), 'seekable', present(page1.nextCursor));
   expect(page2.cards).toHaveLength(5);
   expect(page2.nextCursor).toBeNull();
   const ids = new Set([...page1.cards, ...page2.cards].map((c) => c.id));
   expect(ids.size).toBe(55);
   // A malformed cursor falls back to the first page rather than erroring.
-  const again = await searchCatalog(db, env() as never, 'seekable', 'not-a-cursor%%');
+  const again = await searchCatalog(db, env(), 'seekable', 'not-a-cursor%%');
   expect(again.cards.map((c) => c.id)).toEqual(page1.cards.map((c) => c.id));
 });
 
 it('collection pages clamp out-of-range pages to the last page', async () => {
-  const col = await getPublishedCollection(db, env() as never, 'missing-slug', 1);
+  const col = await getPublishedCollection(db, env(), 'missing-slug', 1);
   expect(col).toBeNull();
   await db
     .prepare(
@@ -251,7 +252,7 @@ it('collection pages clamp out-of-range pages to the last page', async () => {
     .bind('p1', 'c1')
     .run();
   await catalogWork(db, kv);
-  const clamped = await getPublishedCollection(db, env() as never, 'manual', 99);
+  const clamped = await getPublishedCollection(db, env(), 'manual', 99);
   expect(clamped?.page).toBe(1);
   expect(clamped?.total).toBe(1);
 });
@@ -320,7 +321,7 @@ it('publication history keeps A -> B -> A roots resolving exactly', async () => 
   for (const h of history.results) {
     const rev = await resolveDirectoryRevision(db, kv, h.root_hash, 1);
     expect(rev).toBeTruthy();
-    revisions.add(rev!);
+    revisions.add(present(rev));
   }
   // B differs; the two A roots resolve to the same content revision.
   expect(revisions.size).toBe(2);

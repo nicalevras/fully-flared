@@ -50,6 +50,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { STOCK_REASONS } from '../../lib/stock-reasons';
 import {
   Drawer,
   DrawerClose,
@@ -214,6 +215,7 @@ function AdminInventory() {
       const result = await adminAction('stock.adjust', {
         sku,
         delta,
+        expectedOnHand: onHand,
         reason: entry.reason,
         note: entry.note,
         operationId: entry.operationId,
@@ -744,10 +746,11 @@ function SkuDrawerForm({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="restock">Restock</SelectItem>
-                  <SelectItem value="correction">Correction</SelectItem>
-                  <SelectItem value="damaged">Damaged</SelectItem>
-                  <SelectItem value="return">Return</SelectItem>
+                  {STOCK_REASONS.map((r) => (
+                    <SelectItem key={r.value} value={r.value}>
+                      {r.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

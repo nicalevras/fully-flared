@@ -2,10 +2,11 @@ import { afterEach, beforeEach, expect, it } from 'vitest';
 import { createTestDb, applyMigrationFile, seedProduct } from './helpers/d1';
 import { pruneRetention } from '../web/src/server/operations';
 import { runMaintenance } from '../web/src/server/maintenance';
+import { at, present } from './helpers/fixtures';
 
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, env: Env, dispose: () => Promise<void>;
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env, dispose } = await createTestDb());
 });
 afterEach(async () => dispose());
 
@@ -17,7 +18,6 @@ it('scrubs IPs in bounded pages without removing orders', async () => {
     )
     .bind(JSON.stringify(Array.from({ length: 1001 }, (_, i) => i)))
     .run();
-  const env = { DB: db, JOBS: { send: async () => {} } } as never;
   const now = new Date().toISOString();
   await db
     .prepare(
@@ -28,14 +28,16 @@ it('scrubs IPs in bounded pages without removing orders', async () => {
     .run();
   await runMaintenance(env, 'privacy-fixture');
   expect(
-    (await db
-      .prepare('SELECT COUNT(*) AS n FROM orders WHERE customer_ip IS NOT NULL')
-      .first<{ n: number }>())!.n
+    present(
+      await db
+        .prepare('SELECT COUNT(*) AS n FROM orders WHERE customer_ip IS NOT NULL')
+        .first<{ n: number }>()
+    ).n
   ).toBe(1);
   await runMaintenance(env, 'privacy-fixture');
-  expect((await db.prepare('SELECT COUNT(*) AS n FROM orders').first<{ n: number }>())!.n).toBe(
-    1001
-  );
+  expect(
+    present(await db.prepare('SELECT COUNT(*) AS n FROM orders').first<{ n: number }>()).n
+  ).toBe(1001);
 });
 
 import { runCatalogGcUnit, CATALOG_RETENTION_MS } from '../web/src/server/catalog-gc';
@@ -81,7 +83,7 @@ class Kv {
   }
 }
 async function cycle(kv: Kv, at: number) {
-  const lease = (await claimCatalogLease(db))!;
+  const lease = present(await claimCatalogLease(db), 'the catalog lease');
   try {
     for (let i = 0; i < 100; i++) {
       const budget = new CatalogBudget();
@@ -184,7 +186,7 @@ it('keeps failed deletions retryable and protects staged artifacts while a build
     )
     .run();
   kv.failed = false;
-  const lease = (await claimCatalogLease(db))!;
+  const lease = present(await claimCatalogLease(db), 'the catalog lease');
   expect(await runCatalogGcUnit(db, kv, lease, start + 2 * CATALOG_RETENTION_MS)).toBeNull();
   expect(await has(key)).toBe(true);
   await releaseCatalogLease(db, lease);
@@ -314,7 +316,10 @@ it('upgrades populated 0011 without reconstruction, preserving financial data an
             .then((r) =>
               r.results.map((row, index) =>
                 Object.fromEntries(
-                  Object.keys(before[tables.indexOf(t)]![index]!).map((key) => [key, row[key]])
+                  Object.keys(at(at(before, tables.indexOf(t)), index)).map((key) => [
+                    key,
+                    row[key],
+                  ])
                 )
               )
             )
@@ -346,14 +351,14 @@ it('incremental layout commits a durable GC root before mutable delivery', async
   const reference = await db
     .prepare("SELECT root_hash,pending_payload FROM catalog_ref_state WHERE ref_key='layout'")
     .first<{ root_hash: string; pending_payload: string }>();
-  expect(reference).toBeTruthy();
-  expect(await has(layoutKey(reference!.root_hash))).toBe(true);
+  const { root_hash, pending_payload } = present(reference, 'the layout reference');
+  expect(await has(layoutKey(root_hash))).toBe(true);
   expect(
     await db
       .prepare("SELECT document_key FROM catalog_ref_documents WHERE ref_key='layout'")
       .first()
-  ).toMatchObject({ document_key: layoutKey(reference!.root_hash) });
-  expect(JSON.parse(reference!.pending_payload)).toEqual({ revision: reference!.root_hash });
+  ).toMatchObject({ document_key: layoutKey(root_hash) });
+  expect(JSON.parse(pending_payload)).toEqual({ revision: root_hash });
   expect(kv.map.has('catalog:r1:layout:current')).toBe(false); // normal timed delivery remains responsible
 });
 

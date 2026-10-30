@@ -1,5 +1,5 @@
-import { createElement } from '../web/node_modules/react';
-import { renderToStaticMarkup } from '../web/node_modules/react-dom/server';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vitest';
 import { AdminActionFeedback } from '../web/src/components/AdminActionFeedback';
 

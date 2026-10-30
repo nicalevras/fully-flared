@@ -1300,11 +1300,11 @@ export async function processCatalogBuild(
           // Retire cards for products no longer active (one statement).
           const retired = await db
             .prepare(
-              "DELETE FROM catalog_cards WHERE product_id IN (SELECT product_id FROM catalog_cards WHERE product_id NOT IN (SELECT id FROM products WHERE status = 'active') LIMIT 128)"
+              "DELETE FROM catalog_cards WHERE product_id IN (SELECT product_id FROM catalog_cards WHERE product_id NOT IN (SELECT id FROM products WHERE status = 'active') LIMIT 128) RETURNING product_id"
             )
-            .run();
+            .all();
           tick();
-          if ((retired.meta.changes ?? 0) === 128) {
+          if (retired.results.length === 128) {
             await save();
             return { done: false, buildId: build.id, phase, opsUsed: ops };
           }

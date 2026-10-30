@@ -13,6 +13,7 @@ import {
 } from '../web/src/server/catalog-exec';
 import { ALL_LISTING } from '../web/src/server/catalog-models';
 import { catalogPass, catalogWork } from './helpers/catalog-driver';
+import { present } from './helpers/fixtures';
 
 // Round 2 regressions: the ACTUAL queue execution path (runCatalogUnit
 // with a fresh budget per invocation, enforcing the 1,000 KV-op
@@ -142,7 +143,8 @@ describe('Round 2 bounded catalog execution', () => {
       )
       .first<{ processed_revision: number; target_revision: number }>();
     expect(edited).toBe(true);
-    expect(work!.processed_revision).toBeLessThan(work!.target_revision);
+    const { processed_revision, target_revision } = present(work);
+    expect(processed_revision).toBeLessThan(target_revision);
     kv.put = original;
     for (let i = 0; i < 30; i++) {
       const delivery = await queue.deliver();
@@ -182,7 +184,7 @@ describe('Round 2 bounded catalog execution', () => {
       expect(result.rows).toBeLessThanOrEqual(5000);
     }
     const n = await db.prepare('SELECT COUNT(*) AS n FROM catalog_cards').first<{ n: number }>();
-    expect(n!.n).toBeGreaterThan(0);
+    expect(present(n).n).toBeGreaterThan(0);
     await dispose();
   });
   it('retries a failed continuation send without acknowledging the message', async () => {
@@ -222,7 +224,7 @@ describe('Round 2 bounded catalog execution', () => {
       expect(kv.maxInvocationOps).toBeLessThanOrEqual(1000);
       const page = await readListingPage(db, kv, ALL_LISTING, 1);
       expect(page?.total).toBe(501);
-      const last = await readListingPage(db, kv, ALL_LISTING, page!.pageCount);
+      const last = await readListingPage(db, kv, ALL_LISTING, present(page).pageCount);
       expect(last?.cards.length ?? 0).toBeGreaterThan(0);
       await dispose();
     }
@@ -253,7 +255,7 @@ describe('Round 2 bounded catalog execution', () => {
           "SELECT page FROM catalog_page_products WHERE product_id='p250' AND listing_id='all' AND generation=(SELECT generation FROM catalog_listings WHERE listing_id='all' AND active=1)"
         )
         .first<{ page: number }>();
-      const page = await readListingPage(db, kv, ALL_LISTING, pageNum!.page);
+      const page = await readListingPage(db, kv, ALL_LISTING, present(pageNum).page);
       expect(page?.cards.some((c) => c.title === 'Edited title')).toBe(true);
       await dispose();
     }
@@ -277,8 +279,7 @@ describe('Round 2 bounded catalog execution', () => {
   });
 
   it('a stale lease guard aborts its commit batch; fencing increments monotonically', async () => {
-    const a = await claimCatalogLease(db);
-    expect(a).not.toBeNull();
+    const a = present(await claimCatalogLease(db), 'lease A');
     // While A is held, no second claim succeeds.
     expect(await claimCatalogLease(db)).toBeNull();
     // Expire A; B takes over with a higher fencing generation.
@@ -287,13 +288,12 @@ describe('Round 2 bounded catalog execution', () => {
         "UPDATE catalog_publication_state SET lease_expires_at = '2000-01-01 00:00:00' WHERE id = 1"
       )
       .run();
-    const b = await claimCatalogLease(db);
-    expect(b).not.toBeNull();
-    expect(b!.fencing).toBeGreaterThan(a!.fencing);
+    const b = present(await claimCatalogLease(db), 'lease B');
+    expect(b.fencing).toBeGreaterThan(a.fencing);
     // A's guarded batch now aborts (zero committed side effects).
     await expect(
       db.batch([
-        leaseGuardStatement(db, a!),
+        leaseGuardStatement(db, a),
         db.prepare('UPDATE catalog_publication_state SET publication_seq = 999 WHERE id = 1'),
       ])
     ).rejects.toThrow();

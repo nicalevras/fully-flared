@@ -3,6 +3,7 @@ import { env } from './helpers/cloudflare-workers-stub';
 import { createTestDb } from './helpers/d1';
 import { createAuth } from '../web/src/lib/auth';
 import { requireStaff } from '../web/src/server/session';
+import { at, present } from './helpers/fixtures';
 
 let db: D1Database;
 let dispose: () => Promise<void>;
@@ -12,7 +13,7 @@ function cookieHeader(response: Response): string {
   const raw = response.headers.get('set-cookie') ?? '';
   return raw
     .split(/,(?=\s*[^;,=]+?=)/)
-    .map((part) => part.split(';')[0]!.trim())
+    .map((part) => at(part.split(';'), 0).trim())
     .filter(Boolean)
     .join('; ');
 }
@@ -72,16 +73,20 @@ it('refuses staff without the session two-factor marker, admits with it', async 
   await expect(requireStaff(db, request(cookie))).rejects.toMatchObject({
     code: 'TWO_FACTOR_REQUIRED',
   });
-  const user = await db
-    .prepare("SELECT id FROM user WHERE email='owner@example.com'")
-    .first<{ id: string }>();
-  const session = await db
-    .prepare('SELECT id FROM session WHERE user_id=? ORDER BY created_at DESC LIMIT 1')
-    .bind(user!.id)
-    .first<{ id: string }>();
+  const user = present(
+    await db.prepare("SELECT id FROM user WHERE email='owner@example.com'").first<{ id: string }>(),
+    'the owner'
+  );
+  const session = present(
+    await db
+      .prepare('SELECT id FROM session WHERE user_id=? ORDER BY created_at DESC LIMIT 1')
+      .bind(user.id)
+      .first<{ id: string }>(),
+    'the owner session'
+  );
   await db
     .prepare('INSERT INTO staff_two_factor_sessions(session_id,user_id,verified_at) VALUES(?,?,?)')
-    .bind(session!.id, user!.id, new Date().toISOString())
+    .bind(session.id, user.id, new Date().toISOString())
     .run();
   const staff = await requireStaff(db, request(cookie));
   expect(staff.email).toBe('owner@example.com');

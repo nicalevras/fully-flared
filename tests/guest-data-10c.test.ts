@@ -2,10 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb } from './helpers/d1';
 import { runAdminAction } from '../web/src/server/admin-actions';
 import { previewGuestData } from '../web/src/server/guest-data';
+import { actionData, z } from './helpers/json';
 
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, env: Env, dispose: () => Promise<void>;
 const owner = { id: 'owner', role: 'owner' };
-const env = {} as Cloudflare.Env;
 
 async function insertOrder(id: string, userId: string | null, email: string, name: string | null) {
   await db
@@ -18,7 +18,7 @@ async function insertOrder(id: string, userId: string | null, email: string, nam
 }
 
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env, dispose } = await createTestDb());
   await db
     .prepare(
       "INSERT INTO user (id, name, email, email_verified, role, created_at, updated_at) VALUES ('u1', 'Ada', 'ada@example.com', 1, 'customer', 1, 1)"
@@ -43,11 +43,8 @@ describe('Phase 10C guest export and erasure', () => {
     const result = await runAdminAction(db, env, owner, 'guest.export', {
       email: 'ada@example.com',
     });
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      const data = result.data as { orders: Array<{ id: string }> };
-      expect(data.orders.map((o) => o.id)).toEqual(['g1']);
-    }
+    const data = actionData(result, z.object({ orders: z.array(z.object({ id: z.string() })) }));
+    expect(data.orders.map((o) => o.id)).toEqual(['g1']);
   });
 
   it('FF-02: guest erasure is disabled server-side, even for the owner', async () => {

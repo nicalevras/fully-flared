@@ -3,13 +3,14 @@ import { build } from '../web/node_modules/esbuild/lib/main.js';
 import { resolve } from 'node:path';
 import { readdirSync } from 'node:fs';
 import { applyMigrationFile } from './helpers/d1';
+import { at, present } from './helpers/fixtures';
 import {
   Miniflare,
   convertV4MiniflareOptions,
 } from '../web/node_modules/miniflare/dist/src/index.js';
 
 async function seedStaffSession(mf: Miniflare) {
-  const db = (await mf.getD1Database('DB')) as unknown as D1Database;
+  const { DB: db } = await mf.getBindings<Pick<Env, 'DB'>>();
   for (const file of readdirSync(resolve('web/migrations'))
     .filter((f) => f.endsWith('.sql'))
     .sort())
@@ -45,7 +46,7 @@ async function realtimeHarness() {
     external: ['cloudflare:workers'],
   });
   const script =
-    bundle.outputFiles[0]!.text +
+    at(bundle.outputFiles, 0).text +
     `
     export default {async fetch(request,env){const stub=env.REALTIME.getByName('admin');const url=new URL(request.url);if(url.pathname==='/broadcast'){await stub.broadcast('order.paid',{test:true});return new Response('ok');}return stub.fetch(request);}};`;
   return new Miniflare(
@@ -67,7 +68,7 @@ it('closes a socket on the next broadcast once its staff session is revoked (L9)
     const response = await mf.dispatchFetch('http://local/ws?topics=order', {
       headers: { Upgrade: 'websocket', 'x-staff-session-id': 'sess-1' },
     });
-    const socket = response.webSocket!;
+    const socket = present(response.webSocket, 'the upgraded socket');
     socket.accept();
     const messages: string[] = [];
     socket.addEventListener('message', (e) => messages.push(String(e.data)));
@@ -100,7 +101,7 @@ it('keeps a real WebSocket subscription across a workerd Durable Object eviction
     external: ['cloudflare:workers'],
   });
   const script =
-    bundle.outputFiles[0]!.text +
+    at(bundle.outputFiles, 0).text +
     `
     export class RestartableRealtime extends RealtimeDO {
       constructor(ctx,env){super(ctx,env);ctx.blockConcurrencyWhile(async()=>{await ctx.storage.put('boots',(await ctx.storage.get('boots') ?? 0)+1);});}
@@ -122,7 +123,7 @@ it('keeps a real WebSocket subscription across a workerd Durable Object eviction
     const response = await mf.dispatchFetch('http://local/ws?topics=order', {
       headers: { Upgrade: 'websocket', 'x-staff-session-id': 'sess-1' },
     });
-    const socket = response.webSocket!;
+    const socket = present(response.webSocket, 'the upgraded socket');
     socket.accept();
     const next = () =>
       new Promise<string>((resolve, reject) => {

@@ -6,7 +6,7 @@ import {
   type DiscountRow,
 } from '../../server/admin-lists';
 import { useStoreCurrency } from '../../lib/use-store-currency';
-import { formatDate } from '../../lib/format';
+import { formatDate, localDateTimeInputToIso, utcToLocalDateTimeInput } from '../../lib/format';
 import { AdminRowActions } from '../../components/AdminDataTable';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { createFileRoute, useRouter } from '@tanstack/react-router';
@@ -89,6 +89,9 @@ function Page() {
     value: '10',
     minPurchase: '',
     usageLimit: '',
+    usagePerCustomer: '1',
+    maxDiscount: '',
+    startsAt: '',
     expiresAt: '',
   };
   const [form, setForm] = useState(emptyForm);
@@ -114,7 +117,10 @@ function Page() {
     value: d.type === 'percentage' ? String(d.value) : (d.value / 100).toFixed(2),
     minPurchase: d.min_purchase_cents ? (d.min_purchase_cents / 100).toFixed(2) : '',
     usageLimit: d.usage_limit != null ? String(d.usage_limit) : '',
-    expiresAt: d.expires_at ? d.expires_at.slice(0, 10) : '',
+    usagePerCustomer: String(d.usage_per_customer),
+    maxDiscount: d.max_discount_cents != null ? (d.max_discount_cents / 100).toFixed(2) : '',
+    startsAt: d.starts_at ? utcToLocalDateTimeInput(d.starts_at) : '',
+    expiresAt: d.expires_at ? utcToLocalDateTimeInput(d.expires_at) : '',
   });
 
   const parsedOf = (f: typeof form) => ({
@@ -123,7 +129,16 @@ function Page() {
     value: f.type === 'percentage' ? Number(f.value) : Math.round(Number(f.value) * 100),
     minPurchaseCents: f.minPurchase ? Math.round(Number(f.minPurchase) * 100) : 0,
     usageLimit: f.usageLimit ? Number(f.usageLimit) : null,
-    expiresAt: f.expiresAt || null,
+    usagePerCustomer: Number(f.usagePerCustomer),
+    maxDiscountCents: f.maxDiscount ? Math.round(Number(f.maxDiscount) * 100) : null,
+    startsAt:
+      editing?.starts_at && f.startsAt === utcToLocalDateTimeInput(editing.starts_at)
+        ? editing.starts_at
+        : localDateTimeInputToIso(f.startsAt),
+    expiresAt:
+      editing?.expires_at && f.expiresAt === utcToLocalDateTimeInput(editing.expires_at)
+        ? editing.expires_at
+        : localDateTimeInputToIso(f.expiresAt),
   });
 
   const editing = discounts.find((d) => d.id === editingId) ?? null;
@@ -135,7 +150,10 @@ function Page() {
         value: editing.value,
         minPurchaseCents: editing.min_purchase_cents,
         usageLimit: editing.usage_limit,
-        expiresAt: editing.expires_at ? editing.expires_at.slice(0, 10) : null,
+        usagePerCustomer: editing.usage_per_customer,
+        maxDiscountCents: editing.max_discount_cents,
+        startsAt: editing.starts_at,
+        expiresAt: editing.expires_at,
       })
     : false;
 
@@ -437,16 +455,57 @@ function Page() {
                   />
                 </div>
                 <div>
+                  <label className={labelCls} htmlFor="d-per-customer">
+                    Uses per customer
+                  </label>
+                  <Input
+                    id="d-per-customer"
+                    inputMode="numeric"
+                    className="rounded-lg"
+                    value={form.usagePerCustomer}
+                    onChange={(e) => setForm({ ...form, usagePerCustomer: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className={labelCls} htmlFor="d-max">
+                    Largest discount ($)
+                  </label>
+                  <Input
+                    id="d-max"
+                    inputMode="decimal"
+                    placeholder="No cap"
+                    className="rounded-lg"
+                    value={form.maxDiscount}
+                    onChange={(e) => setForm({ ...form, maxDiscount: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className={labelCls} htmlFor="d-starts">
+                    Starts
+                  </label>
+                  <Input
+                    id="d-starts"
+                    type="datetime-local"
+                    className="rounded-lg"
+                    value={form.startsAt}
+                    onChange={(e) => setForm({ ...form, startsAt: e.target.value })}
+                  />
+                  <p className={hintCls}>In your time zone. Leave empty to start now.</p>
+                </div>
+                <div>
                   <label className={labelCls} htmlFor="d-expires">
                     Expires
                   </label>
                   <Input
                     id="d-expires"
-                    type="date"
+                    type="datetime-local"
                     className="rounded-lg"
                     value={form.expiresAt}
                     onChange={(e) => setForm({ ...form, expiresAt: e.target.value })}
                   />
+                  <p className={hintCls}>
+                    In your time zone. The code stops working at this minute.
+                  </p>
                 </div>
               </div>
             </div>

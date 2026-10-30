@@ -2,6 +2,8 @@ import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { env } from './helpers/cloudflare-workers-stub';
 import { createTestDb } from './helpers/d1';
 import { Route } from '../web/src/routes/api/media';
+import { present } from './helpers/fixtures';
+import { noNext, routeResponse } from './helpers/route';
 
 const actor = vi.hoisted(() => ({ role: 'owner' }));
 vi.mock('../web/src/server/session', async (original) => ({
@@ -40,13 +42,18 @@ async function upload(role: string, original?: string, width = '640', png = fals
     body.set('variant_of', original);
     body.set('variant_width', width);
   }
-  const handlers = Route.options.server!.handlers;
+  const handlers = present(Route.options.server?.handlers, 'the media upload handlers');
   if (typeof handlers === 'function') throw new Error('Expected direct route handlers');
-  const handler = handlers!.POST;
-  if (typeof handler !== 'function') throw new Error('Expected POST handler');
-  return handler({
-    request: new Request('http://localhost:8799/api/media', { method: 'POST', body }),
-  } as never) as Promise<Response>;
+  const handler = present(handlers.POST, 'the media upload POST handler');
+  return routeResponse(
+    await handler({
+      request: new Request('http://localhost:8799/api/media', { method: 'POST', body }),
+      context: undefined,
+      params: {},
+      pathname: '/api/media',
+      next: noNext,
+    })
+  );
 }
 it('denies support and warehouse original and variant writes', async () => {
   for (const role of ['support', 'warehouse'])
@@ -56,13 +63,13 @@ it('denies support and warehouse original and variant writes', async () => {
     }
 });
 it('rejects missing originals, invalid widths, empty references and mismatched formats', async () => {
-  for (const args of [
+  for (const [original, width, png] of [
     ['missing.jpg', '640', false],
     ['original.jpg', '999', false],
     ['', '640', false],
     ['original.jpg', '640', true],
   ] as const) {
-    expect((await upload('manager', ...args)).status).toBeGreaterThanOrEqual(400);
+    expect((await upload('manager', original, width, png)).status).toBeGreaterThanOrEqual(400);
     expect(put).not.toHaveBeenCalled();
   }
 });

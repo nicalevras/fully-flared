@@ -33,11 +33,19 @@ jobs:
       - name: Generate Worker types
         run: cd web && npm run cf-typegen
 
+      - name: Typecheck tests
+        run: npm run typecheck:tests
+
       - name: Run ESLint
         run: npm run lint
 
       - name: Run Prettier check
         run: npm run format:check
+
+      # web/tests-dom imports vitest (a root devDependency), so it is
+      # type-checked here, where both installs exist, not in build-web.
+      - name: Typecheck DOM tests (web strict flags)
+        run: npm run typecheck:dom
 
       - name: Run tests
         run: npm exec -- vitest run --exclude tests/catalog-scale-100k.test.ts

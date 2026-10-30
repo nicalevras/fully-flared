@@ -1,0 +1,11 @@
+{
+  // Type-checks web/tests-dom under the same strict flags as web/tsconfig.json.
+  // Kept out of web/tsconfig.json because the tests import vitest, which is a
+  // root devDependency: build-web installs only web/ deps and must not need it.
+  // src/**/*.d.ts brings in the ambient declarations (vite/client, *.scss).
+  // src/routeTree.gen.ts registers the file-route paths, so route modules a
+  // test imports (createFileRoute('/admin/products/')) type-check as in web.
+  // Run from the repo root with `npm run typecheck:dom` (CI: lint-and-test).
+  "extends": "./tsconfig.json",
+  "include": ["tests-dom", "src/**/*.d.ts", "src/routeTree.gen.ts", "worker-configuration.d.ts"]
+}

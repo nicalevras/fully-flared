@@ -10,7 +10,10 @@ import { idString } from '../schemas/common';
 import { useAdminAction, type AdminPayload } from './AdminNav';
 import { AdminActionFeedback, type AdminActionFeedbackState } from './AdminActionFeedback';
 import { useStoreCurrency } from '../lib/use-store-currency';
-import { formatMoney } from '../lib/format';
+import { formatMoney, parseMoneyCents } from '../lib/format';
+import { FieldError } from './FieldError';
+import { STOCK_REASONS, type StockReason } from '../lib/stock-reasons';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { uploadMedia } from '../lib/upload';
 import { applyVariantEdits, type VariantEdits } from '../lib/variant-edits';
 import { buildBulkPriceReview } from '../lib/variant-bulk-review';
@@ -43,6 +46,12 @@ const ExpandableEditor = lazy(async () => ({
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Checkbox } from './ui/checkbox';
 import { ChevronDownIcon, EllipsisIcon, MinusIcon, PlusIcon, XIcon } from 'lucide-react';
+
+function omit<T>(record: Record<string, T>, key: string): Record<string, T> {
+  const next = { ...record };
+  delete next[key];
+  return next;
+}
 
 type VariantRow = {
   id: string;
@@ -183,13 +192,33 @@ export function ProductEditor({
 
   const [bulk, setBulk] = useState({ price: '' });
   const [bulkReviewOpen, setBulkReviewOpen] = useState(false);
-  const [newVariant, setNewVariant] = useState({ sku: '', title: '', price: '29.99' });
+  const [newVariant, setNewVariant] = useState({ sku: '', title: '', price: '' });
+  const [newVariantPriceError, setNewVariantPriceError] = useState<string>();
+  const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
+  const [compareDrafts, setCompareDrafts] = useState<Record<string, string>>({});
+  const [moneyErrors, setMoneyErrors] = useState<Record<string, string>>({});
   const [stockDelta, setStockDelta] = useState<Record<string, string>>({});
+  const [stockOps, setStockOps] = useState<
+    Record<string, { operationId: string; reason: StockReason }>
+  >({});
+  const stageStock = (id: string, patch: { total?: string; reason?: StockReason }) => {
+    if (patch.total !== undefined) {
+      const total = patch.total;
+      setStockDelta((current) => ({ ...current, [id]: total }));
+    }
+    setStockOps((current) => ({
+      ...current,
+      [id]: {
+        operationId: crypto.randomUUID(),
+        reason: patch.reason ?? current[id]?.reason ?? 'restock',
+      },
+    }));
+  };
   const [collectionIds, setCollectionIds] = useState<string[]>(
     product.collections.map((c) => c.id)
   );
   const [stagedNewVariants, setStagedNewVariants] = useState<
-    Array<{ localId: string; sku: string; title: string; price: string }>
+    Array<{ localId: string; sku: string; title: string; priceCents: number }>
   >([]);
   const [deletedVariantIds, setDeletedVariantIds] = useState<string[]>([]);
   type MediaDraftEntry = {
@@ -258,10 +287,45 @@ export function ProductEditor({
   });
   const editVariant = (id: string, patch: Partial<VariantRow>) =>
     setEdits((current) => ({ ...current, [id]: { ...current[id], ...patch } }));
-  const discardEdits = (ids: readonly string[]) =>
-    setEdits((current) =>
-      Object.fromEntries(Object.entries(current).filter(([id]) => !ids.includes(id)))
-    );
+  const discardEdits = (ids: readonly string[]) => {
+    const keep = <T,>(current: Record<string, T>) =>
+      Object.fromEntries(Object.entries(current).filter(([id]) => !ids.includes(id)));
+    setEdits(keep);
+    setPriceDrafts(keep);
+    setCompareDrafts(keep);
+  };
+  const editMoney = (
+    id: string,
+    field: 'price' | 'compare',
+    setDrafts: typeof setPriceDrafts,
+    value: string
+  ) => {
+    setDrafts((current) => ({ ...current, [id]: value }));
+    setMoneyErrors((current) => omit(current, `${field}-${id}`));
+    editVariant(id, {});
+  };
+  const parseStagedMoney = () => {
+    const errors: Record<string, string> = {};
+    const parsed = new Map<string, { priceCents: number; compareAtCents: number | null }>();
+    for (const v of visibleVariants) {
+      if (!edits[v.id]) continue;
+      const priceDraft = priceDrafts[v.id];
+      const price =
+        priceDraft === undefined
+          ? { ok: true as const, cents: v.price_cents }
+          : parseMoneyCents(priceDraft);
+      const compareDraft = compareDrafts[v.id];
+      const compare =
+        v.compare_at_cents === null || compareDraft === undefined
+          ? { ok: true as const, cents: v.compare_at_cents }
+          : parseMoneyCents(compareDraft);
+      if (!price.ok) errors[`price-${v.id}`] = 'Enter a price like 12.50.';
+      if (!compare.ok) errors[`compare-${v.id}`] = 'Enter an original price like 15.00.';
+      if (price.ok && compare.ok)
+        parsed.set(v.id, { priceCents: price.cents, compareAtCents: compare.cents });
+    }
+    return { errors, parsed };
+  };
 
   async function runAction(action: string, payload: AdminPayload) {
     return adminAction(action, payload);
@@ -276,7 +340,11 @@ export function ProductEditor({
     revokeStaged(mediaDraft);
     setForm(initialForm);
     setEdits({});
+    setPriceDrafts({});
+    setCompareDrafts({});
+    setMoneyErrors({});
     setStockDelta({});
+    setStockOps({});
     setStagedNewVariants([]);
     setDeletedVariantIds([]);
     setMediaDraft(null);
@@ -297,6 +365,14 @@ export function ProductEditor({
 
   async function saveAll() {
     if (!anyDirty || busy) return;
+    const staged = parseStagedMoney();
+    setMoneyErrors(staged.errors);
+    if (Object.keys(staged.errors).length > 0) {
+      setOpenSections((current) =>
+        current.includes('variants') ? current : [...current, 'variants']
+      );
+      return;
+    }
     setBusy(true);
     const failures: string[] = [];
     let anyOk = false;
@@ -323,14 +399,14 @@ export function ProductEditor({
     if (variantsDirty) {
       const failedVariantIds = new Set<string>();
       for (const v of visibleVariants) {
-        if (!edits[v.id]) continue;
+        const money = staged.parsed.get(v.id);
+        if (!money) continue;
         const r = await runAction('variant.save', {
           variantId: v.id,
           productId: product.id,
           sku: v.sku,
           title: v.title,
-          priceCents: v.price_cents,
-          compareAtCents: v.compare_at_cents,
+          ...money,
           weightGrams: v.weight_grams,
           continueSelling: Boolean(v.continue_selling),
         });
@@ -348,7 +424,7 @@ export function ProductEditor({
           productId: product.id,
           sku: nv.sku,
           title: nv.title || 'Default',
-          priceCents: Math.round(Number(nv.price) * 100),
+          priceCents: nv.priceCents,
           compareAtCents: null,
         });
         if (r.ok) {
@@ -370,11 +446,14 @@ export function ProductEditor({
       for (const id of stockDirtyIds) {
         if (failedVariantIds.has(id)) continue;
         const v = visibleVariants.find((x) => x.id === id);
-        if (!v) continue;
+        const op = stockOps[id];
+        if (!v || !op) continue;
         const r = await runAction('stock.adjust', {
           sku: v.sku,
           delta: Number(stockDelta[id]) - v.on_hand,
-          reason: 'restock',
+          expectedOnHand: v.on_hand,
+          reason: op.reason,
+          operationId: op.operationId,
         });
         if (r.ok) {
           anyOk = true;
@@ -504,7 +583,10 @@ export function ProductEditor({
     } else {
       setFeedback({ kind: 'status', message: 'Saved; publication pending.' });
       setEdits({});
+      setPriceDrafts({});
+      setCompareDrafts({});
       setStockDelta({});
+      setStockOps({});
       setStagedNewVariants([]);
       setDeletedVariantIds([]);
       revokeStaged(mediaDraft);
@@ -889,6 +971,13 @@ export function ProductEditor({
                                 onClick={() => {
                                   for (const row of review.rows)
                                     editVariant(row.id, { price_cents: row.newPriceCents });
+                                  setPriceDrafts((current) =>
+                                    Object.fromEntries(
+                                      Object.entries(current).filter(
+                                        ([id]) => !review.rows.some((row) => row.id === id)
+                                      )
+                                    )
+                                  );
                                   setSelectedVariants([]);
                                   setBulk({ price: '' });
                                   setBulkReviewOpen(false);
@@ -915,10 +1004,7 @@ export function ProductEditor({
                       const parsedTotal = Number(stockDelta[v.id]);
                       const total = Number.isFinite(parsedTotal) ? parsedTotal : v.on_hand;
                       const setTotal = (next: number) =>
-                        setStockDelta({
-                          ...stockDelta,
-                          [v.id]: String(Math.max(0, Math.trunc(next))),
-                        });
+                        stageStock(v.id, { total: String(Math.max(0, Math.trunc(next))) });
                       return (
                         <div key={v.id} className="rounded-xl border border-zinc-200 p-4">
                           {visibleVariants.length > 1 ? (
@@ -988,25 +1074,33 @@ export function ProductEditor({
                                 id={`v-price-${v.id}`}
                                 inputMode="decimal"
                                 className={inputCls}
-                                value={(v.price_cents / 100).toString()}
-                                onChange={(e) =>
-                                  editVariant(v.id, {
-                                    price_cents: Math.round(Number(e.target.value || 0) * 100),
-                                  })
+                                value={priceDrafts[v.id] ?? (v.price_cents / 100).toString()}
+                                aria-invalid={Boolean(moneyErrors[`price-${v.id}`])}
+                                aria-describedby={
+                                  moneyErrors[`price-${v.id}`] ? `v-price-${v.id}-error` : undefined
                                 }
+                                onChange={(e) =>
+                                  editMoney(v.id, 'price', setPriceDrafts, e.target.value)
+                                }
+                              />
+                              <FieldError
+                                id={`v-price-${v.id}-error`}
+                                message={moneyErrors[`price-${v.id}`]}
                               />
                             </div>
                             <label className="flex items-center gap-2 text-sm text-zinc-950">
                               <Checkbox
                                 checked={v.compare_at_cents != null}
-                                onCheckedChange={(checked) =>
+                                onCheckedChange={(checked) => {
+                                  setCompareDrafts((current) => omit(current, v.id));
+                                  setMoneyErrors((current) => omit(current, `compare-${v.id}`));
                                   editVariant(v.id, {
                                     compare_at_cents:
                                       checked === true
                                         ? (v.compare_at_cents ?? v.price_cents)
                                         : null,
-                                  })
-                                }
+                                  });
+                                }}
                               />
                               On sale
                             </label>
@@ -1020,19 +1114,21 @@ export function ProductEditor({
                                   inputMode="decimal"
                                   className={inputCls}
                                   value={
-                                    v.compare_at_cents != null
-                                      ? (v.compare_at_cents / 100).toString()
-                                      : ''
+                                    compareDrafts[v.id] ?? (v.compare_at_cents / 100).toString()
                                   }
-                                  placeholder="Optional"
+                                  aria-invalid={Boolean(moneyErrors[`compare-${v.id}`])}
+                                  aria-describedby={
+                                    moneyErrors[`compare-${v.id}`]
+                                      ? `v-compare-${v.id}-error`
+                                      : undefined
+                                  }
                                   onChange={(e) =>
-                                    editVariant(v.id, {
-                                      compare_at_cents:
-                                        e.target.value === ''
-                                          ? null
-                                          : Math.round(Number(e.target.value) * 100),
-                                    })
+                                    editMoney(v.id, 'compare', setCompareDrafts, e.target.value)
                                   }
+                                />
+                                <FieldError
+                                  id={`v-compare-${v.id}-error`}
+                                  message={moneyErrors[`compare-${v.id}`]}
                                 />
                               </div>
                             ) : null}
@@ -1071,9 +1167,7 @@ export function ProductEditor({
                                 aria-label={`Stock total for ${v.sku}`}
                                 className="w-12 bg-transparent text-center text-sm font-medium text-zinc-950 outline-none"
                                 value={stockDelta[v.id] ?? String(v.on_hand)}
-                                onChange={(e) =>
-                                  setStockDelta({ ...stockDelta, [v.id]: e.target.value })
-                                }
+                                onChange={(e) => stageStock(v.id, { total: e.target.value })}
                                 onBlur={(e) => {
                                   if (e.target.value.trim() === '') {
                                     const next = { ...stockDelta };
@@ -1093,6 +1187,29 @@ export function ProductEditor({
                               </button>
                             </span>
                           </div>
+                          {stockDirtyIds.includes(v.id) ? (
+                            <Select
+                              value={stockOps[v.id]?.reason ?? 'restock'}
+                              onValueChange={(value) => {
+                                const reason = STOCK_REASONS.find((r) => r.value === value)?.value;
+                                if (reason) stageStock(v.id, { reason });
+                              }}
+                            >
+                              <SelectTrigger
+                                aria-label={`Reason for ${v.sku}`}
+                                className="mt-3 w-40 rounded-lg"
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {STOCK_REASONS.map((r) => (
+                                  <SelectItem key={r.value} value={r.value}>
+                                    {r.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : null}
                           <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
                             <label className="flex items-center gap-2">
                               <input
@@ -1145,7 +1262,7 @@ export function ProductEditor({
                     >
                       <span className="font-medium text-zinc-950">{nv.sku}</span>
                       <span className="text-zinc-600">{nv.title || 'Default'}</span>
-                      <span className="text-zinc-600">{nv.price}</span>
+                      <span className="text-zinc-600">{formatMoney(nv.priceCents, currency)}</span>
                       <span className="text-zinc-500">New — will be added on save</span>
                       <button
                         type="button"
@@ -1164,16 +1281,21 @@ export function ProductEditor({
                     className="mt-4 grid gap-3 rounded-xl bg-zinc-50 p-4 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end"
                     onSubmit={(e) => {
                       e.preventDefault();
+                      const price = parseMoneyCents(newVariant.price);
+                      if (!price.ok) {
+                        setNewVariantPriceError('Enter a price like 12.50.');
+                        return;
+                      }
                       setStagedNewVariants([
                         ...stagedNewVariants,
                         {
                           localId: `new-${Date.now()}`,
                           sku: newVariant.sku,
                           title: newVariant.title,
-                          price: newVariant.price,
+                          priceCents: price.cents,
                         },
                       ]);
-                      setNewVariant({ sku: '', title: '', price: '29.99' });
+                      setNewVariant({ sku: '', title: '', price: '' });
                     }}
                   >
                     <div>
@@ -1208,9 +1330,16 @@ export function ProductEditor({
                         id="nv-price"
                         inputMode="decimal"
                         className={inputCls}
+                        placeholder="29.99"
                         value={newVariant.price}
-                        onChange={(e) => setNewVariant({ ...newVariant, price: e.target.value })}
+                        aria-invalid={Boolean(newVariantPriceError)}
+                        aria-describedby={newVariantPriceError ? 'nv-price-error' : undefined}
+                        onChange={(e) => {
+                          setNewVariantPriceError(undefined);
+                          setNewVariant({ ...newVariant, price: e.target.value });
+                        }}
                       />
+                      <FieldError id="nv-price-error" message={newVariantPriceError} />
                     </div>
                     <button
                       type="submit"

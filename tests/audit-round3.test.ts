@@ -16,11 +16,16 @@ import Stripe from '../web/node_modules/stripe/esm/stripe.esm.node.js';
 import { StripeProvider, type PaymentProvider } from '../web/src/server/payments';
 import * as payments from '../web/src/server/payments';
 import { heldOrder } from './helpers/pending-intent';
+import { at, present } from './helpers/fixtures';
+import { fakeQueue } from './helpers/queue';
+import { z } from './helpers/json';
+
+const outboxJob = z.object({ outboxId: z.string() });
 vi.mock('@tanstack/react-start/server-entry', () => ({ default: { fetch: vi.fn() } }));
 
-let db: D1Database, dispose: () => Promise<void>;
+let db: D1Database, env: Env, dispose: () => Promise<void>;
 beforeEach(async () => {
-  ({ db, dispose } = await createTestDb());
+  ({ db, env, dispose } = await createTestDb());
   await seedProduct(db, { onHand: 20 });
   await db
     .prepare(
@@ -30,8 +35,8 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   vi.restoreAllMocks();
-  delete workerEnv.JOBS;
-  delete workerEnv.EMAIL;
+  Reflect.deleteProperty(workerEnv, 'JOBS');
+  Reflect.deleteProperty(workerEnv, 'EMAIL');
   await dispose();
 });
 function tracedDatabase(after: (sql: string[]) => Promise<void>) {
@@ -91,18 +96,16 @@ it('atomically increments concurrent cart additions without stock checks and ret
 
 it('enqueues a committed receipt immediately, and a queue failure leaves cron recovery intact', async () => {
   const emailSend = vi.fn();
-  workerEnv.EMAIL = { send: emailSend } as never;
+  workerEnv.EMAIL = { send: emailSend };
   const sent: string[] = [];
-  workerEnv.NOTIFICATIONS = {
-    send: async (job: { type: string; outboxId: string }) => {
-      expect(
-        (await db.prepare('SELECT status FROM outbox WHERE id=?').bind(job.outboxId).first())
-          ?.status
-      ).toBe('pending');
-      sent.push(job.outboxId);
-      throw new Error('queue unavailable');
-    },
-  } as never;
+  workerEnv.NOTIFICATIONS = fakeQueue(async (body) => {
+    const job = outboxJob.parse(body);
+    expect(
+      (await db.prepare('SELECT status FROM outbox WHERE id=?').bind(job.outboxId).first())?.status
+    ).toBe('pending');
+    sent.push(job.outboxId);
+    throw new Error('queue unavailable');
+  });
   const o = await heldOrder(db, {
     email: 'buyer@example.invalid',
     shippingCountry: 'US',
@@ -141,7 +144,7 @@ it('enqueues a committed receipt immediately, and a queue failure leaves cron re
     'test'
   );
   expect(sent).toContain(`receipt-${o.orderId}`);
-  workerEnv.NOTIFICATIONS = { send: vi.fn() } as never;
+  workerEnv.NOTIFICATIONS = fakeQueue();
   expect((await enqueueOutboxRecoveryPage(db, await recoveryContext(db))).queued).toBe(1);
   expect(emailSend).not.toHaveBeenCalled();
   expect(await processOutboxRow(db, `receipt-${o.orderId}`)).toBe(true);
@@ -150,11 +153,9 @@ it('enqueues a committed receipt immediately, and a queue failure leaves cron re
 
 it('enqueues shipment and refund notifications after commit, never after a rolled-back insert', async () => {
   const ids: string[] = [];
-  workerEnv.NOTIFICATIONS = {
-    send: async (job: { outboxId: string }) => {
-      ids.push(job.outboxId);
-    },
-  } as never;
+  workerEnv.NOTIFICATIONS = fakeQueue((body) => {
+    ids.push(outboxJob.parse(body).outboxId);
+  });
   await db
     .prepare(
       "INSERT INTO orders(id,number,status,payment_status,customer_email,total_cents,subtotal_cents,stripe_payment_intent_id,created_at,updated_at) VALUES('notice','NOTICE','paid','paid','fixture@example.invalid',2000,2000,'pi_notice','2026','2026')"
@@ -162,7 +163,7 @@ it('enqueues shipment and refund notifications after commit, never after a rolle
     .run();
   expect(
     (
-      await runAdminAction(db, {} as never, { id: 'owner', role: 'owner' }, 'order.ship', {
+      await runAdminAction(db, env, { id: 'owner', role: 'owner' }, 'order.ship', {
         orderId: 'notice',
         trackingNumber: 'FIXTURE',
       })
@@ -323,7 +324,7 @@ it('instruments the combined nightly cron without a maintenance queue', async ()
       .prepare(
         "INSERT INTO orders(id,number,status,payment_status,customer_email,total_cents,subtotal_cents,stripe_checkout_session_id,stripe_payment_intent_id,created_at,updated_at) VALUES(?,?,'paid','paid','fixture@example.invalid',2000,2000,?,?,'2026','2026')"
       )
-      .bind('cron-' + i, 'CRON-' + i, sessions[i]!.id, 'pi_cron_' + i)
+      .bind('cron-' + i, 'CRON-' + i, at(sessions, i).id, 'pi_cron_' + i)
       .run();
   for (let i = 0; i < 25; i++)
     await db.batch([
@@ -355,10 +356,10 @@ it('instruments the combined nightly cron without a maintenance queue', async ()
     retrieveRefund: async (id) => ({ id, status: 'pending' }),
   };
   vi.spyOn(payments, 'getStripeProvider').mockReturnValue(provider as never);
-  workerEnv.EMAIL = { send: vi.fn() } as never;
-  workerEnv.JOBS = { send: vi.fn() } as never;
-  workerEnv.NOTIFICATIONS = { send: vi.fn() } as never;
-  workerEnv.CATALOG_JOBS = { send: vi.fn() } as never;
+  workerEnv.EMAIL = { send: vi.fn() };
+  workerEnv.JOBS = fakeQueue();
+  workerEnv.NOTIFICATIONS = fakeQueue();
+  workerEnv.CATALOG_JOBS = fakeQueue();
   const { default: worker } = await import('../web/src/server');
   let statements = 0;
   let batchCalls = 0;
@@ -368,7 +369,7 @@ it('instruments the combined nightly cron without a maintenance queue', async ()
   });
   const pending: Promise<unknown>[] = [];
   await worker.scheduled(
-    { cron: '0 3 * * *', scheduledTime: Date.now() } as never,
+    { cron: '0 3 * * *', scheduledTime: Date.now(), noRetry: () => {} },
     {
       ...workerEnv,
       DB: traced,
@@ -386,8 +387,8 @@ it('instruments the combined nightly cron without a maintenance queue', async ()
   console.warn(
     `Combined cron fixture: D1 statements=${statements}, multi-statement batches=${batchCalls}; 100 sessions, 25 refunds and 25 emails. Local instrumentation, not a deployed limit test.`
   );
-  delete workerEnv.NOTIFICATIONS;
-  delete workerEnv.CATALOG_JOBS;
+  Reflect.deleteProperty(workerEnv, 'NOTIFICATIONS');
+  Reflect.deleteProperty(workerEnv, 'CATALOG_JOBS');
 });
 
 it('distinguishes confirmed missing Stripe objects from outages', async () => {
@@ -411,7 +412,10 @@ it('distinguishes confirmed missing Stripe objects from outages', async () => {
 });
 
 it('builds preview artifacts inside the preview job before deployment', () => {
-  const workflow = readFileSync('.github/workflows/ci.yml', 'utf8').split('  preview-deploy:')[1]!;
+  const workflow = present(
+    readFileSync('.github/workflows/ci.yml', 'utf8').split('  preview-deploy:')[1],
+    'the preview-deploy job'
+  );
   expect(workflow).toMatch(/CLOUDFLARE_ENV=preview npm run build/);
   expect(workflow.indexOf('CLOUDFLARE_ENV=preview npm run build')).toBeLessThan(
     workflow.indexOf('npx wrangler deploy')
