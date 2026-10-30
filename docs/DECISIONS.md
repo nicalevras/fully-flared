@@ -468,7 +468,12 @@ unapplied. Verification is deferred: see
   dashboard. Migration `0033_outbox_claim_due_cap` rebuilds the partial claim
   index with `attempts<8`, so the drain still uses it. The final failure queues
   one email to the operational alert addresses; alert rows never alert about
-  themselves. The dashboard counts only rows that used every attempt.
+  themselves. The dashboard counts only rows that used every attempt. Retention
+  deletes failed rows only after they reach the same cap.
+- **Email sends carry no idempotency key (R-33).** The `send_email` binding call
+  in `server/email.ts` takes none, so a send the provider accepted but that
+  timed out on our side can be sent again on retry. The per-row claim and the
+  8-attempt cap bound this; it cannot be removed at the provider.
 - **The product editor reads its detail from the route loader (UX-04).**
   `edit` is a loader dependency, so `router.invalidate()` refreshes `on_hand`
   and the stock delta is computed from fresh data at save time. Each staged
