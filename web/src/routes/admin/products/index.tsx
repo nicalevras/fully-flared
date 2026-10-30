@@ -86,10 +86,13 @@ export const Route = createFileRoute('/admin/products/')({
     ...normalizeProductSearch(search),
     edit: typeof search.edit === 'string' && search.edit ? search.edit : undefined,
   }),
-  loaderDeps: ({ search }) => {
-    const { edit: _edit, ...rest } = search;
-    return rest;
-  },
+  loaderDeps: ({ search: { q, mode, status, sort, cursor } }) => ({
+    q,
+    mode,
+    status,
+    sort,
+    cursor,
+  }),
   loader: async ({ deps }) => getData({ data: deps }),
   pendingComponent: () => (
     <p className="p-5 text-sm" role="status">
@@ -150,7 +153,6 @@ function AdminProducts() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search.edit]);
   const openEditor = (id: string) => void navigate({ search: { ...search, edit: id } });
   const closeEditor = () => void navigate({ search: { ...search, edit: undefined } });

@@ -136,10 +136,7 @@ export const Route = createFileRoute('/admin/inventory')({
     sku: typeof search.sku === 'string' && search.sku ? search.sku : undefined,
     size: isPageSize(search.size) ? search.size : undefined,
   }),
-  loaderDeps: ({ search }) => {
-    const { sku: _sku, ...rest } = search;
-    return rest;
-  },
+  loaderDeps: ({ search: { q, page, low, size } }) => ({ q, page, low, size }),
   loader: async ({ deps }) => getList({ data: deps }),
   component: AdminInventory,
 });

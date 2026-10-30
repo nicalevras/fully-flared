@@ -421,7 +421,6 @@ function AdminMedia() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingRow?.id]);
 
   const requestDelete = async (row: MediaRow) => {

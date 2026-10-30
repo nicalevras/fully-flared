@@ -228,7 +228,6 @@ function AdminBlog() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingId]);
   const openEditor = (id: string) =>
     void navigate({ search: { q: search.q, page: search.page, size: search.size, edit: id } });
