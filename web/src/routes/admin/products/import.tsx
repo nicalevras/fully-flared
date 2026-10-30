@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import * as z from 'zod';
 import {
   Table,
   TableBody,
@@ -30,7 +31,11 @@ export const Route = createFileRoute('/admin/products/import')({
   component: AdminProductsImport,
 });
 
-type ImportSummary = { imported: number; errors: Array<{ row: number; error: string }> };
+const importSummarySchema = z.object({
+  imported: z.number(),
+  errors: z.array(z.object({ row: z.number(), error: z.string() })),
+});
+type ImportSummary = z.infer<typeof importSummarySchema>;
 
 function AdminProductsImport() {
   const adminAction = useAdminAction();
@@ -152,7 +157,7 @@ function AdminProductsImport() {
               const result = await adminAction('import.productsCsv', { csv: text });
               setBusy(false);
               if (result.ok) {
-                const data = result.data as ImportSummary;
+                const data = importSummarySchema.parse(result.data);
                 setSummary(data);
                 setSubmittedText(text);
                 setFeedback({
