@@ -105,7 +105,7 @@ export async function reconcileStripe(
         mismatch(`stripe_paid_amount_low:${session.id}:${order.id}`);
       await advance('stripe_sessions', session.id);
     }
-    await advance('stripe_sessions', page.hasMore && page.data.length ? page.data.at(-1)!.id : '');
+    await advance('stripe_sessions', page.hasMore ? (page.data.at(-1)?.id ?? '') : '');
     report.more = report.more || page.hasMore;
   }
   if ((!opts.stage || opts.stage === 'orders') && provider.retrieveCheckoutSession) {
@@ -132,7 +132,10 @@ export async function reconcileStripe(
         mismatch(`order_paid_session_unpaid:${order.id}:${order.stripe_checkout_session_id}`);
       await advance('orders', order.id);
     }
-    await advance('orders', rows.results.length === localLimit ? rows.results.at(-1)!.id : '');
+    await advance(
+      'orders',
+      rows.results.length === localLimit ? (rows.results.at(-1)?.id ?? '') : ''
+    );
     report.more = report.more || rows.results.length === localLimit;
   }
   if ((!opts.stage || opts.stage === 'refunds') && provider.retrieveRefund) {
@@ -151,7 +154,7 @@ export async function reconcileStripe(
         mismatch(`refund_provider_mismatch:${row.id}:${current.status}`);
       await advance('refunds', row.id);
     }
-    await advance('refunds', rows.results.length === 25 ? rows.results.at(-1)!.id : '');
+    await advance('refunds', rows.results.length === 25 ? (rows.results.at(-1)?.id ?? '') : '');
     report.more = report.more || rows.results.length === 25;
   }
   // Page the source records, not only mismatches, so healthy prefixes cannot starve older rows.
@@ -165,7 +168,7 @@ export async function reconcileStripe(
     for (const row of stock.results)
       if (row.on_hand !== row.h || row.reserved !== row.r)
         mismatch(`stock_ledger_drift:${row.sku}`);
-    await advance('stock', stock.results.length === 50 ? stock.results.at(-1)!.sku : '');
+    await advance('stock', stock.results.length === 50 ? (stock.results.at(-1)?.sku ?? '') : '');
     report.more = report.more || stock.results.length === 50;
   }
   if (!opts.stage || opts.stage === 'totals') {
@@ -190,7 +193,10 @@ export async function reconcileStripe(
         (['paid', 'unpaid'].includes(row.payment_status) && row.succeeded > 0)
       )
         mismatch(`refund_total_mismatch:${row.id}`);
-    await advance('refund_totals', totals.results.length === 50 ? totals.results.at(-1)!.id : '');
+    await advance(
+      'refund_totals',
+      totals.results.length === 50 ? (totals.results.at(-1)?.id ?? '') : ''
+    );
     report.more = report.more || totals.results.length === 50;
   }
   return report;
