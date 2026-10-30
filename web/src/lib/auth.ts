@@ -52,12 +52,16 @@ function trustedDeviceMarker(db: D1Database) {
 async function tokenFromReturned(returned: unknown): Promise<string | null> {
   try {
     if (returned instanceof Response) {
-      const body = (await returned.clone().json()) as { token?: unknown };
-      return typeof body.token === 'string' ? body.token : null;
+      const body: unknown = await returned.clone().json();
+      return typeof body === 'object' &&
+        body !== null &&
+        'token' in body &&
+        typeof body.token === 'string'
+        ? body.token
+        : null;
     }
     if (returned && typeof returned === 'object' && 'token' in returned) {
-      const token = (returned as { token?: unknown }).token;
-      return typeof token === 'string' ? token : null;
+      return typeof returned.token === 'string' ? returned.token : null;
     }
   } catch {
     return null;
@@ -336,5 +340,5 @@ export function ownerEmailsFromEnv(env: { OWNER_EMAIL?: unknown }): string[] {
 
 export const STAFF_ROLES = ['owner', 'manager', 'support', 'warehouse'] as const;
 export function isStaff(role: string | null | undefined): boolean {
-  return role === 'admin' || (STAFF_ROLES as readonly string[]).includes(role ?? '');
+  return role === 'admin' || STAFF_ROLES.some((staffRole) => staffRole === role);
 }
