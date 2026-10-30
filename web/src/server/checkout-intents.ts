@@ -1,6 +1,7 @@
 import { sha256Hex } from '../lib/hash';
 import { cancelOrdersStatements } from './order-cancellation';
-import { checkoutRequestSchema, type CheckoutRequest, type PaymentProvider } from './payments';
+import type { CheckoutRequest, PaymentProvider } from './payments';
+import { checkoutRequestSchema } from '../schemas/checkout';
 import { acquireCheckoutPermit, type AdmissionStub } from './checkout-admission';
 import { operationalRecipients, commitWithEmails, emailStatement } from './email';
 import { recoveryContext, preparationDue, type RecoveryContext } from './recovery-eligibility';
