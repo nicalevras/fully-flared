@@ -2,7 +2,6 @@ import Stripe from 'stripe';
 import type { WorkerEnv } from './env';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { ShippingAddress } from '../schemas/checkout';
-import { isStripeShippingCountry } from './stripe-countries';
 
 // PaymentProvider seam (DECISIONS D4). Stripe is the only v1 implementation.
 export interface CheckoutRequest {
@@ -359,7 +358,7 @@ export class StripeProvider implements PaymentProvider {
           ...(req.collectShipping
             ? {
                 shipping_address_collection: {
-                  allowed_countries: req.shippingCountries.filter(isStripeShippingCountry),
+                  allowed_countries: req.shippingCountries,
                 },
               }
             : {}),
