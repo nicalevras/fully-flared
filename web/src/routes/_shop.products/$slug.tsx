@@ -346,12 +346,32 @@ function ProductPage() {
           ) : null}
           <ul className="mt-8 space-y-3.5 border-t border-zinc-200 pt-6 text-sm leading-6 text-zinc-500">
             <li className="flex gap-2.5">
-              <TruckIcon className="h-5 w-5 shrink-0 text-zinc-950" /> Ships within 1–2 business
-              days. Rates and delivery options are calculated at checkout by your shipping zone.
+              <TruckIcon className="h-5 w-5 shrink-0 text-zinc-950" />
+              <span>
+                Rates and delivery options are calculated at checkout by your shipping zone. See our{' '}
+                <Link
+                  to="/pages/$slug"
+                  params={{ slug: 'shipping' }}
+                  className="text-zinc-950 underline underline-offset-2"
+                >
+                  shipping policy
+                </Link>
+                .
+              </span>
             </li>
             <li className="flex gap-2.5">
-              <ReturnIcon className="h-5 w-5 shrink-0 text-zinc-950" /> 30-day returns. Start a
-              return from your account page after delivery.
+              <ReturnIcon className="h-5 w-5 shrink-0 text-zinc-950" />
+              <span>
+                Start a return from your account page after delivery. See our{' '}
+                <Link
+                  to="/pages/$slug"
+                  params={{ slug: 'returns' }}
+                  className="text-zinc-950 underline underline-offset-2"
+                >
+                  returns policy
+                </Link>
+                .
+              </span>
             </li>
             <li className="flex gap-2.5">
               <ShieldIcon className="h-5 w-5 shrink-0 text-zinc-950" /> Secure checkout via Stripe.

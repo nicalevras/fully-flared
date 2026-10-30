@@ -336,9 +336,6 @@ export function StorefrontLayout() {
             ) : (
               <p className="text-base font-normal tracking-tight text-zinc-950">{storeName}</p>
             )}
-            <p className="mt-3 max-w-xs text-sm leading-6 text-zinc-400">
-              Considered goods, honest prices, and shipping you can track from our door to yours.
-            </p>
           </div>
           <nav aria-label="Shop">
             <p className="text-sm font-medium text-zinc-950">Shop</p>
@@ -414,11 +411,6 @@ export function StorefrontLayout() {
               <li>
                 <Link to="/pages/$slug" params={{ slug: 'terms' }} className="hover:text-zinc-950">
                   Terms of service
-                </Link>
-              </li>
-              <li>
-                <Link to="/admin" className="hover:text-zinc-950">
-                  Store admin
                 </Link>
               </li>
             </ul>
