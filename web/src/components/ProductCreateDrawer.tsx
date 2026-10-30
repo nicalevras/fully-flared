@@ -126,9 +126,11 @@ export function ProductCreateDrawer({
   const [busy, setBusy] = useState(false);
   const [uploadPending, setUploadPending] = useState(false);
   const [openSections, setOpenSections] = useState<string[]>(['product-details']);
-  useEffect(() => {
+  const [shownOpen, setShownOpen] = useState(open);
+  if (shownOpen !== open) {
+    setShownOpen(open);
     if (open) setOpenSections(['product-details']);
-  }, [open]);
+  }
   const [useOptions, setUseOptions] = useState(false);
   const [groups, setGroups] = useState<VariantOptionGroup[]>([
     { name: 'Size', valuesText: 'Small, Medium, Large' },

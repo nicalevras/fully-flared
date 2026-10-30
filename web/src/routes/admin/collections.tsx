@@ -191,9 +191,10 @@ function AdminCollections() {
   const [busy, setBusy] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [openSections, setOpenSections] = useState<string[]>(['details']);
-  useEffect(() => {
-    if (editingId) setOpenSections(['details']);
-  }, [editingId]);
+  const openEditor = (id: string) => {
+    setEditingId(id);
+    setOpenSections(['details']);
+  };
   const [createOpen, setCreateOpen] = useState(false);
   const [confirm, setConfirm] = useState<{
     title: string;
@@ -1009,7 +1010,7 @@ function AdminCollections() {
                     className="cursor-pointer"
                     onClick={(event) => {
                       if ((event.target as HTMLElement).closest('a, button')) return;
-                      setEditingId(c.id);
+                      openEditor(c.id);
                     }}
                   >
                     <TableCell className="whitespace-normal">
@@ -1028,9 +1029,7 @@ function AdminCollections() {
                     )}
                     <TableCell className="text-right">
                       <AdminRowActions label={`Actions for ${c.title}`}>
-                        <DropdownMenuItem onSelect={() => setEditingId(c.id)}>
-                          Edit
-                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => openEditor(c.id)}>Edit</DropdownMenuItem>
                         <DropdownMenuItem asChild>
                           <Link to="/collections/$slug" params={{ slug: c.slug }}>
                             View in store

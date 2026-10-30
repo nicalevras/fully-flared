@@ -166,9 +166,6 @@ export function ProductEditor({
   const [form, setForm] = useState(initialForm);
   const [conflict, setConflict] = useState(false);
   const [openSections, setOpenSections] = useState<string[]>(['details']);
-  useEffect(() => {
-    if (open) setOpenSections(['details']);
-  }, [open, product.id]);
   const fieldLabels: Record<string, string> = {
     title: 'Title',
     slug: 'Slug',
