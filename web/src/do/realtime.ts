@@ -40,7 +40,7 @@ function sessionIdOf(serialized: unknown): string {
     : '';
 }
 
-function stateOf(ws: WebSocket): SocketState {
+function stateOf(ws: RealtimeSocket): SocketState {
   try {
     const serialized: unknown = ws.deserializeAttachment();
     return { topics: restoreTopics(serialized), sessionId: sessionIdOf(serialized) };
@@ -68,6 +68,101 @@ async function liveStaffSessions(db: D1Database, sessionIds: string[]): Promise<
   return new Set(rows.results.map((row) => row.id));
 }
 
+/** The socket operations the handlers below use; a hibernatable WebSocket satisfies it. */
+export type RealtimeSocket = Pick<
+  WebSocket,
+  'send' | 'close' | 'serializeAttachment' | 'deserializeAttachment'
+>;
+
+export async function onSocketMessage(ws: RealtimeSocket, message: string | ArrayBuffer) {
+  try {
+    const text = typeof message === 'string' ? message : new TextDecoder().decode(message);
+    if (text.length > 4096) throw new Error('Message too large');
+    const data = socketMessageSchema.parse(JSON.parse(text));
+    const state = stateOf(ws);
+    if (data.action === 'subscribe' && data.topic) {
+      state.topics = sanitizeTopics([...state.topics, data.topic]);
+    } else if (data.action === 'unsubscribe' && data.topic) {
+      state.topics = state.topics.filter((topic) => topic !== data.topic);
+    } else {
+      throw new Error('Unknown action');
+    }
+    // Capped, deduplicated topics keep the attachment far below the 16 KB
+    // serialized-attachment limit across hibernation.
+    ws.serializeAttachment(state);
+  } catch {
+    console.warn(JSON.stringify({ event: 'realtime_message_rejected' }));
+    try {
+      ws.send(JSON.stringify({ type: 'error', message: 'Invalid subscription message' }));
+    } catch {
+      console.warn(JSON.stringify({ event: 'realtime_error_response_failed' }));
+    }
+  }
+}
+
+export async function onSocketClose(
+  ws: RealtimeSocket,
+  code: number,
+  reason: string,
+  wasClean: boolean
+) {
+  if (!wasClean) console.warn(JSON.stringify({ event: 'realtime_close_unclean', code }));
+  try {
+    ws.close(code, reason);
+  } catch {
+    console.warn(JSON.stringify({ event: 'realtime_close_failed' }));
+  }
+}
+
+export async function onSocketError(ws: RealtimeSocket) {
+  console.error(
+    JSON.stringify({
+      event: 'realtime_error',
+    })
+  );
+  try {
+    ws.close(1011, 'WebSocket error');
+  } catch {
+    console.warn(JSON.stringify({ event: 'realtime_error_close_failed' }));
+  }
+}
+
+/** Sends the event to every live staff socket subscribed to its topic and
+ *  closes sockets whose session has ended. */
+export async function broadcastToSockets(
+  db: D1Database,
+  connected: RealtimeSocket[],
+  event: string,
+  payload: Record<string, unknown>
+) {
+  const message = JSON.stringify({
+    type: event,
+    data: payload,
+    timestamp: new Date().toISOString(),
+  });
+  const sockets = connected.map((ws) => ({ ws, state: stateOf(ws) }));
+  const live = await liveStaffSessions(db, [
+    ...new Set(sockets.map(({ state }) => state.sessionId).filter(Boolean)),
+  ]);
+  for (const { ws, state } of sockets) {
+    if (!live.has(state.sessionId)) {
+      try {
+        ws.close(1008, 'Session ended');
+      } catch {
+        console.warn(JSON.stringify({ event: 'realtime_revoked_close_failed' }));
+      }
+      continue;
+    }
+    if (shouldDeliver(state.topics, event)) {
+      try {
+        ws.send(message);
+      } catch {
+        console.warn(JSON.stringify({ event: 'realtime_broadcast_send_failed' }));
+      }
+    }
+  }
+}
+
 export class RealtimeDO extends DurableObject {
   constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
     super(ctx, env);
@@ -91,79 +186,18 @@ export class RealtimeDO extends DurableObject {
   }
 
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
-    try {
-      const text = typeof message === 'string' ? message : new TextDecoder().decode(message);
-      if (text.length > 4096) throw new Error('Message too large');
-      const data = socketMessageSchema.parse(JSON.parse(text));
-      const state = stateOf(ws);
-      if (data.action === 'subscribe' && data.topic) {
-        state.topics = sanitizeTopics([...state.topics, data.topic]);
-      } else if (data.action === 'unsubscribe' && data.topic) {
-        state.topics = state.topics.filter((topic) => topic !== data.topic);
-      } else {
-        throw new Error('Unknown action');
-      }
-      // Capped, deduplicated topics keep the attachment far below the 16 KB
-      // serialized-attachment limit across hibernation.
-      ws.serializeAttachment(state);
-    } catch {
-      console.warn(JSON.stringify({ event: 'realtime_message_rejected' }));
-      try {
-        ws.send(JSON.stringify({ type: 'error', message: 'Invalid subscription message' }));
-      } catch {
-        console.warn(JSON.stringify({ event: 'realtime_error_response_failed' }));
-      }
-    }
+    return onSocketMessage(ws, message);
   }
 
   override async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean) {
-    if (!wasClean) console.warn(JSON.stringify({ event: 'realtime_close_unclean', code }));
-    try {
-      ws.close(code, reason);
-    } catch {
-      console.warn(JSON.stringify({ event: 'realtime_close_failed' }));
-    }
+    return onSocketClose(ws, code, reason, wasClean);
   }
 
   override async webSocketError(ws: WebSocket, _error: unknown) {
-    console.error(
-      JSON.stringify({
-        event: 'realtime_error',
-      })
-    );
-    try {
-      ws.close(1011, 'WebSocket error');
-    } catch {
-      console.warn(JSON.stringify({ event: 'realtime_error_close_failed' }));
-    }
+    return onSocketError(ws);
   }
 
   async broadcast(event: string, payload: Record<string, unknown>) {
-    const message = JSON.stringify({
-      type: event,
-      data: payload,
-      timestamp: new Date().toISOString(),
-    });
-    const sockets = this.ctx.getWebSockets().map((ws) => ({ ws, state: stateOf(ws) }));
-    const live = await liveStaffSessions(this.env.DB, [
-      ...new Set(sockets.map(({ state }) => state.sessionId).filter(Boolean)),
-    ]);
-    for (const { ws, state } of sockets) {
-      if (!live.has(state.sessionId)) {
-        try {
-          ws.close(1008, 'Session ended');
-        } catch {
-          console.warn(JSON.stringify({ event: 'realtime_revoked_close_failed' }));
-        }
-        continue;
-      }
-      if (shouldDeliver(state.topics, event)) {
-        try {
-          ws.send(message);
-        } catch {
-          console.warn(JSON.stringify({ event: 'realtime_broadcast_send_failed' }));
-        }
-      }
-    }
+    return broadcastToSockets(this.env.DB, this.ctx.getWebSockets(), event, payload);
   }
 }
