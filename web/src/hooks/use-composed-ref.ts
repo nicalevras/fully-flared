@@ -8,10 +8,8 @@ type UserRef<T> = ((instance: T | null) => void) | React.RefObject<T | null> | n
 const updateRef = <T>(ref: NonNullable<UserRef<T>>, value: T | null) => {
   if (typeof ref === 'function') {
     ref(value);
-  } else if (ref && typeof ref === 'object' && 'current' in ref) {
-    // Safe assignment without MutableRefObject
-    const mutableRef = ref as { current: T | null };
-    mutableRef.current = value;
+  } else {
+    ref.current = value;
   }
 };
 
@@ -23,10 +21,7 @@ export const useComposedRef = <T extends HTMLElement>(
 
   return useCallback(
     (instance: T | null) => {
-      if (libRef && 'current' in libRef) {
-        const mutableLibRef = libRef as { current: T | null };
-        mutableLibRef.current = instance;
-      }
+      libRef.current = instance;
 
       if (prevUserRef.current) {
         updateRef(prevUserRef.current, null);
