@@ -1,8 +1,10 @@
 import { env } from 'cloudflare:workers';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb } from './helpers/d1';
-import { processOutboxRow } from '../web/src/server/email';
+import { enqueueOutboxRecoveryPage, processOutboxRow } from '../web/src/server/email';
 import { failedEmailCount } from '../web/src/server/outbox';
+import { recoveryContext } from '../web/src/server/recovery-eligibility';
+import { pruneRetention } from '../web/src/server/operations';
 
 let db: D1Database, dispose: () => Promise<void>;
 
@@ -13,13 +15,13 @@ const payload = JSON.stringify({
   html: '<p>hi</p>',
 });
 
-async function failedRow(id: string, attempts: number) {
+async function failedRow(id: string, attempts: number, createdAt = new Date().toISOString()) {
   await db
     .prepare(
       `INSERT INTO outbox (id, type, payload_json, status, attempts, created_at)
        VALUES (?, 'email.send', ?, 'failed', ?, ?)`
     )
-    .bind(id, payload, attempts, new Date().toISOString())
+    .bind(id, payload, attempts, createdAt)
     .run();
 }
 
@@ -91,5 +93,23 @@ describe('MS-2 outbox email retries', () => {
     await failedRow('ob-retrying', 3);
     await failedRow('ob-dead', 8);
     expect(await failedEmailCount(db)).toBe(1);
+  });
+
+  it('recovery sweep finds a failed row at attempts 5', async () => {
+    const queued: unknown[] = [];
+    Object.assign(env, { NOTIFICATIONS: { send: async (job: unknown) => queued.push(job) } });
+    await failedRow('ob-5', 5, new Date(Date.now() - 3_600_000).toISOString());
+    const page = await enqueueOutboxRecoveryPage(db, await recoveryContext(db));
+    expect(page.queued).toBe(1);
+    expect(queued).toEqual([expect.objectContaining({ outboxId: 'ob-5' })]);
+  });
+
+  it('retention keeps a failed row below the cap', async () => {
+    const old = new Date(Date.now() - 40 * 86_400_000).toISOString();
+    await failedRow('ob-retrying', 5, old);
+    await failedRow('ob-spent', 8, old);
+    await pruneRetention(db);
+    expect(await row('ob-retrying')).toEqual({ status: 'failed', attempts: 5 });
+    expect(await row('ob-spent')).toBeNull();
   });
 });
