@@ -2,6 +2,7 @@ import * as z from 'zod';
 import { centsInt, emailString, idString, nonEmptyString, slugString } from './common';
 import { EDITORIAL_HTML_BYTE_LIMIT } from '../server/catalog-models';
 import { MAX_RAILS } from '../lib/catalog-limits';
+import { settingKeySchema } from './settings';
 
 // Every admin action is one member of this discriminated union. The action
 // switch receives only parsed, typed payloads — no str()/num() coercion of
@@ -206,6 +207,22 @@ export const adminActionSchema = z.discriminatedUnion('action', [
     action: z.literal('settings.set'),
     key: nonEmptyString(100),
     value: z.string().max(2000),
+  }),
+  z.object({
+    action: z.literal('settings.setMany'),
+    changes: z
+      .array(
+        z.object({
+          key: settingKeySchema,
+          value: z.string().max(2000),
+          expectedUpdatedAt: z.string().max(40).nullable(),
+        })
+      )
+      .min(1)
+      .max(settingKeySchema.options.length)
+      .refine((changes) => new Set(changes.map((c) => c.key)).size === changes.length, {
+        message: 'Each setting may appear once',
+      }),
   }),
   z.object({
     action: z.literal('page.save'),

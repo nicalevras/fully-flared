@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { staffMiddleware } from '../../server/staff-middleware';
 import { requireStaffPermission } from '../../server/session';
-import { createFileRoute, Link } from '@tanstack/react-router';
+import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
 import { buildSetupChecklist } from '../../lib/setup-checklist';
 import {
   AdminActionFeedback,
@@ -15,8 +15,8 @@ import {
   ADMISSION_DEFINITIONS,
   SUPPORTED_CURRENCIES,
 } from '../../lib/settings-definitions';
-import { saveSettings } from '../../lib/settings-save';
-import { getSettings } from '../../server/settings';
+import { saveSettings, type SettingsSnapshot } from '../../lib/settings-save';
+import { readSettings, settingVersions } from '../../server/settings';
 import { resolveMediaSources } from '../../server/media-source';
 import { uploadMedia } from '../../lib/upload';
 import { mediaUrl } from '../../lib/media-url';
@@ -36,7 +36,10 @@ const getData = createServerFn({ method: 'GET' })
   .handler(async ({ context }) => {
     requireStaffPermission(context.staff, 'settings', 'view');
     const { env } = await import('cloudflare:workers');
-    const settings = await getSettings(env.DB);
+    // Versions first: a save landing between the two reads then shows
+    // up as a conflict on the next save instead of being overwritten.
+    const versions = await settingVersions(env.DB);
+    const settings = await readSettings(env.DB);
     const counts = await env.DB.prepare(
       'SELECT (SELECT COUNT(*) FROM products) AS products, (SELECT COUNT(*) FROM shipping_zones) AS zones, (SELECT COUNT(*) FROM shipping_rates) AS rates'
     ).first<{ products: number; zones: number; rates: number }>();
@@ -50,6 +53,7 @@ const getData = createServerFn({ method: 'GET' })
     const brand = await resolveMediaSources(env.DB, [settings.logoMediaId, settings.heroMediaId]);
     return {
       settings,
+      versions,
       checklist,
       logoSource: brand.get(settings.logoMediaId) ?? null,
       heroSource: brand.get(settings.heroMediaId) ?? null,
@@ -88,6 +92,8 @@ function AdminSettings() {
     enabled: initial.stripeTaxEnabled,
     confirmed: initial.stripeTaxConfirmed,
   });
+  const [saved, setSaved] = useState<SettingsSnapshot>({ limits, admission, form, tax });
+  const router = useRouter();
   const [feedback, setFeedback] = useState<AdminActionFeedbackState>(null);
   const [saving, setSaving] = useState(false);
   const [logo, setLogo] = useState<{ id: string; src: string } | null>(
@@ -171,7 +177,16 @@ function AdminSettings() {
 
   async function save() {
     setSaving(true);
-    const result = await saveSettings(adminAction, { limits, admission, form, tax });
+    const next = { limits, admission, form, tax };
+    const result = await saveSettings(adminAction, {
+      initial: saved,
+      next,
+      versions: data.versions,
+    });
+    if (result.ok) {
+      setSaved(next);
+      await router.invalidate();
+    }
     setSaving(false);
     setFeedback(
       result.ok
