@@ -47,6 +47,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { STOCK_REASONS } from '../../lib/stock-reasons';
 import {
   Drawer,
   DrawerClose,
@@ -785,10 +786,11 @@ function SkuDrawerForm({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="restock">Restock</SelectItem>
-                  <SelectItem value="correction">Correction</SelectItem>
-                  <SelectItem value="damaged">Damaged</SelectItem>
-                  <SelectItem value="return">Return</SelectItem>
+                  {STOCK_REASONS.map((r) => (
+                    <SelectItem key={r.value} value={r.value}>
+                      {r.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

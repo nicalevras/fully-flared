@@ -11,6 +11,8 @@ import { AdminActionFeedback, type AdminActionFeedbackState } from './AdminActio
 import { useStoreCurrency } from '../lib/use-store-currency';
 import { formatMoney, parseMoneyCents } from '../lib/format';
 import { FieldError } from './FieldError';
+import { STOCK_REASONS, type StockReason } from '../lib/stock-reasons';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { uploadMedia } from '../lib/upload';
 import { applyVariantEdits, type VariantEdits } from '../lib/variant-edits';
 import { buildBulkPriceReview } from '../lib/variant-bulk-review';
@@ -194,6 +196,22 @@ export function ProductEditor({
   const [compareDrafts, setCompareDrafts] = useState<Record<string, string>>({});
   const [moneyErrors, setMoneyErrors] = useState<Record<string, string>>({});
   const [stockDelta, setStockDelta] = useState<Record<string, string>>({});
+  const [stockOps, setStockOps] = useState<
+    Record<string, { operationId: string; reason: StockReason }>
+  >({});
+  const stageStock = (id: string, patch: { total?: string; reason?: StockReason }) => {
+    if (patch.total !== undefined) {
+      const total = patch.total;
+      setStockDelta((current) => ({ ...current, [id]: total }));
+    }
+    setStockOps((current) => ({
+      ...current,
+      [id]: {
+        operationId: crypto.randomUUID(),
+        reason: patch.reason ?? current[id]?.reason ?? 'restock',
+      },
+    }));
+  };
   const [collectionIds, setCollectionIds] = useState<string[]>(
     product.collections.map((c) => c.id)
   );
@@ -324,6 +342,7 @@ export function ProductEditor({
     setCompareDrafts({});
     setMoneyErrors({});
     setStockDelta({});
+    setStockOps({});
     setStagedNewVariants([]);
     setDeletedVariantIds([]);
     setMediaDraft(null);
@@ -425,11 +444,13 @@ export function ProductEditor({
       for (const id of stockDirtyIds) {
         if (failedVariantIds.has(id)) continue;
         const v = visibleVariants.find((x) => x.id === id);
-        if (!v) continue;
+        const op = stockOps[id];
+        if (!v || !op) continue;
         const r = await runAction('stock.adjust', {
           sku: v.sku,
           delta: Number(stockDelta[id]) - v.on_hand,
-          reason: 'restock',
+          reason: op.reason,
+          operationId: op.operationId,
         });
         if (r.ok) {
           anyOk = true;
@@ -562,6 +583,7 @@ export function ProductEditor({
       setPriceDrafts({});
       setCompareDrafts({});
       setStockDelta({});
+      setStockOps({});
       setStagedNewVariants([]);
       setDeletedVariantIds([]);
       revokeStaged(mediaDraft);
@@ -979,10 +1001,7 @@ export function ProductEditor({
                       const parsedTotal = Number(stockDelta[v.id]);
                       const total = Number.isFinite(parsedTotal) ? parsedTotal : v.on_hand;
                       const setTotal = (next: number) =>
-                        setStockDelta({
-                          ...stockDelta,
-                          [v.id]: String(Math.max(0, Math.trunc(next))),
-                        });
+                        stageStock(v.id, { total: String(Math.max(0, Math.trunc(next))) });
                       return (
                         <div key={v.id} className="rounded-xl border border-zinc-200 p-4">
                           {visibleVariants.length > 1 ? (
@@ -1145,9 +1164,7 @@ export function ProductEditor({
                                 aria-label={`Stock total for ${v.sku}`}
                                 className="w-12 bg-transparent text-center text-sm font-medium text-zinc-950 outline-none"
                                 value={stockDelta[v.id] ?? String(v.on_hand)}
-                                onChange={(e) =>
-                                  setStockDelta({ ...stockDelta, [v.id]: e.target.value })
-                                }
+                                onChange={(e) => stageStock(v.id, { total: e.target.value })}
                                 onBlur={(e) => {
                                   if (e.target.value.trim() === '') {
                                     const next = { ...stockDelta };
@@ -1167,6 +1184,29 @@ export function ProductEditor({
                               </button>
                             </span>
                           </div>
+                          {stockDirtyIds.includes(v.id) ? (
+                            <Select
+                              value={stockOps[v.id]?.reason ?? 'restock'}
+                              onValueChange={(value) => {
+                                const reason = STOCK_REASONS.find((r) => r.value === value)?.value;
+                                if (reason) stageStock(v.id, { reason });
+                              }}
+                            >
+                              <SelectTrigger
+                                aria-label={`Reason for ${v.sku}`}
+                                className="mt-3 w-40 rounded-lg"
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {STOCK_REASONS.map((r) => (
+                                  <SelectItem key={r.value} value={r.value}>
+                                    {r.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : null}
                           <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
                             <label className="flex items-center gap-2">
                               <input
