@@ -1,3 +1,5 @@
+import { isRecord } from './is-record';
+
 // Shared formatting helpers. One implementation, used by storefront, admin,
 // and server mail so money and dates never render differently per page.
 export function formatMoney(cents: number, currency: string): string {
@@ -97,4 +99,28 @@ export function slugify(title: string): string {
     .trim()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
+}
+
+/** Display lines for a stored address JSON; text that is not an address
+ *  object is shown as stored. */
+export function formatAddress(json: string | null): string[] {
+  if (!json) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return [json];
+  }
+  if (!isRecord(parsed)) return [json];
+  const address = parsed;
+  const field = (key: string) => {
+    const value = address[key];
+    return typeof value === 'string' ? value : '';
+  };
+  return [
+    field('line1'),
+    field('line2'),
+    [field('city'), field('state'), field('postal_code')].filter(Boolean).join(', '),
+    field('country'),
+  ].filter(Boolean);
 }

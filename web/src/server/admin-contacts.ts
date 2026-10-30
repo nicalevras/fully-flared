@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { OrderStatus } from '../db/schema';
 
 export function normalizeContactEmail(value: string): string {
   return value.trim().toLowerCase();
@@ -12,7 +13,7 @@ export type ContactLookupInput = z.infer<typeof contactLookupInputSchema>;
 export type ContactOrderRow = {
   id: string;
   number: string;
-  status: string;
+  status: OrderStatus;
   payment_status: string;
   total_cents: number;
   currency: string;

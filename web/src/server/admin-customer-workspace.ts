@@ -1,5 +1,6 @@
 import { grossSalePredicate } from './reports';
 import type { ContactOrderRow } from './admin-contacts';
+import type { ReturnStatus } from '../db/schema';
 
 export type CustomerWorkspace = {
   profile: {
@@ -14,7 +15,7 @@ export type CustomerWorkspace = {
     id: string;
     order_id: string;
     number: string;
-    status: string;
+    status: ReturnStatus;
     reason: string;
     created_at: string;
   }>;
