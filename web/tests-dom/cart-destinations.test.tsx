@@ -20,3 +20,11 @@ it('US listed once; default is first shippable', async () => {
   const options = (await screen.findAllByRole('option')).map((o) => o.textContent);
   expect(options).toEqual(['Canada', 'United States', 'United Kingdom']);
 });
+
+it('no admin copy', async () => {
+  await renderPage(CartRoute.options.component, cartView([line('TEE-1')], []));
+  const summary = await screen.findByLabelText('Order summary');
+
+  expect(summary.textContent).not.toMatch(/admin|store owner/i);
+  expect(summary.textContent).toContain('Delivery is not available yet');
+});
