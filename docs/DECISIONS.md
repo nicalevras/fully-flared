@@ -450,8 +450,69 @@ unapplied. Verification is deferred: see
 - **Account deletion scrubs only processed `webhook_inbox` payloads.** Pending
   and dead rows keep their Stripe payload, because recovery replays it to
   settle a payment. Scrubbing a dead row would lose that order.
-- **The retention task bounds the exposure.** `pruneRetention` deletes dead rows
-  received more than 90 days ago, so a deleted customer's email lives in a dead
-  payload for at most 90 days. `tests/phase6-data.test.ts` pins both rules.
+- **The retention task bounds the exposure.** A dead row becomes eligible for
+  deletion 90 days after it was received. `pruneRetention` deletes up to 1,000
+  eligible rows per table per statement, and the daily retention run (cron
+  `0 3 * * *`) repeats until every table returns fewer than 1,000
+  (`maintenance.ts` `run.task === 'retention'`). A deleted customer's email
+  therefore stays in a dead payload for 90 days plus the wait for the next
+  retention run that completes. That wait depends on the maintenance schedule
+  running. `tests/phase6-data.test.ts` pins both rules.
 - Rejected: scrubbing dead rows (loses recovery), and removing only the PII keys
   with `json_remove` (changes payloads the recovery code replays).
+
+## 2026-10-30: audit remediation decisions (D-1 to D-16)
+
+The owner approved these on 2026-10-30 for the remediation of the `e7e30e8`
+audit. Their IDs carry a hyphen (D-1). They are separate from the D1 to D12
+rows at the top of this log. Where the owner revised a decision after the
+external review of the plan (2:49 PM ET), the revised outcome is the one listed.
+
+| #    | Decision                                        | Outcome                                                                                                                                                                                                                                                                                                                    |
+| ---- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-1  | Migration strategy                              | New additive migrations from 0031, one file per concern. Applied migrations are never edited, because a local D1 that recorded a file in `d1_migrations` would never rerun the edit. Parallel work took fixed numbers: money 0033 and 0037, scaling 0034 to 0036, and auth and UX the next free number.                    |
+| D-2  | The tracked `.audit/` archive                   | Untracked and ignored, and the archive moved outside the repo. Keeping it tracked would have meant excluding it from lint and format checks.                                                                                                                                                                               |
+| D-3  | Webhook payloads of deleted customers (UX-05)   | Dead rows keep their payload for payment recovery, bounded by retention. See the UX-05 entry above.                                                                                                                                                                                                                        |
+| D-4  | Discount expiry (MS-1)                          | A `datetime-local` input read in the staff browser's zone and stored as a UTC instant with millisecond precision, validated with `z.iso.datetime()`. No store timezone setting.                                                                                                                                            |
+| D-5  | What bumps `commerce_revision` (MS-6)           | The variants update trigger fires only when `sku`, `product_id`, `price_cents`, `weight_grams`, `status` or `continue_selling` changes. Title, compare-at and cost edits no longer invalidate open checkouts.                                                                                                              |
+| D-6  | Staff read permissions (MS-4)                   | Each resource has a `view` action, and the admin loaders check it. Support views orders, customers, products and inventory. Warehouse views orders, products, inventory and shipping. Managers view every admin area they can edit. Only owner and admin view discounts, settings, media and content.                      |
+| D-7  | Restock on a return refund (MS-7)               | Restock exactly the returned items and quantities, behind a staff "Return items to stock" checkbox that is on by default. A later order restock skips units a return already put back.                                                                                                                                     |
+| D-8  | Guest returns (MS-15)                           | Returns still need sign-in. Guests get a "contact us with your order number" path. No guest return flow.                                                                                                                                                                                                                   |
+| D-9  | Billing for first-visit assets (SC-04)          | `web/public/_headers` marks hashed `/assets/*` files immutable for a year, so repeat visits make no asset requests. First-visit asset billing is measured on a deployed preview in the separate deploy plan before any architecture change.                                                                                |
+| D-10 | Storefront tokenizer                            | Products keep `unicode61`. Admin tables keep trigram. Search cost is fixed by paging on FTS rowid, not by the tokenizer.                                                                                                                                                                                                   |
+| D-11 | DOM test harness                                | `happy-dom` at the root, Testing Library in `web/`, and DOM tests in `web/tests-dom/`. Installing Testing Library at the root pulled in a second React.                                                                                                                                                                    |
+| D-12 | Missing features                                | Build the tracking URL (MF-5), then BreadcrumbList data (MF-6), then /shop sort and filter (MF-1). MF-1 waits for the owner to pick its design and scope from measured costs. Variant option axes (MF-2), the low-stock email (MF-3) and order notes (MF-4) are out of scope.                                              |
+| D-13 | `eslint-plugin-react-hooks`                     | Add it with its `recommended` config once the admin editors stop fetching in effects.                                                                                                                                                                                                                                      |
+| D-14 | Ban casts once none remain                      | `@typescript-eslint/consistent-type-assertions` with `assertionStyle: 'never'` (allowing `as const`) and `@typescript-eslint/no-non-null-assertion`, as the last commit of each cast-removal phase.                                                                                                                        |
+| D-15 | Prettier on drizzle-generated `migrations/meta` | Formatted after every `drizzle-kit generate`, not ignored.                                                                                                                                                                                                                                                                 |
+| D-16 | Stripe Customers (MS-8, MS-10)                  | One Stripe Customer per checkout, reused by later attempts on the same cart with the same order email and shipping address. One coupon per checkout, as before. Account deletion queues an idempotent job that deletes each Stripe Customer in the batch. Checkout uses Stripe Checkout Sessions, not the Payment Element. |
+
+Other owner decisions from the same review and from the request-path work:
+
+- **CI runs on pull requests to any branch.** The preview deploy runs only for
+  pull requests into `main`, so stacked pull requests get CI without deploying.
+- **Dependency advisories (R-18).** `sanitize-html` and `seroval` were patched
+  within their current majors in PR #49 (`5aa7bf9`), which merges before this
+  change. On a branch with that patch, `npm audit --omit=dev` in `web/` went from 7
+  advisories to 4 moderate, all in the `drizzle-kit` dev chain. Major upgrades
+  of dev tools (`drizzle-kit`, `vitest`, and `wrangler`'s `undici`) are
+  deferred.
+- **Admin order search sorts newest first (SC-08).** A query shaped like the
+  start of an order number reads a date window on `created_at` instead of the
+  trigram index.
+- **Cart writes stay at 30 a minute per IP (SC-09).** The limit covers adding
+  and setting cart lines.
+- **Hover preloads read no stock (SC-05).** Stock is read only when the shopper
+  clicks.
+- **A tab on an old deploy reloads once (SC-05).** If a client navigation fails
+  on a missing chunk or a loader error, the browser loads the target URL as a
+  full page once. A loader error cannot be told apart from version skew, so an
+  ordinary server error during navigation also gets that one reload.
+
+## 2026-10-30: `meta.changes` counts trigger writes (NEW-01)
+
+D1's `meta.changes` includes rows that triggers write. Deleting 128 catalog
+cards returned `changes = 256` with 72 cards left, so a loop that compared it
+with the batch size stopped early. When a table has triggers, count the rows a
+statement touched with `RETURNING` and do not compare `meta.changes` with a
+batch size. A zero or non-zero check of `meta.changes` is still safe.
