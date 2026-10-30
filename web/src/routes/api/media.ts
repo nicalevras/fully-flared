@@ -1,6 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { requireStaff, requireStaffPermission } from '../../server/session';
-import { VARIANT_WIDTHS, detectImageType, variantKey } from '../../server/media';
+import {
+  VARIANT_WIDTHS,
+  detectImageType,
+  uploadBodyRejection,
+  variantKey,
+} from '../../server/media';
 import { mediaUploadMetaSchema } from '../../schemas/account';
 import { getSettings } from '../../server/settings';
 import {
@@ -21,6 +26,8 @@ export const Route = createFileRoute('/api/media')({
         } catch {
           return Response.json({ error: 'Staff access required' }, { status: 403 });
         }
+        const rejected = uploadBodyRejection(request);
+        if (rejected) return rejected;
         const form = await request.formData();
         const file = form.get('file');
         if (!(file instanceof File))

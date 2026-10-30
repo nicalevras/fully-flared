@@ -1,3 +1,18 @@
+import { MEDIA_MAX_BYTES } from '../schemas/account';
+
+/** Multipart boundaries, part headers, and the variant fields around the file. */
+const MULTIPART_FRAMING_BYTES = 64 * 1024;
+
+/** Refuses an upload by its declared length, so an oversized body is never buffered by formData(). */
+export function uploadBodyRejection(request: Request): Response | null {
+  const declared = request.headers.get('Content-Length');
+  if (declared === null || !/^\d+$/.test(declared))
+    return Response.json({ error: 'Content-Length is required' }, { status: 411 });
+  if (Number(declared) > MEDIA_MAX_BYTES + MULTIPART_FRAMING_BYTES)
+    return Response.json({ error: 'Images must be 5 MB or smaller' }, { status: 413 });
+  return null;
+}
+
 // Image type detection from magic bytes. The browser-supplied MIME type is
 // never trusted: a file is an image only if its bytes say so, and the stored
 // content type/extension come from the detected type.

@@ -31,13 +31,11 @@ export const reportQuerySchema = z.object({
 });
 export type ReportQuery = z.infer<typeof reportQuerySchema>;
 
+export const MEDIA_MAX_BYTES = 5 * 1024 * 1024;
+
 export const mediaUploadMetaSchema = z.object({
   filename: z.string().min(1).max(255),
   contentType: z.enum(['image/jpeg', 'image/png', 'image/webp', 'image/gif']),
-  sizeBytes: z
-    .number()
-    .int()
-    .min(1)
-    .max(5 * 1024 * 1024),
+  sizeBytes: z.number().int().min(1).max(MEDIA_MAX_BYTES),
 });
 export type MediaUploadMeta = z.infer<typeof mediaUploadMetaSchema>;
