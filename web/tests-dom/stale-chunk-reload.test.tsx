@@ -45,8 +45,8 @@ async function open(path: string) {
 
 it('a stale chunk during navigation loads the target URL as a full page', async () => {
   const router = await open('/');
-  await router.navigate({ to: '/b', search: { q: '1' } });
-  expect(assign.mock.calls).toEqual([['/b?q=1']]);
+  await router.navigate({ href: '/b?page=2' });
+  expect(assign.mock.calls).toEqual([['/b?page=2']]);
 });
 
 it('a hover preload that hits a stale chunk does not reload', async () => {
@@ -57,7 +57,7 @@ it('a hover preload that hits a stale chunk does not reload', async () => {
 
 it('a target that still fails after its reload does not reload again', async () => {
   const router = await open('/');
-  await router.navigate({ to: '/b' });
+  await router.navigate({ href: '/b' });
   expect(assign).toHaveBeenCalledTimes(1);
 
   await open('/b');
@@ -66,8 +66,8 @@ it('a target that still fails after its reload does not reload again', async () 
 
 it('a navigation elsewhere re-arms the reload', async () => {
   const router = await open('/');
-  await router.navigate({ to: '/b' });
+  await router.navigate({ href: '/b' });
   await router.navigate({ to: '/' });
-  await router.navigate({ to: '/b' });
+  await router.navigate({ href: '/b' });
   expect(assign).toHaveBeenCalledTimes(2);
 });

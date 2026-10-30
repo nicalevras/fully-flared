@@ -110,6 +110,16 @@ locally, a click to a product page makes 1 server-function call and 1 stock read
 with or without a hover first, and the hover itself reads no stock. First-visit
 request counts on a deployed preview are not measured here.
 
+A tab still running the previous deploy can ask for chunks that deploy removed.
+Vite reports that as `vite:preloadError`. During a navigation (never a preload),
+the root route then loads the target URL as a full page. The target is recorded in
+`sessionStorage`, so if it fails again it shows the error page instead of reloading
+again; a navigation elsewhere re-arms the reload. Server-function inputs added here
+default `live` to false and unknown keys are stripped, so either side of a deploy
+accepts the other's calls. Public HTML is shared at the edge for up to 60 seconds
+and its cache key is not versioned, so a reload inside that minute can still get
+the previous build's HTML; the reload guard stops that from looping.
+
 The server helper performs one parameterized, indexed D1 query for the batch of
 missing products. Internal Workers Cache API entries are per product and mode,
 with `Cache-Control: public, max-age=5` and an explicit expiration check. Overlapping
