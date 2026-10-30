@@ -11,7 +11,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['tests/**/*.test.ts'],
+    include: ['tests/**/*.test.ts', 'web/tests-dom/**/*.test.tsx'],
     // The 100k capacity gate takes about half an hour; run it with `npm run test:scale`.
     exclude: [
       ...configDefaults.exclude,
