@@ -115,6 +115,7 @@ const commits: Array<{ email: string; review: boolean; canReview: boolean }> = [
 beforeEach(() => {
   commits.length = 0;
   fns.getCart.mockResolvedValue(cartView(1));
+  fns.quote.mockReset();
   fns.quote.mockImplementation(async () => ({
     configRevision: 1,
     subtotalCents: 2000,
