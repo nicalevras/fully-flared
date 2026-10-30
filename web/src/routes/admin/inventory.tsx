@@ -159,6 +159,8 @@ function StockStepper({
   );
 }
 
+const NONE_EXPANDED: Readonly<Record<string, boolean>> = {};
+
 function AdminInventory() {
   const adminAction = useAdminAction();
   const router = useRouter();
@@ -166,12 +168,17 @@ function AdminInventory() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const navigateAll = useNavigate();
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const view = JSON.stringify([search.q, search.page, search.low]);
+  const [expansion, setExpansion] = useState<{
+    view: string;
+    rows: Readonly<Record<string, boolean>>;
+  }>({ view, rows: {} });
+  const expanded = expansion.view === view ? expansion.rows : NONE_EXPANDED;
+  const toggleExpanded = (groupId: string) =>
+    setExpansion({ view, rows: { ...expanded, [groupId]: !(expanded[groupId] ?? false) } });
   const [staged, setStaged] = useState<Record<string, StagedAdjustment>>({});
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<AdminActionFeedbackState>(null);
-
-  useEffect(() => setExpanded({}), [search.q, search.page, search.low]);
 
   const skuRows = useMemo(() => {
     const map = new Map<string, InventorySkuRow>();
@@ -284,7 +291,7 @@ function AdminInventory() {
               type="button"
               aria-expanded={open}
               aria-label={`${open ? 'Collapse' : 'Expand'} ${group.title}`}
-              onClick={() => setExpanded((current) => ({ ...current, [group.id]: !open }))}
+              onClick={() => toggleExpanded(group.id)}
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-950/5 hover:text-zinc-950"
             >
               {open ? (
@@ -397,8 +404,7 @@ function AdminInventory() {
 
   const handleRowClick = (row: InventoryTableRow) => {
     if (row.kind === 'product') {
-      const group = row.group;
-      setExpanded((current) => ({ ...current, [group.id]: !(current[group.id] ?? false) }));
+      toggleExpanded(row.group.id);
       return;
     }
     void navigate({
