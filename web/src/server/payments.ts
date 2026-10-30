@@ -1,7 +1,9 @@
 import Stripe from 'stripe';
 import type { WorkerEnv } from './env';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { ShippingAddress } from '../schemas/checkout';
+import * as z from 'zod';
+import { shippingAddressSchema, type ShippingAddress } from '../schemas/checkout';
+import { isStripeShippingCountry } from './stripe-countries';
 
 // PaymentProvider seam (DECISIONS D4). Stripe is the only v1 implementation.
 export interface CheckoutRequest {
@@ -24,9 +26,33 @@ export interface CheckoutRequest {
   shippingCountries: string[];
   automaticTax: boolean;
   expiresAtEpochSeconds: number;
-  shippingAddress?: ShippingAddress;
-  customerId?: string;
+  shippingAddress?: ShippingAddress | undefined;
+  customerId?: string | undefined;
 }
+
+/** Validates a CheckoutRequest stored as JSON; unknown keys pass through. */
+export const checkoutRequestSchema = z
+  .object({
+    orderId: z.string(),
+    attemptId: z.string(),
+    email: z.string(),
+    currency: z.string(),
+    lineItems: z.array(
+      z.object({ name: z.string(), unitAmountCents: z.number(), qty: z.number() }).loose()
+    ),
+    discountCents: z.number().optional(),
+    discountCode: z.string().optional(),
+    shippingCents: z.number().optional(),
+    successUrl: z.string(),
+    cancelUrl: z.string(),
+    collectShipping: z.boolean(),
+    shippingCountries: z.array(z.string()),
+    automaticTax: z.boolean(),
+    expiresAtEpochSeconds: z.number(),
+    shippingAddress: shippingAddressSchema.optional(),
+    customerId: z.string().optional(),
+  })
+  .loose();
 
 export interface CheckoutResult {
   sessionId: string;
@@ -358,8 +384,7 @@ export class StripeProvider implements PaymentProvider {
           ...(req.collectShipping
             ? {
                 shipping_address_collection: {
-                  allowed_countries:
-                    req.shippingCountries as Stripe.Checkout.SessionCreateParams.ShippingAddressCollection.AllowedCountry[],
+                  allowed_countries: req.shippingCountries.filter(isStripeShippingCountry),
                 },
               }
             : {}),
