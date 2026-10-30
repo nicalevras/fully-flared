@@ -13,6 +13,7 @@ import {
   listingRefKey,
 } from '../web/src/server/catalog-models';
 import { drainCatalogInvalidations } from '../web/src/server/public-cache';
+import { parseJson, z } from './helpers/json';
 
 // Publication guarantees for the partitioned catalog (Phase 3B). This
 // file previously covered the whole-catalog snapshot publisher; the
@@ -36,7 +37,7 @@ const kv = {
     map.delete(key);
   },
 };
-const env = { CATALOG_KV: kv as never, DB: undefined as never };
+const env = { CATALOG_KV: kv };
 
 beforeAll(async () => {
   const t = await createTestDb();
@@ -131,7 +132,7 @@ it('finds old products beyond a 500-card degraded home page', async () => {
     ]);
   }
   await buildCatalogReadModels(db, kv);
-  const home = await getShopProductsPage(db, env as never, 26);
+  const home = await getShopProductsPage(db, env, 26);
   expect(home.total).toBe(601);
   expect(home.pageCount).toBe(26);
   expect(home.products.length).toBeGreaterThan(0);
@@ -146,7 +147,7 @@ it('/shop page N reads only page N of the catalogue', async () => {
       return kv.get(key);
     },
   };
-  const shop = await getShopProductsPage(db, { CATALOG_KV: recording } as never, 2);
+  const shop = await getShopProductsPage(db, { CATALOG_KV: recording }, 2);
   expect(shop.page).toBe(2);
   expect(read.some((key) => key.startsWith(listingPageKey(ALL_LISTING, 2, '')))).toBe(true);
   expect(read.some((key) => key.startsWith(listingPageKey(ALL_LISTING, 1, '')))).toBe(false);
@@ -167,7 +168,7 @@ it('paginates collections at 48 per page with a total', async () => {
       .bind(r.id, 'big')
       .run();
   await catalogWork(db, kv);
-  const page2 = await getPublishedCollection(db, env as never, 'big', 2);
+  const page2 = await getPublishedCollection(db, env, 'big', 2);
   expect(page2?.total).toBe(50);
   expect(page2?.pageCount).toBe(2);
   expect(page2?.products).toHaveLength(2);
@@ -196,7 +197,7 @@ it('a title rule with LIKE wildcards matches literally', async () => {
     ),
   ]);
   await catalogWork(db, kv);
-  const col = await getPublishedCollection(db, env as never, 'wr', 1);
+  const col = await getPublishedCollection(db, env, 'wr', 1);
   expect(col?.products.map((p) => p.id)).toEqual(['w1']);
 });
 
@@ -207,7 +208,7 @@ it('no single KV value holds the whole catalog; references stay small', async ()
     max = Math.max(max, value.length);
   }
   expect(max).toBeLessThan(128 * 1024);
-  const ref = JSON.parse(map.get(listingRefKey(ALL_LISTING))!) as { total: number };
+  const ref = parseJson(map.get(listingRefKey(ALL_LISTING)), z.object({ total: z.number() }));
   expect(ref.total).toBe(603);
 });
 import { buildCatalogReadModels, catalogWork } from './helpers/catalog-driver';
@@ -222,7 +223,7 @@ it('a deleted collection is retired: its pages disappear and its cache is purged
     .prepare("INSERT INTO product_collections(product_id,collection_id) VALUES('p1','gone')")
     .run();
   await catalogWork(db, kv);
-  expect(await getPublishedCollection(db, env as never, 'gone', 1)).not.toBeNull();
+  expect(await getPublishedCollection(db, env, 'gone', 1)).not.toBeNull();
   const stalePointer = map.get(collectionMetaKey('gone')) ?? '';
   expect(stalePointer).not.toBe('');
 
@@ -230,12 +231,12 @@ it('a deleted collection is retired: its pages disappear and its cache is purged
   await db.prepare("DELETE FROM collections WHERE id='gone'").run();
   await db.prepare('DELETE FROM catalog_invalidations').run();
   await catalogWork(db, kv);
-  expect(await getPublishedCollection(db, env as never, 'gone', 1)).toBeNull();
+  expect(await getPublishedCollection(db, env, 'gone', 1)).toBeNull();
   expect(map.has(listingRefKey('gone'))).toBe(false);
   expect(await readListingRef(db, kv, 'gone')).toBeNull();
   map.set(collectionMetaKey('gone'), stalePointer);
   expect(await readListingRef(db, kv, 'gone')).toBeNull();
-  expect(await getPublishedCollection(db, env as never, 'gone', 1)).toBeNull();
+  expect(await getPublishedCollection(db, env, 'gone', 1)).toBeNull();
   map.delete(collectionMetaKey('gone'));
   const purged: string[] = [];
   await drainCatalogInvalidations(db, async (tags) => purged.push(...tags));
@@ -244,5 +245,5 @@ it('a deleted collection is retired: its pages disappear and its cache is purged
   const before = writes.length;
   expect((await catalogWork(db, kv)).processed).toBe(0);
   expect(writes).toHaveLength(before);
-  expect(await getPublishedCollection(db, env as never, 'gone', 1)).toBeNull();
+  expect(await getPublishedCollection(db, env, 'gone', 1)).toBeNull();
 });
