@@ -120,46 +120,52 @@ function CheckoutPage() {
     : 0;
   const localTotal = Math.max(subtotal - discountAmount, 0) + shipping;
   const quoteFn = useServerFn(checkoutQuoteFn);
-  const [quote, setQuote] = useState<Awaited<ReturnType<typeof checkoutQuoteFn>> | null>(null);
-  const currency = review?.quote.currency ?? quote?.currency ?? storeCurrency;
   const [quoteNonce, setQuoteNonce] = useState(0);
-  const [quoteError, setQuoteError] = useState('');
-  const [quoting, setQuoting] = useState(false);
+  const quoteRequest = useMemo(
+    () =>
+      email.includes('@') && rate
+        ? {
+            email,
+            lines: lines.map((l) => ({ sku: l.sku, qty: l.qty })),
+            shippingCountry: country,
+            shippingRateId: rate.id,
+            ...(appliedCode ? { discountCode: appliedCode } : {}),
+          }
+        : null,
+    [email, lines, country, rate, appliedCode]
+  );
+  const quoteKey = quoteRequest ? JSON.stringify({ quoteRequest, quoteNonce }) : '';
+  const [quoteResult, setQuoteResult] = useState<
+    | { forKey: string; quote: Awaited<ReturnType<typeof checkoutQuoteFn>> }
+    | { forKey: string; error: string }
+    | null
+  >(null);
+  const currentQuote = quoteKey && quoteResult?.forKey === quoteKey ? quoteResult : null;
+  const quote = currentQuote && 'quote' in currentQuote ? currentQuote.quote : null;
+  const quoteError = currentQuote && 'error' in currentQuote ? currentQuote.error : '';
+  const quoting = quoteKey !== '' && !currentQuote;
+  const currency = review?.quote.currency ?? quote?.currency ?? storeCurrency;
   useEffect(() => {
-    setQuote(null);
-    setQuoteError('');
-    if (!email.includes('@') || !rate) return;
+    if (!quoteRequest) return;
     const controller = new AbortController();
-    setQuoting(true);
     const timer = setTimeout(() => {
-      void quoteFn({
-        data: {
-          email,
-          lines: lines.map((l) => ({ sku: l.sku, qty: l.qty })),
-          shippingCountry: country,
-          shippingRateId: rate.id,
-          ...(appliedCode ? { discountCode: appliedCode } : {}),
-        },
-        signal: controller.signal,
-      })
+      void quoteFn({ data: quoteRequest, signal: controller.signal })
         .then((value) => {
-          if (!controller.signal.aborted) setQuote(value);
+          if (!controller.signal.aborted) setQuoteResult({ forKey: quoteKey, quote: value });
         })
         .catch(() => {
           if (!controller.signal.aborted)
-            setQuoteError(
-              'We could not quote this order. Check your shipping selection and try again.'
-            );
-        })
-        .finally(() => {
-          if (!controller.signal.aborted) setQuoting(false);
+            setQuoteResult({
+              forKey: quoteKey,
+              error: 'We could not quote this order. Check your shipping selection and try again.',
+            });
         });
     }, 300);
     return () => {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [email, country, rate?.id, appliedCode, lines, quoteFn, quoteNonce]);
+  }, [quoteFn, quoteKey, quoteRequest]);
   const total = review?.quote.totalCents ?? quote?.totalCents ?? localTotal;
 
   async function applyCode() {
@@ -315,7 +321,6 @@ function CheckoutPage() {
         // the stale quote so the page requotes and the shopper reviews
         // updated totals before resubmitting.
         resetCheckoutIntent(checkoutStorage());
-        setQuote(null);
         setQuoteNonce((n) => n + 1);
         setError('Prices changed while you were checking out. Updated totals are shown below.');
         return;
