@@ -138,6 +138,8 @@ function testWorker() {
   );
 }
 
+export type TestDb = Awaited<ReturnType<typeof createTestDb>>;
+
 export async function createTestDb(
   opts: { skipFiles?: string[]; through?: string; transportRetry?: boolean } = {}
 ): Promise<{ db: D1Database; env: Cloudflare.Env; dispose: () => Promise<void> }> {
