@@ -11,7 +11,7 @@ import {
   zoneForCountry,
 } from '../lib/cart';
 import { getCart } from '../lib/cartFns';
-import { countryName, shippableCountries } from '../lib/cart-destination';
+import { countryName, useCartDestination } from '../lib/cart-destination';
 import { BagIcon, ShieldIcon } from '../components/icons';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -38,9 +38,7 @@ function CartPage() {
   const currency = useStoreCurrency();
   const initial = Route.useLoaderData();
   const { lines, zones, view, setQty, pending, error } = useServerCart(initial);
-  const countries = useMemo(() => shippableCountries(zones), [zones]);
-  const [chosenCountry, setCountry] = useState<string | null>(null);
-  const country = chosenCountry ?? countries[0] ?? '';
+  const { countries, country, setCountry } = useCartDestination(zones);
   const [rateId, setRateId] = useState('');
 
   const zone = useMemo(() => zoneForCountry(zones, country), [zones, country]);

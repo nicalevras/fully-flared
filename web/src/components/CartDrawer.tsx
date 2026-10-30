@@ -5,7 +5,8 @@ import { formatMoney } from '../lib/format';
 import { mediaUrl } from '../lib/media-url';
 import { BagIcon } from './icons';
 import { XIcon } from 'lucide-react';
-import { nextQtyOnIncrement, useServerCart, type CartView } from '../lib/cart';
+import { nextQtyOnIncrement, useServerCart, zoneForCountry, type CartView } from '../lib/cart';
+import { useCartDestination } from '../lib/cart-destination';
 import {
   Drawer,
   DrawerClose,
@@ -42,8 +43,9 @@ export function CartDrawer({ initial }: { initial: CartView }) {
 
   const subtotal = lines.reduce((sum, l) => sum + l.priceCents * l.qty, 0);
   const itemCount = lines.reduce((n, l) => n + l.qty, 0);
-  const firstRate = view.zones[0]?.rates[0];
-  const freeOver = firstRate?.kind === 'free_over' ? firstRate.freeOverCents : null;
+  const { country } = useCartDestination(view.zones);
+  const rate = zoneForCountry(view.zones, country)?.rates[0];
+  const freeOver = rate?.kind === 'free_over' ? rate.freeOverCents : null;
   const awayFromFree = freeOver != null ? Math.max(freeOver - subtotal, 0) : null;
 
   return (
