@@ -8,7 +8,8 @@ export type MediaSource = {
 export function mediaUrl(source: MediaSource, width?: number) {
   if (width && source.variants?.length) {
     const sorted = [...source.variants].sort((a, b) => a.width - b.width);
-    return (sorted.find((v) => v.width >= width) ?? sorted.at(-1))!.url;
+    const chosen = sorted.find((v) => v.width >= width) ?? sorted.at(-1);
+    if (chosen) return chosen.url;
   }
   return source.publicUrl || `/media/${encodeURIComponent(source.key)}`;
 }
