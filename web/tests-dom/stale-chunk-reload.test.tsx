@@ -4,6 +4,7 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  notFound,
 } from '@tanstack/react-router';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { reloadOnStaleChunk } from '@/lib/stale-chunk-reload';
@@ -15,6 +16,20 @@ function appAt(path: string) {
   const routes = [
     createRoute({ getParentRoute: () => root, path: '/' }),
     createRoute({ getParentRoute: () => root, path: '/b', loader: staleChunk }),
+    createRoute({
+      getParentRoute: () => root,
+      path: '/old-input',
+      loader: () => {
+        throw new Error('Invalid input');
+      },
+    }),
+    createRoute({
+      getParentRoute: () => root,
+      path: '/missing',
+      loader: () => {
+        throw notFound();
+      },
+    }),
   ];
   const router = createRouter({
     routeTree: root.addChildren(routes),
@@ -70,4 +85,21 @@ it('a navigation elsewhere re-arms the reload', async () => {
   await router.navigate({ to: '/' });
   await router.navigate({ href: '/b' });
   expect(assign).toHaveBeenCalledTimes(2);
+});
+
+it('a loader error during navigation loads the target URL as a full page', async () => {
+  const router = await open('/');
+  await router.navigate({ href: '/old-input' });
+  expect(assign.mock.calls).toEqual([['/old-input']]);
+});
+
+it('a loader error on the first page load does not reload', async () => {
+  await open('/old-input');
+  expect(assign).not.toHaveBeenCalled();
+});
+
+it('a not-found page does not reload', async () => {
+  const router = await open('/');
+  await router.navigate({ href: '/missing' });
+  expect(assign).not.toHaveBeenCalled();
 });
