@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { staffMiddleware } from '../../server/staff-middleware';
 import { requireStaffPermission } from '../../server/session';
-import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
+import { createFileRoute, Link, useBlocker, useRouter } from '@tanstack/react-router';
 import { buildSetupChecklist } from '../../lib/setup-checklist';
 import {
   AdminActionFeedback,
@@ -15,7 +15,8 @@ import {
   ADMISSION_DEFINITIONS,
   SUPPORTED_CURRENCIES,
 } from '../../lib/settings-definitions';
-import { saveSettings, type SettingsSnapshot } from '../../lib/settings-save';
+import { changedSettings, saveSettings, type SettingsSnapshot } from '../../lib/settings-save';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { readSettings, settingVersions } from '../../server/settings';
 import { resolveMediaSources } from '../../server/media-source';
 import { uploadMedia } from '../../lib/upload';
@@ -94,6 +95,12 @@ function AdminSettings() {
   });
   const [saved, setSaved] = useState<SettingsSnapshot>({ limits, admission, form, tax });
   const router = useRouter();
+  const dirty = changedSettings(saved, { limits, admission, form, tax }).length > 0;
+  const blocker = useBlocker({
+    shouldBlockFn: () => dirty,
+    enableBeforeUnload: () => dirty,
+    withResolver: true,
+  });
   const [feedback, setFeedback] = useState<AdminActionFeedbackState>(null);
   const [saving, setSaving] = useState(false);
   const [logo, setLogo] = useState<{ id: string; src: string } | null>(
@@ -446,6 +453,20 @@ function AdminSettings() {
           {saving ? 'Saving…' : 'Save settings'}
         </button>
       </div>
+      <ConfirmDialog
+        request={
+          blocker.status === 'blocked'
+            ? {
+                title: 'Leave with unsaved settings?',
+                body: 'Your settings changes have not been saved. Leaving now discards them.',
+                confirmLabel: 'Leave and discard',
+              }
+            : null
+        }
+        busy={false}
+        onConfirm={() => blocker.proceed?.()}
+        onCancel={() => blocker.reset?.()}
+      />
     </main>
   );
 }
