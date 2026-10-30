@@ -47,6 +47,8 @@ type Zone = {
   }>;
 };
 
+const zoneCountries = (json: string) => z.array(z.string()).parse(JSON.parse(json));
+
 export function countryLabel(code: string): string {
   try {
     const name = new Intl.DisplayNames(['en'], { type: 'region' }).of(code.toUpperCase());
@@ -182,7 +184,7 @@ function Page() {
               <div className="flex flex-wrap items-baseline gap-x-3 px-5 pt-4 pb-3">
                 <h2 className="text-sm font-medium text-zinc-950">{z.name}</h2>
                 <span className="text-[13px] text-zinc-500">
-                  {(JSON.parse(z.countries_json) as string[]).map(countryLabel).join(', ')}
+                  {zoneCountries(z.countries_json).map(countryLabel).join(', ')}
                 </span>
               </div>
               <AdminDataTableShell>
