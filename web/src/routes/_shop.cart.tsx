@@ -11,6 +11,7 @@ import {
   zoneForCountry,
 } from '../lib/cart';
 import { getCart } from '../lib/cartFns';
+import { countryName, shippableCountries } from '../lib/cart-destination';
 import { BagIcon, ShieldIcon } from '../components/icons';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -37,7 +38,9 @@ function CartPage() {
   const currency = useStoreCurrency();
   const initial = Route.useLoaderData();
   const { lines, zones, view, setQty, pending, error } = useServerCart(initial);
-  const [country, setCountry] = useState('US');
+  const countries = useMemo(() => shippableCountries(zones), [zones]);
+  const [chosenCountry, setCountry] = useState<string | null>(null);
+  const country = chosenCountry ?? countries[0] ?? '';
   const [rateId, setRateId] = useState('');
 
   const zone = useMemo(() => zoneForCountry(zones, country), [zones, country]);
@@ -208,9 +211,9 @@ function CartPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {[...new Set(zones.flatMap((z) => z.countries))].concat(['US']).map((c) => (
+                  {countries.map((c) => (
                     <SelectItem key={c} value={c}>
-                      {c}
+                      {countryName(c)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -252,8 +255,8 @@ function CartPage() {
             </p>
           ) : (
             <p className="mt-5 text-[13px] leading-5 text-zinc-500">
-              Delivery is not available to {country}. Choose a supported destination to see delivery
-              options and totals.
+              Delivery is not available to {countryName(country)}. Choose a supported destination to
+              see delivery options and totals.
             </p>
           )}
 

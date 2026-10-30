@@ -54,7 +54,7 @@ describe('zone selection', () => {
     const page = readFileSync('web/src/routes/_shop.cart.tsx', 'utf8');
     expect(page).not.toContain('?? zones[0]');
     expect(page).toContain('zoneForCountry(zones, country)');
-    expect(page).toContain('Delivery is not available to {country}');
+    expect(page).toContain('Delivery is not available to {countryName(country)}');
     expect(page).toContain('disabled={pending}');
     expect(page).toContain('role="alert"');
   });
