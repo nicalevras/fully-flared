@@ -1,3 +1,4 @@
+import * as z from 'zod';
 import { sha256Hex } from '../lib/hash';
 import { shippingAddressSchema } from '../schemas/checkout';
 import { loadIntent, type CheckoutIntentRow } from './checkout-intents';
@@ -25,14 +26,28 @@ const later = () => new Date(Date.now() + 60_000).toISOString();
 // Stripe may prune idempotency keys after 24 hours. Never replay a creation
 // operation after 23 hours; retrieval and manual reconciliation remain available.
 const OPERATION_HORIZON = 23 * 60 * 60_000;
-export type ReviewQuote = {
-  subtotalCents: number;
-  discountCents: number;
-  shippingCents: number;
-  taxCents: number;
-  totalCents: number;
-  currency: string;
-};
+const reviewQuoteSchema = z.object({
+  subtotalCents: z.number().int(),
+  discountCents: z.number().int(),
+  shippingCents: z.number().int(),
+  taxCents: z.number().int(),
+  totalCents: z.number().int(),
+  currency: z.string(),
+});
+
+export type ReviewQuote = z.infer<typeof reviewQuoteSchema>;
+
+/** The frozen quote as stored, or null when the stored JSON is not a quote. */
+function storedQuote(json: string): ReviewQuote | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  const parsed = reviewQuoteSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
 
 export async function recordAuthorizedEvent(
   db: D1Database,
@@ -96,7 +111,16 @@ export async function prepareReview(
   intent: CheckoutIntentRow,
   deadline: number
 ): Promise<ReviewQuote> {
-  if (intent.quote_json) return JSON.parse(intent.quote_json) as ReviewQuote;
+  if (intent.quote_json) {
+    const quote = storedQuote(intent.quote_json);
+    if (!quote)
+      throw new CheckoutError(
+        'The saved payment total could not be read. Review a new checkout.',
+        409,
+        'STALE_QUOTE'
+      );
+    return quote;
+  }
   if (!intent.stripe_session_id || !provider.retrieveCheckoutSession)
     throw new CheckoutError('Payment review is not ready', 503, 'DEPENDENCY');
   const remaining = deadline - Date.now();
@@ -455,8 +479,8 @@ export async function runAuthorizedCheckout(
         intent.quote_json &&
         !cancel
       ) {
-        const quote = JSON.parse(intent.quote_json) as ReviewQuote;
-        if (quote.totalCents !== 0 || session.currency.toUpperCase() !== quote.currency)
+        const quote = storedQuote(intent.quote_json);
+        if (!quote || quote.totalCents !== 0 || session.currency.toUpperCase() !== quote.currency)
           throw Error('Free Session mismatch');
         await markOrderPaid(db, session.id, paidSession(intent, quote), provider);
         await db
@@ -486,7 +510,7 @@ export async function runAuthorizedCheckout(
     }
     if (!provider.retrievePaymentIntent) throw Error('Payment retrieval unavailable');
     let pi = await provider.retrievePaymentIntent(intent.payment_intent_id, options());
-    const quote = intent.quote_json ? (JSON.parse(intent.quote_json) as ReviewQuote) : null;
+    const quote = intent.quote_json ? storedQuote(intent.quote_json) : null;
     if (!quote) cancel = true;
     if (quote) {
       try {

@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { createTestDb } from './helpers/d1';
+import { MAX_EMAIL_ATTEMPTS } from '../web/src/server/outbox';
 
 // P0 item 3: outbox reclaim must key on claimed_at, never created_at.
 // A retried row can be hours old while a worker is actively sending it;
@@ -74,9 +75,9 @@ describe('outbox claimed_at reclaim', () => {
     await db
       .prepare(
         `INSERT INTO outbox (id, type, payload_json, status, attempts, created_at, claimed_at)
-       VALUES ('ob-capped', 'email.send', ?, 'sending', 3, ?, ?)`
+       VALUES ('ob-capped', 'email.send', ?, 'sending', ?, ?, ?)`
       )
-      .bind(payload, iso(3600_000), iso(20 * 60_000))
+      .bind(payload, MAX_EMAIL_ATTEMPTS, iso(3600_000), iso(20 * 60_000))
       .run();
     const claimed = await processOutboxRow(db, 'ob-capped');
     expect(claimed).toBe(false);

@@ -1207,7 +1207,7 @@ export const outbox = sqliteTable(
     index('outbox_status_idx').on(t.status, t.createdAt),
     index('outbox_claim_due_idx')
       .on(t.status, t.claimedAt, t.id)
-      .where(sql`${t.attempts}<3`),
+      .where(sql`${t.attempts}<8`),
   ]
 );
 

@@ -7,10 +7,24 @@ export {
 } from './outbox';
 import { and, eq, lt, or, sql } from 'drizzle-orm';
 import { nextRetryIso } from './retry';
+import {
+  commitWithEmails,
+  emailStatement,
+  MAX_EMAIL_ATTEMPTS,
+  OUTBOX_ALERT_PREFIX,
+  operationalRecipients,
+} from './outbox';
 import { getDb } from '../db/client';
 import { outbox } from '../db/schema';
 import { getSettings } from './settings';
-import { emailMessageSchema, type JobMessage } from '../schemas/queue';
+import {
+  customerDeletionSchema,
+  emailMessageSchema,
+  outboxJobSchema,
+  type JobMessage,
+  type OutboxJobMessage,
+} from '../schemas/queue';
+import type { PaymentProvider } from './payments';
 import { outboxDue, type RecoveryContext } from './recovery-eligibility';
 
 export type { JobMessage } from '../schemas/queue';
@@ -75,7 +89,50 @@ function parseOutboxPayload(json: string): EmailMessage | null {
     return null;
   }
 }
-export async function processOutboxRow(db: D1Database, outboxId: string): Promise<boolean> {
+type OutboxJob = {
+  type: OutboxJobMessage['type'];
+  run(payloadJson: string): Promise<void>;
+  alert(rowId: string): Omit<EmailMessage, 'to'>;
+};
+
+export function processOutboxRow(db: D1Database, outboxId: string): Promise<boolean> {
+  return processOutbox(db, outboxId, {
+    type: 'email.send',
+    async run(payloadJson) {
+      const msg = parseOutboxPayload(payloadJson);
+      if (!msg) throw new Error('Invalid outbox email payload');
+      await sendEmail(db, msg);
+    },
+    alert: (rowId) => ({
+      subject: 'Store email delivery failed permanently',
+      text: `Outbox email ${rowId} failed ${MAX_EMAIL_ATTEMPTS} times and will not be retried. Check the email provider.`,
+      html: `<p>Outbox email ${rowId} failed ${MAX_EMAIL_ATTEMPTS} times and will not be retried. Check the email provider.</p>`,
+    }),
+  });
+}
+
+export function processCustomerDeletion(
+  db: D1Database,
+  outboxId: string,
+  provider: Pick<PaymentProvider, 'deleteCustomer'> | undefined
+): Promise<boolean> {
+  return processOutbox(db, outboxId, {
+    type: 'stripe.customer.delete',
+    async run(payloadJson) {
+      if (!provider?.deleteCustomer) throw new Error('Payment provider unavailable');
+      await provider.deleteCustomer(
+        customerDeletionSchema.parse(JSON.parse(payloadJson)).customerId
+      );
+    },
+    alert: (rowId) => ({
+      subject: 'Stripe customer deletion failed permanently',
+      text: `Outbox job ${rowId} could not delete a Stripe Customer after ${MAX_EMAIL_ATTEMPTS} attempts. Delete the Customer named in the job id in the Stripe Dashboard.`,
+      html: `<p>Outbox job ${rowId} could not delete a Stripe Customer after ${MAX_EMAIL_ATTEMPTS} attempts. Delete the Customer named in the job id in the Stripe Dashboard.</p>`,
+    }),
+  });
+}
+
+async function processOutbox(db: D1Database, outboxId: string, job: OutboxJob): Promise<boolean> {
   const d = getDb(db);
   // Claim first with a conditional update: the queue consumer and the cron
   // drain can race for the same row, but only the claim winner may send.
@@ -89,7 +146,8 @@ export async function processOutboxRow(db: D1Database, outboxId: string): Promis
     .where(
       and(
         eq(outbox.id, outboxId),
-        lt(outbox.attempts, 3),
+        eq(outbox.type, job.type),
+        lt(outbox.attempts, MAX_EMAIL_ATTEMPTS),
         or(sql`${outbox.retryAfter} IS NULL`, sql`${outbox.retryAfter} <= ${claimNow}`),
         or(eq(outbox.status, 'pending'), eq(outbox.status, 'failed'))
       )
@@ -109,9 +167,10 @@ export async function processOutboxRow(db: D1Database, outboxId: string): Promis
       .where(
         and(
           eq(outbox.id, outboxId),
+          eq(outbox.type, job.type),
           eq(outbox.status, 'sending'),
           lt(outbox.claimedAt, staleSendingBefore),
-          lt(outbox.attempts, 3)
+          lt(outbox.attempts, MAX_EMAIL_ATTEMPTS)
         )
       )
       .run();
@@ -120,11 +179,7 @@ export async function processOutboxRow(db: D1Database, outboxId: string): Promis
   const row = await d.query.outbox.findFirst({ where: eq(outbox.id, outboxId) });
   if (!row) return false;
   try {
-    if (row.type === 'email.send') {
-      const msg = parseOutboxPayload(row.payloadJson);
-      if (!msg) throw new Error('Invalid outbox email payload');
-      await sendEmail(db, msg);
-    }
+    await job.run(row.payloadJson);
     await d
       .update(outbox)
       .set({ status: 'sent', sentAt: new Date().toISOString(), payloadJson: '{}' })
@@ -133,16 +188,34 @@ export async function processOutboxRow(db: D1Database, outboxId: string): Promis
       );
     return true;
   } catch (error) {
-    await d
-      .update(outbox)
-      .set({
-        status: 'failed',
-        attempts: sql`${outbox.attempts} + 1`,
-        retryAfter: nextRetryIso(row.attempts + 1),
-      })
-      .where(
-        and(eq(outbox.id, row.id), eq(outbox.status, 'sending'), eq(outbox.claimedAt, claimNow))
-      );
+    const attempts = row.attempts + 1;
+    const exhausted = attempts >= MAX_EMAIL_ATTEMPTS && !row.id.startsWith(OUTBOX_ALERT_PREFIX);
+    const alerts = (exhausted ? await operationalRecipients(db) : []).map((to) => ({
+      to,
+      id: `${OUTBOX_ALERT_PREFIX}${row.id}-${to}`,
+    }));
+    await commitWithEmails(
+      db,
+      [
+        db
+          .prepare(
+            "UPDATE outbox SET status='failed', attempts=attempts+1, retry_after=? WHERE id=? AND status='sending' AND claimed_at=?"
+          )
+          .bind(nextRetryIso(attempts), row.id, claimNow),
+        ...alerts.map(({ to, id }) =>
+          emailStatement(
+            db,
+            id,
+            { to, ...job.alert(row.id) },
+            {
+              sql: `EXISTS(SELECT 1 FROM outbox WHERE id=? AND status='failed' AND attempts>=${MAX_EMAIL_ATTEMPTS})`,
+              values: [row.id],
+            }
+          )
+        ),
+      ],
+      alerts.map(({ id }) => id)
+    );
     const code =
       error instanceof Error && 'code' in error && typeof error.code === 'string'
         ? error.code
@@ -213,17 +286,22 @@ export async function enqueueOutboxRecoveryPage(
   const due = outboxDue(context);
   const rows = await db
     .prepare(
-      `SELECT o.id,o.created_at FROM outbox o WHERE ${due.sql}
+      `SELECT o.id,o.type,o.created_at FROM outbox o WHERE ${due.sql}
     ${cursor ? 'AND (o.created_at>? OR (o.created_at=? AND o.id>?))' : ''}
     ORDER BY o.created_at,o.id LIMIT 25`
     )
     .bind(...due.values, ...(cursor ? [cursor.createdAt, cursor.createdAt, cursor.id] : []))
-    .all<{ id: string; created_at: string }>();
+    .all<{ id: string; type: string; created_at: string }>();
   let queued = 0,
     next = cursor;
   for (const row of rows.results) {
-    if (!(await enqueueJob({ type: 'email.send', outboxId: row.id })))
-      return { queued, cursor: next, done: false, retry: true };
+    const job = outboxJobSchema.safeParse({ type: row.type, outboxId: row.id });
+    if (!job.success) {
+      console.error(JSON.stringify({ event: 'outbox_unknown_type', outboxId: row.id }));
+      next = { createdAt: row.created_at, id: row.id };
+      continue;
+    }
+    if (!(await enqueueJob(job.data))) return { queued, cursor: next, done: false, retry: true };
     queued++;
     next = { createdAt: row.created_at, id: row.id };
   }

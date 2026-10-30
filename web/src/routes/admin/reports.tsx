@@ -1,10 +1,11 @@
+import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { staffMiddleware } from '../../server/staff-middleware';
 import { requireStaffPermission } from '../../server/session';
 import { useStoreCurrency } from '../../lib/use-store-currency';
 import { createServerFn } from '@tanstack/react-start';
 import { formatMoney } from '../../components/ProductCard';
-import { cardCls, pageSub, pageTitle } from '../../components/ui';
+import { cardCls, inputCls, pageSub, pageTitle } from '../../components/ui';
 import { paidRevenueByCurrency } from '../../server/reports';
 import { roles, type StaffRole } from '../../lib/permissions';
 
@@ -35,6 +36,14 @@ export const Route = createFileRoute('/admin/reports')({
 function Page() {
   const currency = useStoreCurrency();
   const r = Route.useLoaderData();
+  const [ordersFrom, setOrdersFrom] = useState('');
+  const [ordersTo, setOrdersTo] = useState('');
+  const ordersHref = `/api/reports?${new URLSearchParams({
+    type: 'orders',
+    format: 'csv',
+    ...(ordersFrom ? { from: ordersFrom } : {}),
+    ...(ordersTo ? { to: ordersTo } : {}),
+  })}`;
   const stats: Array<[string, string, string]> = [
     ...(r.revenues.length ? r.revenues : [{ currency, revenue: 0, orders: 0 }]).map(
       (row): [string, string, string] => [
@@ -56,8 +65,8 @@ function Page() {
           ],
           [
             'Orders',
-            'Full order export for accounting: every order, newest first.',
-            '/api/reports?type=orders&format=csv',
+            'Full order export for accounting, newest first. Pick order dates (UTC) to keep each file under 25,000 orders.',
+            ordersHref,
           ],
         ] as Array<[string, string, string]>)
       : []),
@@ -104,11 +113,35 @@ function Page() {
       </p>
       <section className={`${cardCls} mt-5 divide-y divide-zinc-100 overflow-hidden`}>
         {exportsList.map(([title, desc, href]) => (
-          <div key={href} className="flex flex-wrap items-center gap-3 px-5 py-4">
+          <div key={title} className="flex flex-wrap items-center gap-3 px-5 py-4">
             <div>
               <p className="text-sm font-medium text-zinc-950">{title}</p>
               <p className="text-[13px] text-zinc-500">{desc}</p>
             </div>
+            {href === ordersHref ? (
+              <div className="flex flex-wrap items-center gap-2 text-[13px] text-zinc-500">
+                <label>
+                  From{' '}
+                  <input
+                    type="date"
+                    className={inputCls}
+                    value={ordersFrom}
+                    max={ordersTo || undefined}
+                    onChange={(e) => setOrdersFrom(e.target.value)}
+                  />
+                </label>
+                <label>
+                  To{' '}
+                  <input
+                    type="date"
+                    className={inputCls}
+                    value={ordersTo}
+                    min={ordersFrom || undefined}
+                    onChange={(e) => setOrdersTo(e.target.value)}
+                  />
+                </label>
+              </div>
+            ) : null}
             <a
               className="ml-auto text-[13px] font-medium text-zinc-950 hover:underline"
               href={href}

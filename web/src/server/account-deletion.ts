@@ -1,4 +1,8 @@
+import * as z from 'zod';
+import { enqueueJob } from './email';
 import { cancelOrdersStatements } from './order-cancellation';
+
+const queuedDeletions = z.array(z.object({ id: z.string().min(1) }));
 
 export class AccountDeletionError extends Error {
   constructor(
@@ -20,14 +24,22 @@ export async function deleteAccountAtomically(
   userId: string,
   actorId?: string
 ): Promise<void> {
+  const cancellations = cancelOrdersStatements(db, { sql: 'user_id=?', values: [userId] });
+  let results: D1Result[];
   try {
-    await db.batch([
+    results = await db.batch([
       db
         .prepare(
           "INSERT INTO batch_guard SELECT 1 WHERE NOT EXISTS(SELECT 1 FROM user WHERE id=? AND role NOT IN ('owner','admin'))"
         )
         .bind(userId),
-      ...cancelOrdersStatements(db, { sql: 'user_id=?', values: [userId] }),
+      ...cancellations,
+      // Captured before the intent UPDATE below detaches the intents from the user.
+      db
+        .prepare(
+          "INSERT INTO outbox(id,type,payload_json,created_at) SELECT DISTINCT 'stripe-customer-delete-'||stripe_customer_id,'stripe.customer.delete',json_object('customerId',stripe_customer_id),? FROM checkout_intents WHERE stripe_customer_id IS NOT NULL AND (user_id=? OR order_id IN(SELECT id FROM orders WHERE user_id=?)) ON CONFLICT(id) DO NOTHING RETURNING id"
+        )
+        .bind(new Date().toISOString(), userId, userId),
       // Retire checkout-intent replay authorization and scrub the frozen
       // provider payload (it embeds the email); intents never become
       // guest-owned. Nulling user_id here also satisfies the FK before
@@ -97,4 +109,7 @@ export async function deleteAccountAtomically(
     console.error(JSON.stringify({ event: 'account_deletion_failed' }));
     throw new Error('Account deletion failed. Please try again.');
   }
+  const deletions = queuedDeletions.parse(results[1 + cancellations.length]?.results ?? []);
+  for (const { id } of deletions)
+    await enqueueJob({ type: 'stripe.customer.delete', outboxId: id });
 }
