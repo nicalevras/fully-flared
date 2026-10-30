@@ -363,7 +363,8 @@ export function DataTable<TData extends RowData>({
                     onRowClick
                       ? (event) => {
                           if (
-                            (event.target as HTMLElement).closest(
+                            event.target instanceof Element &&
+                            event.target.closest(
                               'a, button, select, input, [role="menu"], [data-slot="dropdown-menu-content"]'
                             )
                           )
