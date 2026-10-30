@@ -4,7 +4,7 @@ import { Link, createFileRoute } from '@tanstack/react-router';
 import { checkoutQuoteFn, validateDiscountFn } from '../../lib/shopFns';
 import { validateServerInput } from '../../server/function-boundary';
 import { confirmCheckoutFn } from '../../lib/checkoutFns';
-import type { ReviewQuote } from '../../server/authorized-checkout';
+import { checkoutResponseSchema, type ReviewQuote } from '../../schemas/checkout';
 import { createServerFn, useServerFn } from '@tanstack/react-start';
 import * as z from 'zod';
 import { formatMoney } from '../../components/ProductCard';
@@ -234,9 +234,7 @@ function CheckoutPage() {
       // Web Locks means no safe serialization — fail closed here,
       // before the checkout request creates anything.
       const locks =
-        typeof navigator !== 'undefined' && 'locks' in navigator
-          ? (navigator.locks as unknown as Parameters<typeof ensureGuestBootstrap>[0])
-          : undefined;
+        typeof navigator !== 'undefined' && 'locks' in navigator ? navigator.locks : undefined;
       const bootstrapped =
         authenticated ||
         (await ensureGuestBootstrap(locks, async () => {
@@ -271,17 +269,7 @@ function CheckoutPage() {
           turnstileToken: turnstileToken || undefined,
         }),
       });
-      const data = (await res.json()) as {
-        checkoutUrl?: string;
-        state?: string;
-        error?: string;
-        code?: string;
-        orderId?: string;
-        orderUrl?: string;
-        intentId?: string;
-        quoteHash?: string;
-        quote?: ReviewQuote;
-      };
+      const data = checkoutResponseSchema.parse(await res.json());
       if (controller.signal.aborted) return;
       if (submittedDetails !== latestDetailsKey.current) {
         setError('Checkout details changed. Prepare a fresh review.');

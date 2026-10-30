@@ -134,3 +134,27 @@ export const successOrderInputSchema = z.object({
   orderId: idString,
   token: z.string().max(200).optional().default(''),
 });
+
+export const reviewQuoteSchema = z.object({
+  subtotalCents: z.number().int(),
+  discountCents: z.number().int(),
+  shippingCents: z.number().int(),
+  taxCents: z.number().int(),
+  totalCents: z.number().int(),
+  currency: z.string(),
+});
+
+export type ReviewQuote = z.infer<typeof reviewQuoteSchema>;
+
+/** Body of a POST /api/checkout response, success or error. */
+export const checkoutResponseSchema = z.object({
+  checkoutUrl: z.string().optional(),
+  state: z.string().optional(),
+  error: z.string().optional(),
+  code: z.string().optional(),
+  orderId: z.string().optional(),
+  orderUrl: z.string().optional(),
+  intentId: z.string().optional(),
+  quoteHash: z.string().nullish(),
+  quote: reviewQuoteSchema.optional(),
+});

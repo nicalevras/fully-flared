@@ -120,7 +120,12 @@ export type CheckoutResponseAction =
  *  stored intent so the next click starts a fresh attempt. */
 export function classifyCheckoutResponse(
   status: number,
-  data: { checkoutUrl?: string; state?: string; orderId?: string; error?: string }
+  data: {
+    checkoutUrl?: string | undefined;
+    state?: string | undefined;
+    orderId?: string | undefined;
+    error?: string | undefined;
+  }
 ): CheckoutResponseAction {
   if (status === 200 && data.checkoutUrl) return { kind: 'redirect', url: data.checkoutUrl };
   if (status === 200 && data.state === 'already_paid' && data.orderId)
