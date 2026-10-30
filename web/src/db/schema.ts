@@ -664,7 +664,10 @@ export const catalogInvalidations = sqliteTable(
     refSeq: integer('ref_seq'),
     createdAt: text('created_at').notNull(),
   },
-  (t) => [index('catalog_invalidations_created_idx').on(t.createdAt)]
+  (t) => [
+    index('catalog_invalidations_created_idx').on(t.createdAt),
+    index('catalog_invalidations_scope_idx').on(t.scope, t.scopeId),
+  ]
 );
 
 // Durable token bucket mirroring the Workers Cache purge rate limit.

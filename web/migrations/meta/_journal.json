@@ -246,6 +246,13 @@
       "when": 1793385304960,
       "tag": "0035_checkout_intents_superseded_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1793385346720,
+      "tag": "0036_catalog_invalidations_scope_idx",
+      "breakpoints": true
     }
   ]
 }
