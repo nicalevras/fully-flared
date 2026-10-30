@@ -1,8 +1,10 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import * as z from 'zod';
 import { getDb } from '../db/client';
 import { sha256Hex } from '../lib/hash';
 import type { MediaSource } from '../lib/media-url';
 import { getSettings } from './settings';
+import { parseMediaVariants } from './media-source';
 import { StoreLimitError } from '../lib/settings-definitions';
 import {
   cartItems,
@@ -34,6 +36,7 @@ export type CartCreds = { id: string; token: string };
 
 export const CART_COOKIE = 'cart';
 const CART_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const countryListSchema = z.array(z.string());
 
 const hashToken = sha256Hex;
 
@@ -286,20 +289,7 @@ export async function priceCartLines(db: D1Database, lines: CartLine[]): Promise
     const priced = bySku.get(l.sku);
     if (!priced) return [];
     const { coverKey, coverPublicUrl, coverVariantsJson, ...rest } = priced;
-    let variants: MediaSource['variants'] = [];
-    try {
-      const parsed: unknown = coverVariantsJson ? JSON.parse(coverVariantsJson) : [];
-      if (Array.isArray(parsed))
-        variants = parsed.filter(
-          (v): v is { width: number; url: string } =>
-            typeof v === 'object' &&
-            v !== null &&
-            typeof (v as { width?: unknown }).width === 'number' &&
-            typeof (v as { url?: unknown }).url === 'string'
-        );
-    } catch {
-      variants = [];
-    }
+    const variants = parseMediaVariants(coverVariantsJson);
     return [
       {
         ...l,
@@ -351,7 +341,7 @@ export async function getShippingZones(db: D1Database): Promise<ShippingZoneView
   return zones.map((z) => {
     let countries: string[] = [];
     try {
-      countries = JSON.parse(z.countriesJson) as string[];
+      countries = countryListSchema.parse(JSON.parse(z.countriesJson));
     } catch {
       countries = [];
     }
