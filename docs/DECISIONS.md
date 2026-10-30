@@ -450,8 +450,13 @@ unapplied. Verification is deferred: see
 - **Account deletion scrubs only processed `webhook_inbox` payloads.** Pending
   and dead rows keep their Stripe payload, because recovery replays it to
   settle a payment. Scrubbing a dead row would lose that order.
-- **The retention task bounds the exposure.** `pruneRetention` deletes dead rows
-  received more than 90 days ago, so a deleted customer's email lives in a dead
-  payload for at most 90 days. `tests/phase6-data.test.ts` pins both rules.
+- **The retention task bounds the exposure.** A dead row becomes eligible for
+  deletion 90 days after it was received. `pruneRetention` deletes up to 1,000
+  eligible rows per table per statement, and the daily retention run (cron
+  `0 3 * * *`) repeats until every table returns fewer than 1,000
+  (`maintenance.ts` `run.task === 'retention'`). A deleted customer's email
+  therefore stays in a dead payload for 90 days plus the wait for the next
+  retention run that completes. That wait depends on the maintenance schedule
+  running. `tests/phase6-data.test.ts` pins both rules.
 - Rejected: scrubbing dead rows (loses recovery), and removing only the PII keys
   with `json_remove` (changes payloads the recovery code replays).
