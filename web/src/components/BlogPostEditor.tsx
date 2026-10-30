@@ -25,7 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { slugify, utcToLocalDateTimeInput, type LoadedSchedule } from '../lib/format';
 import { saveBlogPost } from '../lib/blog-save';
 import { uploadMedia } from '../lib/upload';
-import { mediaUrl } from '../lib/media-url';
+import { mediaUrl, storedVariants } from '../lib/media-url';
 import { btnPrimary, btnSmall, inputCls, labelCls, textareaCls } from './ui';
 
 type PostRow = {
@@ -75,21 +75,7 @@ export const getPostDetail = createServerFn({ method: 'GET' })
 
 function coverPreviewUrl(post: PostRow | null): string {
   if (!post?.cover_key) return '';
-  let variants: Array<{ width: number; url: string }> | undefined;
-  if (post.cover_variants_json) {
-    try {
-      const parsed = JSON.parse(post.cover_variants_json) as unknown;
-      if (Array.isArray(parsed)) {
-        variants = (parsed as Array<{ width: number; url: string }>).map((variant) => ({
-          ...variant,
-          url:
-            variant.url || `/media/${encodeURIComponent(post.cover_key ?? '')}?w=${variant.width}`,
-        }));
-      }
-    } catch {
-      variants = undefined;
-    }
-  }
+  const variants = storedVariants(post.cover_variants_json, post.cover_key);
   return mediaUrl({ key: post.cover_key, publicUrl: post.cover_public_url, variants }, 1280);
 }
 

@@ -8,7 +8,7 @@ import * as z from 'zod';
 import { validateServerInput } from '../../server/function-boundary';
 import { requireStaffPermission } from '../../server/session';
 import { getSettings } from '../../server/settings';
-import { mediaUrl, type MediaSource } from '../../lib/media-url';
+import { mediaUrl, storedVariants, type MediaSource } from '../../lib/media-url';
 import { pageWindow } from '../../lib/catalog-page';
 import { AdminRowActions } from '../../components/AdminDataTable';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
@@ -191,23 +191,11 @@ const publishExistingFn = createServerFn({ method: 'POST' })
   });
 
 function mediaSource(row: MediaRow): MediaSource {
-  let variants: Array<{ width: number; url: string }> | undefined;
-  if (row.variants_json) {
-    try {
-      const parsed = JSON.parse(row.variants_json) as unknown;
-      if (Array.isArray(parsed)) {
-        // Same fill the catalog publisher applies: variants stored without a
-        // public URL are served through the media route at that width.
-        variants = (parsed as Array<{ width: number; url: string }>).map((variant) => ({
-          ...variant,
-          url: variant.url || `/media/${encodeURIComponent(row.r2_key)}?w=${variant.width}`,
-        }));
-      }
-    } catch {
-      variants = undefined;
-    }
-  }
-  return { key: row.r2_key, publicUrl: row.public_url, variants };
+  return {
+    key: row.r2_key,
+    publicUrl: row.public_url,
+    variants: storedVariants(row.variants_json, row.r2_key),
+  };
 }
 
 function usedLabel(usedCount: number): string {
