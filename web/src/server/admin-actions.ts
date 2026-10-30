@@ -509,8 +509,8 @@ export async function runAdminAction(
               f.value,
               f.minPurchaseCents,
               f.usageLimit ?? null,
-              f.startsAt || null,
-              f.expiresAt || null,
+              f.startsAt ?? null,
+              f.expiresAt ?? null,
               now()
             ),
           auditStmt(db, actor.id, 'discount.create', 'discount', discountId),
@@ -541,7 +541,7 @@ export async function runAdminAction(
               f.value,
               f.minPurchaseCents,
               f.usageLimit ?? null,
-              f.expiresAt || null,
+              f.expiresAt ?? null,
               f.discountId
             ),
           auditStmt(db, actor.id, 'discount.update', 'discount', f.discountId),

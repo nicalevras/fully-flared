@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { staffMiddleware } from '../../server/staff-middleware';
 import { useStoreCurrency } from '../../lib/use-store-currency';
-import { formatDate } from '../../lib/format';
+import { formatDate, localDateTimeInputToIso, utcToLocalDateTimeInput } from '../../lib/format';
 import { pageWindow } from '../../lib/catalog-page';
 import { AdminRowActions } from '../../components/AdminDataTable';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
@@ -154,7 +154,7 @@ function Page() {
     value: d.type === 'percentage' ? String(d.value) : (d.value / 100).toFixed(2),
     minPurchase: d.min_purchase_cents ? (d.min_purchase_cents / 100).toFixed(2) : '',
     usageLimit: d.usage_limit != null ? String(d.usage_limit) : '',
-    expiresAt: d.expires_at ? d.expires_at.slice(0, 10) : '',
+    expiresAt: d.expires_at ? utcToLocalDateTimeInput(d.expires_at) : '',
   });
 
   const parsedOf = (f: typeof form) => ({
@@ -163,7 +163,10 @@ function Page() {
     value: f.type === 'percentage' ? Number(f.value) : Math.round(Number(f.value) * 100),
     minPurchaseCents: f.minPurchase ? Math.round(Number(f.minPurchase) * 100) : 0,
     usageLimit: f.usageLimit ? Number(f.usageLimit) : null,
-    expiresAt: f.expiresAt || null,
+    expiresAt:
+      editing?.expires_at && f.expiresAt === utcToLocalDateTimeInput(editing.expires_at)
+        ? editing.expires_at
+        : localDateTimeInputToIso(f.expiresAt),
   });
 
   const editing = discounts.find((d) => d.id === editingId) ?? null;
@@ -175,7 +178,7 @@ function Page() {
         value: editing.value,
         minPurchaseCents: editing.min_purchase_cents,
         usageLimit: editing.usage_limit,
-        expiresAt: editing.expires_at ? editing.expires_at.slice(0, 10) : null,
+        expiresAt: editing.expires_at,
       })
     : false;
 
@@ -482,11 +485,14 @@ function Page() {
                   </label>
                   <Input
                     id="d-expires"
-                    type="date"
+                    type="datetime-local"
                     className="rounded-lg"
                     value={form.expiresAt}
                     onChange={(e) => setForm({ ...form, expiresAt: e.target.value })}
                   />
+                  <p className={hintCls}>
+                    In your time zone. The code stops working at this minute.
+                  </p>
                 </div>
               </div>
             </div>

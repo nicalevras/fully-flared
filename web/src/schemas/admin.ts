@@ -98,8 +98,8 @@ export const adminActionSchema = z.discriminatedUnion('action', [
       value: z.number().int().min(0).max(100_000_000),
       minPurchaseCents: centsInt.optional().default(0),
       usageLimit: z.number().int().min(1).nullable().optional(),
-      startsAt: z.string().max(40).nullable().optional(),
-      expiresAt: z.string().max(40).nullable().optional(),
+      startsAt: z.iso.datetime({ precision: 3 }).nullable().optional(),
+      expiresAt: z.iso.datetime({ precision: 3 }).nullable().optional(),
     })
     .refine((discount) => discount.type !== 'percentage' || discount.value <= 100, {
       path: ['value'],
@@ -114,7 +114,7 @@ export const adminActionSchema = z.discriminatedUnion('action', [
       value: z.number().int().min(0).max(100_000_000),
       minPurchaseCents: centsInt.optional().default(0),
       usageLimit: z.number().int().min(1).nullable().optional(),
-      expiresAt: z.string().max(40).nullable().optional(),
+      expiresAt: z.iso.datetime({ precision: 3 }).nullable().optional(),
     })
     .refine((discount) => discount.type !== 'percentage' || discount.value <= 100, {
       path: ['value'],
