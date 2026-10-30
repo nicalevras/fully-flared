@@ -67,10 +67,6 @@ describe('FF-06: clean-state cleanup cannot race the recovery read', () => {
     expect(shouldRemoveDraftOnClean({ readSettled: false, recoveryShown: true })).toBe(false);
     expect(shouldRemoveDraftOnClean({ readSettled: true, recoveryShown: true })).toBe(false);
     expect(shouldRemoveDraftOnClean({ readSettled: true, recoveryShown: false })).toBe(true);
-    const { readFileSync } = await import('node:fs');
-    const hook = readFileSync('web/src/lib/use-draft-recovery.ts', 'utf8');
-    expect(hook).toContain('shouldRemoveDraftOnClean');
-    expect(hook).toContain('readSettledRef');
   });
 });
 

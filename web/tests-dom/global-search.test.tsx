@@ -18,6 +18,7 @@ vi.mock('@tanstack/react-start', async (importOriginal) => ({
 }));
 
 const { GlobalSearchDialog, GLOBAL_SEARCH_EVENT } = await import('@/components/GlobalSearch');
+const { AdminNav } = await import('@/components/AdminNav');
 
 async function openSearch() {
   const rootRoute = createRootRoute({ component: GlobalSearchDialog });
@@ -68,4 +69,25 @@ it('Escape closes the search', async () => {
   await user.type(input, 'blue');
   await user.keyboard('{Escape}');
   expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+it('a failed search says so in an alert', async () => {
+  search.mockRejectedValueOnce(new Error('offline'));
+  const user = userEvent.setup();
+  const { input } = await openSearch();
+  await user.type(input, 'bl');
+  expect((await screen.findByRole('alert')).textContent).toContain('Search failed');
+});
+
+it('the admin nav mobile trigger opens the search and closing returns focus to it', async () => {
+  const user = userEvent.setup();
+  const rootRoute = createRootRoute({ component: () => <AdminNav role="owner" /> });
+  await renderTree(rootRoute, '/');
+  const [trigger] = screen.getAllByRole('button', { name: 'Open global search' });
+  if (!trigger) throw new Error('mobile search trigger missing');
+  await user.click(trigger);
+  expect(screen.getByRole('dialog', { name: 'Global search' })).toBeTruthy();
+  await user.keyboard('{Escape}');
+  expect(screen.queryByRole('dialog', { name: 'Global search' })).toBeNull();
+  await waitFor(() => expect(document.activeElement).toBe(trigger));
 });
