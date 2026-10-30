@@ -4,8 +4,7 @@ import { createRootRoute } from '@tanstack/react-router';
 import { expect, it } from 'vitest';
 import { Route as ProductRoute } from '@/routes/_shop.products/$slug';
 import { StorefrontLayout } from '@/routes/__root';
-import type { StorefrontLayoutSnapshot } from '@/server/catalog-read';
-import { limits, product } from './fixtures';
+import { layout, product } from './fixtures';
 import { renderPage, renderTree } from './render-route';
 
 it('copy follows settings', async () => {
@@ -23,21 +22,6 @@ it('copy follows settings', async () => {
 });
 
 it('the footer has no fixed tagline and no admin link', async () => {
-  const layout: StorefrontLayoutSnapshot = {
-    limits,
-    storeName: 'Fern & Field',
-    logo: null,
-    hero: null,
-    announcementText: '',
-    seoTitleTemplate: '{product}',
-    canonicalBaseUrl: '',
-    currency: 'USD',
-    collections: [],
-    collectionsTotal: 0,
-    collectionTeasers: [],
-    featured: [],
-    posts: [],
-  };
   await renderTree(createRootRoute({ loader: () => layout, component: StorefrontLayout }));
   const footer = await screen.findByRole('contentinfo');
 

@@ -1,5 +1,6 @@
 import type { CartView, PricedLine, ShippingZoneView } from '@/lib/cart';
 import type { StoreLimits } from '@/lib/settings-definitions';
+import type { StorefrontLayoutSnapshot } from '@/server/catalog-read';
 
 export const limits: StoreLimits = {
   checkout_email_cap: 5,
@@ -85,3 +86,19 @@ export const product = (slug: string, imageCount: number) => ({
   canonicalBaseUrl: 'https://store.test',
   currency: 'USD',
 });
+
+export const layout: StorefrontLayoutSnapshot = {
+  limits,
+  storeName: 'Fern & Field',
+  logo: null,
+  hero: null,
+  announcementText: '',
+  seoTitleTemplate: '{product}',
+  canonicalBaseUrl: '',
+  currency: 'USD',
+  collections: [],
+  collectionsTotal: 0,
+  collectionTeasers: [],
+  featured: [],
+  posts: [],
+};
