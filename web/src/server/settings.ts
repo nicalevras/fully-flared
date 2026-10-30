@@ -1,5 +1,5 @@
 import { getDb } from '../db/client';
-import { requestRead } from './exec-context';
+import { requestCache } from './exec-context';
 import { settings as settingsT } from '../db/schema';
 import { parseLimits, parseAdmissionConfig } from '../schemas/limits';
 import type { StoreLimits, AdmissionConfig } from '../lib/settings-definitions';
@@ -60,8 +60,9 @@ const DEFAULTS: Record<string, string> = {
 };
 
 /** Settings for this request: one read however many callers ask. */
+const settingsReads = requestCache<StoreSettings>();
 export function getSettings(db: D1Database): Promise<StoreSettings> {
-  return requestRead(db, 'settings', () => readSettings(db));
+  return settingsReads(db, 'settings', () => readSettings(db));
 }
 
 /** A fresh read, for callers that follow a write in the same request. */
