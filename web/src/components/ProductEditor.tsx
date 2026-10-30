@@ -175,17 +175,9 @@ export function ProductEditor({
   const [form, setForm] = useState(initialForm);
   const [conflict, setConflict] = useState(false);
   const [openSections, setOpenSections] = useState<string[]>(['details']);
-  const fieldLabels: Record<string, string> = {
-    title: 'Title',
-    slug: 'Slug',
-    description: 'Description',
-    status: 'Status',
-    seoTitle: 'SEO title',
-    seoDescription: 'SEO description',
-  };
-  const changedFields = Object.keys(fieldLabels).filter(
-    (key) => form[key as keyof typeof form] !== initialForm[key as keyof typeof initialForm]
-  );
+  const changedFields = (
+    ['title', 'slug', 'description', 'status', 'seoTitle', 'seoDescription'] as const
+  ).filter((key) => form[key] !== initialForm[key]);
   const [selectedVariants, setSelectedVariants] = useState<string[]>([]);
 
   const [bulk, setBulk] = useState({ price: '' });
@@ -398,7 +390,7 @@ export function ProductEditor({
         anyOk = true;
         setConflict(false);
       } else {
-        setConflict(Boolean((r as { conflict?: boolean }).conflict));
+        setConflict('conflict' in r && r.conflict === true);
         fail('Details', r.error);
       }
     }
