@@ -1,7 +1,12 @@
 {
   "extends": "../web/tsconfig.json",
   "compilerOptions": {
-    "types": ["node", "vitest/globals"]
+    "types": ["node", "vitest/globals"],
+    "paths": {
+      "@/*": ["../web/src/*"],
+      "react": ["../web/node_modules/@types/react"],
+      "react-dom/server": ["../web/node_modules/@types/react-dom/server"]
+    }
   },
   "include": ["./**/*.ts", "../web/src/*.d.ts", "../web/worker-configuration.d.ts"],
   // Phase 10b: the money and auth stacks change these files; they join the check once those merge.

@@ -7,6 +7,8 @@ export default defineConfig({
       'cloudflare:workers': new URL('./tests/helpers/cloudflare-workers-stub.ts', import.meta.url)
         .pathname,
       '@': new URL('./web/src', import.meta.url).pathname,
+      react: new URL('./web/node_modules/react', import.meta.url).pathname,
+      'react-dom': new URL('./web/node_modules/react-dom', import.meta.url).pathname,
     },
   },
   test: {
