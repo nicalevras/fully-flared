@@ -3,14 +3,35 @@ import { MEDIA_MAX_BYTES } from '../schemas/account';
 /** Multipart boundaries, part headers, and the variant fields around the file. */
 const MULTIPART_FRAMING_BYTES = 64 * 1024;
 
-/** Refuses an upload by its declared length, so an oversized body is never buffered by formData(). */
-export function uploadBodyRejection(request: Request): Response | null {
+const UPLOAD_BODY_LIMIT = MEDIA_MAX_BYTES + MULTIPART_FRAMING_BYTES;
+
+const uploadTooLarge = () =>
+  Response.json({ error: 'Images must be 5 MB or smaller' }, { status: 413 });
+
+/** Parses an upload without ever buffering more than the limit: a declared
+ * oversize length is refused unread, and any other body is counted as it streams. */
+export async function readUploadForm(request: Request): Promise<FormData | Response> {
   const declared = request.headers.get('Content-Length');
-  if (declared === null || !/^\d+$/.test(declared))
-    return Response.json({ error: 'Content-Length is required' }, { status: 411 });
-  if (Number(declared) > MEDIA_MAX_BYTES + MULTIPART_FRAMING_BYTES)
-    return Response.json({ error: 'Images must be 5 MB or smaller' }, { status: 413 });
-  return null;
+  if (declared !== null && Number(declared) > UPLOAD_BODY_LIMIT) return uploadTooLarge();
+  if (!request.body) return Response.json({ error: 'file is required' }, { status: 400 });
+  let received = 0;
+  const capped = request.body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        received += chunk.byteLength;
+        if (received > UPLOAD_BODY_LIMIT) controller.error(new RangeError('Upload too large'));
+        else controller.enqueue(chunk);
+      },
+    })
+  );
+  try {
+    return await new Response(capped, {
+      headers: { 'Content-Type': request.headers.get('Content-Type') ?? '' },
+    }).formData();
+  } catch (error) {
+    if (received > UPLOAD_BODY_LIMIT) return uploadTooLarge();
+    throw error;
+  }
 }
 
 // Image type detection from magic bytes. The browser-supplied MIME type is
