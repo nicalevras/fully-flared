@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { staffMiddleware } from '../../../server/staff-middleware';
 import { requireStaffPermission } from '../../../server/session';
 import { useStoreCurrency } from '../../../lib/use-store-currency';
@@ -9,12 +9,8 @@ import {
   useRouter,
   type SearchSchemaInput,
 } from '@tanstack/react-router';
-import { createServerFn, useServerFn } from '@tanstack/react-start';
-import {
-  getProductDetail,
-  ProductEditor,
-  type ProductDetail,
-} from '../../../components/ProductEditor';
+import { createServerFn } from '@tanstack/react-start';
+import { getProductDetail, ProductEditor } from '../../../components/ProductEditor';
 import { ProductCreateDrawer } from '../../../components/ProductCreateDrawer';
 import {
   Drawer,
@@ -88,14 +84,22 @@ export const Route = createFileRoute('/admin/products/')({
     ...normalizeProductSearch(search),
     edit: typeof search.edit === 'string' && search.edit ? search.edit : undefined,
   }),
-  loaderDeps: ({ search: { q, mode, status, sort, cursor } }) => ({
+  loaderDeps: ({ search: { q, mode, status, sort, cursor, edit } }) => ({
     q,
     mode,
     status,
     sort,
     cursor,
+    edit: edit ?? '',
   }),
-  loader: async ({ deps }) => getData({ data: deps }),
+  loader: async ({ deps: { edit, ...list } }) => {
+    const [data, detail] = await Promise.all([
+      getData({ data: list }),
+      // A missing or unreadable product opens the not-found drawer.
+      edit ? getProductDetail({ data: edit }).catch(() => null) : null,
+    ]);
+    return { ...data, detail };
+  },
   pendingComponent: () => (
     <p className="p-5 text-sm" role="status">
       Loading products…
@@ -122,50 +126,14 @@ function AdminProducts() {
   const canCreate = roleCan(staff?.role, 'product', 'create');
 
   const currency = useStoreCurrency();
-  const { products, nextCursor, previousCursor, state } = Route.useLoaderData();
+  const { products, nextCursor, previousCursor, state, detail } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
   const [msg, setMsg] = useState<AdminActionFeedbackState>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const detailFn = useServerFn(getProductDetail);
-  const [detail, setDetail] = useState<ProductDetail | null>(null);
-  const [detailFor, setDetailFor] = useState('');
-  useEffect(() => {
-    if (!search.edit) {
-      setDetail(null);
-      setDetailFor('');
-      return;
-    }
-    let cancelled = false;
-    setDetailFor('');
-    detailFn({ data: search.edit })
-      .then((d) => {
-        if (!cancelled) {
-          setDetail(d);
-          setDetailFor(search.edit!);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setDetail(null);
-          setDetailFor(search.edit!);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [search.edit]);
   const openEditor = (id: string) => void navigate({ search: { ...search, edit: id } });
   const closeEditor = () => void navigate({ search: { ...search, edit: undefined } });
-  const refreshDetail = async () => {
-    if (search.edit) {
-      const d = await detailFn({ data: search.edit });
-      setDetail(d);
-      setDetailFor(search.edit);
-    }
-    router.invalidate();
-  };
   const pillWhite =
     'inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 text-[13px] font-medium text-zinc-950 transition-colors hover:border-zinc-950 disabled:pointer-events-none disabled:opacity-40';
   const statuses = [
@@ -509,7 +477,7 @@ function AdminProducts() {
           }}
         />
       ) : null}
-      {search.edit && detailFor === search.edit && !detail ? (
+      {search.edit && !detail ? (
         <Drawer
           instant
           swipeDirection="right"
@@ -547,13 +515,13 @@ function AdminProducts() {
           </DrawerContent>
         </Drawer>
       ) : null}
-      {search.edit && detail && detailFor === search.edit ? (
+      {search.edit && detail?.id === search.edit ? (
         <ProductEditor
           key={detail.id}
           product={detail}
           open
           onClose={closeEditor}
-          refresh={refreshDetail}
+          refresh={() => router.invalidate()}
         />
       ) : null}
     </main>
