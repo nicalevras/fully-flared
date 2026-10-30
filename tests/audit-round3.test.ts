@@ -355,7 +355,7 @@ it('instruments the combined nightly cron without a maintenance queue', async ()
     retrieveCheckoutSession: async (id) => sessions.find((s) => s.id === id) ?? null,
     retrieveRefund: async (id) => ({ id, status: 'pending' }),
   };
-  vi.spyOn(payments, 'getStripeProvider').mockReturnValue(provider as never);
+  vi.spyOn(payments, 'getStripeProvider').mockReturnValue(provider);
   workerEnv.EMAIL = { send: vi.fn() };
   workerEnv.JOBS = fakeQueue();
   workerEnv.NOTIFICATIONS = fakeQueue();
