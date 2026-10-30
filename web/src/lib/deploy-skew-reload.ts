@@ -2,9 +2,9 @@ import type { AnyRouter } from '@tanstack/react-router';
 
 const RELOADED = 'deploy-skew-reload';
 
-function session<T>(use: (storage: Storage) => T): T | undefined {
+function session<T>(read: (storage: Storage) => T): T | undefined {
   try {
-    return use(window.sessionStorage);
+    return read(window.sessionStorage);
   } catch {
     return undefined;
   }
