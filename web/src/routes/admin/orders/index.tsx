@@ -26,7 +26,7 @@ import { normalizeOrderSearch, type OrderView } from '../../../lib/order-search'
 import { validateServerInput } from '../../../server/function-boundary';
 import { roles, type StaffRole } from '../../../lib/permissions';
 import { canShipOrder, refundActionMessage } from '../../../lib/order-actions';
-import { ConfirmDialog } from '../../../components/ConfirmDialog';
+import { ConfirmDialog, type ConfirmRequest } from '../../../components/ConfirmDialog';
 import {
   applyBulkOutcome,
   bulkTrackingErrors,
@@ -110,6 +110,23 @@ function AdminOrders() {
   const [bulkItems, setBulkItems] = useState<BulkFulfillmentItem[] | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [refundTarget, setRefundTarget] = useState<(typeof orders)[number] | null>(null);
+  const [returnDecision, setReturnDecision] = useState<{
+    action: 'return.approve' | 'return.reject';
+    returnRow: (typeof returns)[number];
+    request: ConfirmRequest;
+    done: string;
+  } | null>(null);
+
+  async function decideReturn(decision: NonNullable<typeof returnDecision>) {
+    setMsg(null);
+    setBusyId(decision.returnRow.id);
+    const res = await adminAction(decision.action, { returnId: decision.returnRow.id });
+    setBusyId('');
+    if (res.ok) {
+      setMsg({ kind: 'status', message: decision.done });
+      router.invalidate();
+    } else setMsg({ kind: 'error', message: res.error ?? 'Failed' });
+  }
 
   async function runBulk(itemsToRun: BulkFulfillmentItem[]) {
     const errors = bulkTrackingErrors(itemsToRun);
@@ -591,6 +608,16 @@ function AdminOrders() {
       ) : null}
 
       <ConfirmDialog
+        request={returnDecision?.request ?? null}
+        busy={!!busyId}
+        onCancel={() => setReturnDecision(null)}
+        onConfirm={() => {
+          const decision = returnDecision;
+          setReturnDecision(null);
+          if (decision) void decideReturn(decision);
+        }}
+      />
+      <ConfirmDialog
         request={
           refundTarget
             ? {
@@ -687,18 +714,18 @@ function AdminOrders() {
                               (!!r.refund_status &&
                                 !['failed', 'canceled'].includes(r.refund_status))
                             }
-                            onClick={async () => {
-                              setMsg(null);
-                              setBusyId(r.id);
-                              const res = await adminAction('return.approve', {
-                                returnId: r.id,
-                              });
-                              setBusyId('');
-                              if (res.ok) {
-                                setMsg({ kind: 'status', message: 'Return approved.' });
-                                router.invalidate();
-                              } else setMsg({ kind: 'error', message: res.error ?? 'Failed' });
-                            }}
+                            onClick={() =>
+                              setReturnDecision({
+                                action: 'return.approve',
+                                returnRow: r,
+                                request: {
+                                  title: 'Approve this return?',
+                                  body: `Approve the return for ${r.number}? The decision cannot be changed. Refunds are issued separately.`,
+                                  confirmLabel: 'Approve return',
+                                },
+                                done: 'Return approved.',
+                              })
+                            }
                           >
                             Approve return
                           </button>
@@ -710,19 +737,28 @@ function AdminOrders() {
                             !canReject ||
                             (!!r.refund_status && !['failed', 'canceled'].includes(r.refund_status))
                           }
-                          onClick={async () => {
-                            setMsg(null);
-                            setBusyId(r.id);
-                            const res = await adminAction('return.reject', { returnId: r.id });
-                            setBusyId('');
-                            if (res.ok) {
-                              setMsg({
-                                kind: 'status',
-                                message: `Return for ${r.number} rejected.`,
-                              });
-                              router.invalidate();
-                            } else setMsg({ kind: 'error', message: res.error ?? 'Failed' });
-                          }}
+                          onClick={() =>
+                            setReturnDecision({
+                              action: 'return.reject',
+                              returnRow: r,
+                              request:
+                                r.status === 'refund_failed'
+                                  ? {
+                                      title: 'Close this return?',
+                                      body: `Close the return for ${r.number} without a refund? This frees the order for other refunds.`,
+                                      confirmLabel: 'Close return',
+                                    }
+                                  : {
+                                      title: 'Reject this return?',
+                                      body: `Reject the return for ${r.number}? The decision cannot be changed.`,
+                                      confirmLabel: 'Reject return',
+                                    },
+                              done:
+                                r.status === 'refund_failed'
+                                  ? `Return for ${r.number} closed.`
+                                  : `Return for ${r.number} rejected.`,
+                            })
+                          }
                         >
                           {r.status === 'refund_failed' ? 'Close without refund' : 'Reject'}
                         </button>
