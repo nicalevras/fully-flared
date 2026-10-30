@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import * as z from 'zod';
+import { isRecord } from '../../../lib/is-record';
 import {
   Table,
   TableBody,
@@ -31,11 +31,20 @@ export const Route = createFileRoute('/admin/products/import')({
   component: AdminProductsImport,
 });
 
-const importSummarySchema = z.object({
-  imported: z.number(),
-  errors: z.array(z.object({ row: z.number(), error: z.string() })),
-});
-type ImportSummary = z.infer<typeof importSummarySchema>;
+type ImportSummary = { imported: number; errors: Array<{ row: number; error: string }> };
+
+function importSummary(value: unknown): ImportSummary {
+  if (!isRecord(value) || typeof value.imported !== 'number' || !Array.isArray(value.errors))
+    throw new Error('Unexpected import response.');
+  const rows: unknown[] = value.errors;
+  const errors = rows.flatMap((entry) =>
+    isRecord(entry) && typeof entry.row === 'number' && typeof entry.error === 'string'
+      ? [{ row: entry.row, error: entry.error }]
+      : []
+  );
+  if (errors.length !== rows.length) throw new Error('Unexpected import response.');
+  return { imported: value.imported, errors };
+}
 
 function AdminProductsImport() {
   const adminAction = useAdminAction();
@@ -157,7 +166,7 @@ function AdminProductsImport() {
               const result = await adminAction('import.productsCsv', { csv: text });
               setBusy(false);
               if (result.ok) {
-                const data = importSummarySchema.parse(result.data);
+                const data = importSummary(result.data);
                 setSummary(data);
                 setSubmittedText(text);
                 setFeedback({
