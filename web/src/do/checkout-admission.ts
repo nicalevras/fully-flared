@@ -65,7 +65,7 @@ export class CheckoutAdmissionDO extends DurableObject<Cloudflare.Env> {
             'SELECT COUNT(*) AS n FROM admission_permits WHERE deadline_ms > ?',
             nowMs
           )
-          .toArray()[0]!.n,
+          .one().n,
       addPermit: (id, deadlineMs) => {
         sql.exec('INSERT INTO admission_permits (id, deadline_ms) VALUES (?, ?)', id, deadlineMs);
       },
