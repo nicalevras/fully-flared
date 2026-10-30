@@ -110,15 +110,19 @@ locally, a click to a product page makes 1 server-function call and 1 stock read
 with or without a hover first, and the hover itself reads no stock. First-visit
 request counts on a deployed preview are not measured here.
 
-A tab still running the previous deploy can ask for chunks that deploy removed.
-Vite reports that as `vite:preloadError`. During a navigation (never a preload),
-the root route then loads the target URL as a full page. The target is recorded in
-`sessionStorage`, so if it fails again it shows the error page instead of reloading
-again; a navigation elsewhere re-arms the reload. Server-function inputs added here
-default `live` to false and unknown keys are stripped, so either side of a deploy
-accepts the other's calls. Public HTML is shared at the edge for up to 60 seconds
-and its cache key is not versioned, so a reload inside that minute can still get
-the previous build's HTML; the reload guard stops that from looping.
+A tab still running the previous deploy can fail a client navigation in two ways. It
+can ask for chunks that deploy removed, which Vite reports as `vite:preloadError`. Or
+it can call a server function whose input changed, such as the product page's
+(a slug string before, `{ slug, live }` now), and the loader fails. Either way, the
+root route loads the target URL as a full page, so the server renders it with the
+current build. Preloads and the first page load never reload, and neither do
+not-found pages. The target is recorded in `sessionStorage`, so a target that still
+fails after its reload shows the error page; a successful navigation elsewhere
+re-arms the reload. A loader error is not distinguishable from version skew, so an
+ordinary server error during navigation also gets one full page load. Public HTML
+is shared at the edge for up to 60 seconds and its cache key is not versioned, so a
+reload inside that minute can still get the previous build's HTML; the guard stops
+that from looping.
 
 The server helper performs one parameterized, indexed D1 query for the batch of
 missing products. Internal Workers Cache API entries are per product and mode,

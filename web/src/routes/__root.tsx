@@ -16,7 +16,7 @@ import { BagIcon, MenuIcon, SearchIcon, UserIcon } from '../components/icons';
 import { XIcon } from 'lucide-react';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { reloadOnStaleChunk } from '@/lib/stale-chunk-reload';
+import { reloadOnDeploySkew } from '@/lib/deploy-skew-reload';
 import { Button } from '@/components/ui/button';
 import {
   Drawer,
@@ -79,7 +79,7 @@ export const Route = createRootRouteWithContext<{ staff?: StaffContext }>()({
 
 function RootComponent() {
   const router = useRouter();
-  useEffect(() => reloadOnStaleChunk(router), [router]);
+  useEffect(() => reloadOnDeploySkew(router), [router]);
   return <Outlet />;
 }
 

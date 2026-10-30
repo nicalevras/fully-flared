@@ -7,7 +7,7 @@ import {
   notFound,
 } from '@tanstack/react-router';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { reloadOnStaleChunk } from '@/lib/stale-chunk-reload';
+import { reloadOnDeploySkew } from '@/lib/deploy-skew-reload';
 
 const staleChunk = () => window.dispatchEvent(new Event('vite:preloadError', { cancelable: true }));
 
@@ -35,7 +35,7 @@ function appAt(path: string) {
     routeTree: root.addChildren(routes),
     history: createMemoryHistory({ initialEntries: [path] }),
   });
-  return { router, stop: reloadOnStaleChunk(router) };
+  return { router, stop: reloadOnDeploySkew(router) };
 }
 
 let assign = vi.fn();
