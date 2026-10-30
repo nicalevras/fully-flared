@@ -14,6 +14,7 @@ function PopoverContent({
   className,
   align = 'center',
   sideOffset = 4,
+  onEscapeKeyDown,
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Content>) {
   return (
@@ -22,6 +23,10 @@ function PopoverContent({
         align={align}
         sideOffset={sideOffset}
         className={cn('tiptap-popover', className)}
+        onEscapeKeyDown={(event) => {
+          event.stopPropagation();
+          onEscapeKeyDown?.(event);
+        }}
         {...props}
       />
     </PopoverPrimitive.Portal>

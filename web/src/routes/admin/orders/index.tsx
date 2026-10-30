@@ -294,178 +294,184 @@ function AdminOrders() {
       <AdminActionFeedback value={msg} />
 
       <section className="mt-6">
-        {orders.length === 0 ? (
-          <p className="p-5 text-sm text-zinc-500" role="status">
-            {search.view === 'queue'
-              ? 'Nothing is waiting to be fulfilled in this view.'
-              : 'No orders match this search.'}{' '}
-            <button
-              type="button"
-              className="underline"
-              onClick={() =>
-                void navigate({
-                  search: { q: '', mode: 'number', view: 'all', payment: 'all', from: '', to: '' },
-                })
-              }
-            >
-              Clear the search and filters
-            </button>
-          </p>
-        ) : (
-          <DataTable
-            caption="Orders"
-            columns={orderColumns}
-            data={orders}
-            pageIndex={0}
-            pageSize={50}
-            rowCount={0}
-            onPaginationChange={() => undefined}
-            getRowId={(o) => o.id}
-            rowSelection={rowSelection}
-            onRowSelectionChange={handleRowSelectionChange}
-            toolbar={
-              <DataTableSearch
-                value={search.q}
-                onSearch={(q) => void navigate({ search: { ...search, q, cursor: undefined } })}
-                placeholder="FF-1001"
-                ariaLabel="Order number"
+        <DataTable
+          caption="Orders"
+          emptyMessage={
+            <p className="p-5 text-sm text-zinc-500" role="status">
+              {search.view === 'queue'
+                ? 'Nothing is waiting to be fulfilled in this view.'
+                : 'No orders match this search.'}{' '}
+              <button
+                type="button"
+                className="underline"
+                onClick={() =>
+                  void navigate({
+                    search: {
+                      q: '',
+                      mode: 'number',
+                      view: 'all',
+                      payment: 'all',
+                      from: '',
+                      to: '',
+                    },
+                  })
+                }
+              >
+                Clear the search and filters
+              </button>
+            </p>
+          }
+          columns={orderColumns}
+          data={orders}
+          pageIndex={0}
+          pageSize={50}
+          rowCount={0}
+          onPaginationChange={() => undefined}
+          getRowId={(o) => o.id}
+          rowSelection={rowSelection}
+          onRowSelectionChange={handleRowSelectionChange}
+          toolbar={
+            <DataTableSearch
+              value={search.q}
+              onSearch={(q) => void navigate({ search: { ...search, q, cursor: undefined } })}
+              placeholder="FF-1001"
+              ariaLabel="Order number"
+            />
+          }
+          toolbarActions={
+            <>
+              <Select
+                value={search.view}
+                onValueChange={(value) =>
+                  void navigate({
+                    search: { ...search, view: value as OrderView, cursor: undefined },
+                  })
+                }
+              >
+                <SelectTrigger aria-label="View" className={dataTableControlClassName}>
+                  <SelectValue>View</SelectValue>
+                </SelectTrigger>
+                <SelectContent
+                  position="popper"
+                  align="end"
+                  sideOffset={4}
+                  className={dataTableMenuClassName}
+                >
+                  <SelectItem className={dataTableMenuItemClassName} value="queue">
+                    Paid and unfulfilled
+                  </SelectItem>
+                  <SelectItem className={dataTableMenuItemClassName} value="all">
+                    All orders
+                  </SelectItem>
+                  <SelectItem className={dataTableMenuItemClassName} value="payment-issues">
+                    Payment issues
+                  </SelectItem>
+                  <SelectItem className={dataTableMenuItemClassName} value="returns">
+                    Return requests
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={search.payment}
+                onValueChange={(value) =>
+                  void navigate({
+                    search: {
+                      ...search,
+                      payment: value as typeof search.payment,
+                      cursor: undefined,
+                    },
+                  })
+                }
+              >
+                <SelectTrigger aria-label="Payment" className={dataTableControlClassName}>
+                  <SelectValue>Payment</SelectValue>
+                </SelectTrigger>
+                <SelectContent
+                  position="popper"
+                  align="end"
+                  sideOffset={4}
+                  className={dataTableMenuClassName}
+                >
+                  <SelectItem className={dataTableMenuItemClassName} value="all">
+                    Any payment state
+                  </SelectItem>
+                  <SelectItem className={dataTableMenuItemClassName} value="unpaid">
+                    Unpaid
+                  </SelectItem>
+                  <SelectItem className={dataTableMenuItemClassName} value="paid">
+                    Paid
+                  </SelectItem>
+                  <SelectItem className={dataTableMenuItemClassName} value="failed">
+                    Failed
+                  </SelectItem>
+                  <SelectItem className={dataTableMenuItemClassName} value="refunded">
+                    Refunded
+                  </SelectItem>
+                  <SelectItem className={dataTableMenuItemClassName} value="partially_refunded">
+                    Partially refunded
+                  </SelectItem>
+                  <SelectItem className={dataTableMenuItemClassName} value="disputed">
+                    Disputed
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <input
+                type="date"
+                aria-label="From"
+                className={dataTableControlClassName}
+                value={search.from}
+                onChange={(event) =>
+                  void navigate({
+                    search: { ...search, from: event.target.value, cursor: undefined },
+                  })
+                }
               />
-            }
-            toolbarActions={
-              <>
-                <Select
-                  value={search.view}
-                  onValueChange={(value) =>
-                    void navigate({
-                      search: { ...search, view: value as OrderView, cursor: undefined },
-                    })
+              <input
+                type="date"
+                aria-label="To"
+                className={dataTableControlClassName}
+                value={search.to}
+                onChange={(event) =>
+                  void navigate({
+                    search: { ...search, to: event.target.value, cursor: undefined },
+                  })
+                }
+              />
+            </>
+          }
+          paginationFooter={
+            <div className="flex flex-wrap items-center gap-2 px-2 py-4">
+              <p className="flex-1 text-sm text-muted-foreground" role="status">
+                {search.view === 'queue'
+                  ? `${selected.length} of ${orders.length} row(s) selected`
+                  : ''}
+              </p>
+              <nav className="flex gap-2" aria-label="Orders pagination">
+                <button
+                  type="button"
+                  className="h-8 rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950 disabled:opacity-50"
+                  disabled={!previousCursor}
+                  onClick={() =>
+                    previousCursor &&
+                    void navigate({ search: { ...search, cursor: previousCursor } })
                   }
                 >
-                  <SelectTrigger aria-label="View" className={dataTableControlClassName}>
-                    <SelectValue>View</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent
-                    position="popper"
-                    align="end"
-                    sideOffset={4}
-                    className={dataTableMenuClassName}
-                  >
-                    <SelectItem className={dataTableMenuItemClassName} value="queue">
-                      Paid and unfulfilled
-                    </SelectItem>
-                    <SelectItem className={dataTableMenuItemClassName} value="all">
-                      All orders
-                    </SelectItem>
-                    <SelectItem className={dataTableMenuItemClassName} value="payment-issues">
-                      Payment issues
-                    </SelectItem>
-                    <SelectItem className={dataTableMenuItemClassName} value="returns">
-                      Return requests
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={search.payment}
-                  onValueChange={(value) =>
-                    void navigate({
-                      search: {
-                        ...search,
-                        payment: value as typeof search.payment,
-                        cursor: undefined,
-                      },
-                    })
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  className="h-8 rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950 disabled:opacity-50"
+                  disabled={!nextCursor}
+                  onClick={() =>
+                    nextCursor && void navigate({ search: { ...search, cursor: nextCursor } })
                   }
                 >
-                  <SelectTrigger aria-label="Payment" className={dataTableControlClassName}>
-                    <SelectValue>Payment</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent
-                    position="popper"
-                    align="end"
-                    sideOffset={4}
-                    className={dataTableMenuClassName}
-                  >
-                    <SelectItem className={dataTableMenuItemClassName} value="all">
-                      Any payment state
-                    </SelectItem>
-                    <SelectItem className={dataTableMenuItemClassName} value="unpaid">
-                      Unpaid
-                    </SelectItem>
-                    <SelectItem className={dataTableMenuItemClassName} value="paid">
-                      Paid
-                    </SelectItem>
-                    <SelectItem className={dataTableMenuItemClassName} value="failed">
-                      Failed
-                    </SelectItem>
-                    <SelectItem className={dataTableMenuItemClassName} value="refunded">
-                      Refunded
-                    </SelectItem>
-                    <SelectItem className={dataTableMenuItemClassName} value="partially_refunded">
-                      Partially refunded
-                    </SelectItem>
-                    <SelectItem className={dataTableMenuItemClassName} value="disputed">
-                      Disputed
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                <input
-                  type="date"
-                  aria-label="From"
-                  className={dataTableControlClassName}
-                  value={search.from}
-                  onChange={(event) =>
-                    void navigate({
-                      search: { ...search, from: event.target.value, cursor: undefined },
-                    })
-                  }
-                />
-                <input
-                  type="date"
-                  aria-label="To"
-                  className={dataTableControlClassName}
-                  value={search.to}
-                  onChange={(event) =>
-                    void navigate({
-                      search: { ...search, to: event.target.value, cursor: undefined },
-                    })
-                  }
-                />
-              </>
-            }
-            paginationFooter={
-              <div className="flex flex-wrap items-center gap-2 px-2 py-4">
-                <p className="flex-1 text-sm text-muted-foreground" role="status">
-                  {search.view === 'queue'
-                    ? `${selected.length} of ${orders.length} row(s) selected`
-                    : ''}
-                </p>
-                <nav className="flex gap-2" aria-label="Orders pagination">
-                  <button
-                    type="button"
-                    className="h-8 rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950 disabled:opacity-50"
-                    disabled={!previousCursor}
-                    onClick={() =>
-                      previousCursor &&
-                      void navigate({ search: { ...search, cursor: previousCursor } })
-                    }
-                  >
-                    Previous
-                  </button>
-                  <button
-                    type="button"
-                    className="h-8 rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950 disabled:opacity-50"
-                    disabled={!nextCursor}
-                    onClick={() =>
-                      nextCursor && void navigate({ search: { ...search, cursor: nextCursor } })
-                    }
-                  >
-                    Next
-                  </button>
-                </nav>
-              </div>
-            }
-          />
-        )}
+                  Next
+                </button>
+              </nav>
+            </div>
+          }
+        />
       </section>
 
       {search.view === 'queue' && (selected.length > 0 || bulkItems) ? (
@@ -614,7 +620,7 @@ function AdminOrders() {
         }}
       />
 
-      {search.view === 'returns' && requested.length > 0 ? (
+      {search.view === 'returns' ? (
         <section className={`${cardCls} mt-5 overflow-hidden`}>
           <h2 className="px-5 pt-4 pb-3 text-sm font-medium text-zinc-950">Return requests</h2>
           <AdminDataTableShell>
@@ -631,6 +637,13 @@ function AdminOrders() {
                 </TableRow>
               </TableHeader>
               <TableBody>
+                {requested.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="h-24 text-center">
+                      No return requests match this search.
+                    </TableCell>
+                  </TableRow>
+                ) : null}
                 {requested.map((r) => (
                   <TableRow key={r.id}>
                     <TableCell className="font-medium">

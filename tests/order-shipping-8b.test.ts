@@ -17,7 +17,9 @@ describe('Phase 8B refund settlement wording', () => {
     expect(source).not.toContain('window.confirm');
     expect(source).toContain('ConfirmDialog');
     const dialog = readFileSync('web/src/components/ConfirmDialog.tsx', 'utf8');
-    expect(dialog).toContain('role="alertdialog"');
-    expect(dialog).toContain('aria-modal="true"');
+    expect(dialog).toContain("from '@base-ui/react/alert-dialog'");
+    expect(dialog).toContain('<AlertDialog.Portal>');
+    expect(dialog).toContain('<AlertDialog.Popup');
+    expect(dialog).toContain('initialFocus={cancelRef}');
   });
 });

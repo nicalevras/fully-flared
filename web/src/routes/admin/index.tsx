@@ -519,63 +519,64 @@ function AdminHome() {
             <ArrowRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
           </Link>
         </div>
-        {s.recent.length === 0 ? (
-          <p className="mt-4 text-sm text-zinc-500" role="status">
-            No orders yet. When customers check out, orders will appear here.
-          </p>
-        ) : (
-          <div className="mt-2">
-            <AdminDataTableShell>
-              <Table>
-                <TableCaption className="sr-only">Recent orders</TableCaption>
-                <TableHeader>
+        <div className="mt-2">
+          <AdminDataTableShell>
+            <Table>
+              <TableCaption className="sr-only">Recent orders</TableCaption>
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope="col">Order</TableHead>
+                  <TableHead scope="col">Customer</TableHead>
+                  <TableHead scope="col">Payment</TableHead>
+                  <TableHead scope="col" className="text-right">
+                    Total
+                  </TableHead>
+                  <TableHead scope="col">Status</TableHead>
+                  <TableHead scope="col">
+                    <span className="sr-only">Open order</span>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {s.recent.length === 0 ? (
                   <TableRow>
-                    <TableHead scope="col">Order</TableHead>
-                    <TableHead scope="col">Customer</TableHead>
-                    <TableHead scope="col">Payment</TableHead>
-                    <TableHead scope="col" className="text-right">
-                      Total
-                    </TableHead>
-                    <TableHead scope="col">Status</TableHead>
-                    <TableHead scope="col">
-                      <span className="sr-only">Open order</span>
-                    </TableHead>
+                    <TableCell colSpan={6} className="h-24 text-center">
+                      No orders yet. When customers check out, orders will appear here.
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {s.recent.map((o) => (
-                    <TableRow key={o.id} className="group">
-                      <TableCell className="font-medium">
-                        <Link
-                          to="/admin/orders/$id"
-                          params={{ id: o.id }}
-                          className="hover:underline"
-                        >
-                          {o.number}
-                        </Link>
-                      </TableCell>
-                      <TableCell className="whitespace-normal text-zinc-500">
-                        {o.customer_email}
-                      </TableCell>
-                      <TableCell>
-                        <StatusBadge value={o.payment_status} />
-                      </TableCell>
-                      <TableCell className="text-right font-medium">
-                        {formatMoney(o.total_cents, o.currency)}
-                      </TableCell>
-                      <TableCell>
-                        <StatusBadge value={o.status} />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <ArrowRightIcon className="ml-auto h-4 w-4 text-zinc-300 transition-all group-hover:translate-x-0.5 group-hover:text-zinc-950" />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </AdminDataTableShell>
-          </div>
-        )}
+                ) : null}
+                {s.recent.map((o) => (
+                  <TableRow key={o.id} className="group">
+                    <TableCell className="font-medium">
+                      <Link
+                        to="/admin/orders/$id"
+                        params={{ id: o.id }}
+                        className="hover:underline"
+                      >
+                        {o.number}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="whitespace-normal text-zinc-500">
+                      {o.customer_email}
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge value={o.payment_status} />
+                    </TableCell>
+                    <TableCell className="text-right font-medium">
+                      {formatMoney(o.total_cents, o.currency)}
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge value={o.status} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <ArrowRightIcon className="ml-auto h-4 w-4 text-zinc-300 transition-all group-hover:translate-x-0.5 group-hover:text-zinc-950" />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </AdminDataTableShell>
+        </div>
       </section>
 
       <section aria-labelledby="shortcuts" className="mt-12">

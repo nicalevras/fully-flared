@@ -181,54 +181,43 @@ function AdminPages() {
         </div>
       </div>
       <AdminActionFeedback value={feedback} />
-      {pages.length === 0 && !search.q ? (
-        <div className="mt-6 rounded-xl bg-zinc-50 px-6 py-14 text-center" role="status">
-          <p className="text-sm text-zinc-500">
-            {search.q ? `No pages match "${search.q}".` : 'No pages yet. Write your first one.'}
-          </p>
-          <Button type="button" className="mt-4" onClick={() => setCreateOpen(true)}>
-            <PlusIcon className="size-4" />
-            New
-          </Button>
-        </div>
-      ) : (
-        <div className="mt-6" tabIndex={0} role="region" aria-label="Pages">
-          <DataTable
-            caption="Pages"
-            columns={pagesColumns}
-            data={pages}
-            pageIndex={page - 1}
-            pageSize={pageSize}
-            rowCount={total}
-            pageSizeOptions={pageSizeOptions}
-            onPaginationChange={handlePaginationChange}
-            onRowClick={(row) => openEditor(row.id)}
-            emptyMessage={search.q ? `No pages match "${search.q}".` : 'No pages yet.'}
-            toolbar={
-              <DataTableSearch
-                value={search.q ?? ''}
-                onSearch={(q) =>
-                  void navigate({
-                    search: { q: q || undefined, page: 1, size: search.size, edit: undefined },
-                  })
-                }
-                placeholder="Search Pages"
-                ariaLabel="Find a page"
-              />
-            }
-            toolbarEnd={
-              <TableButton
-                type="button"
-                size="sm"
-                onClick={() => setCreateOpen(true)}
-                className="h-8 rounded-md bg-zinc-950 text-white shadow-none hover:bg-zinc-800"
-              >
-                <PlusIcon /> New
-              </TableButton>
-            }
-          />
-        </div>
-      )}
+      <div className="mt-6" tabIndex={0} role="region" aria-label="Pages">
+        <DataTable
+          caption="Pages"
+          columns={pagesColumns}
+          data={pages}
+          pageIndex={page - 1}
+          pageSize={pageSize}
+          rowCount={total}
+          pageSizeOptions={pageSizeOptions}
+          onPaginationChange={handlePaginationChange}
+          onRowClick={(row) => openEditor(row.id)}
+          emptyMessage={search.q ? `No pages match "${search.q}".` : 'No pages yet.'}
+          toolbar={
+            <DataTableSearch
+              value={search.q ?? ''}
+              onSearch={(q) =>
+                void navigate({
+                  search: { q: q || undefined, page: 1, size: search.size, edit: undefined },
+                })
+              }
+              placeholder="Search Pages"
+              ariaLabel="Find a page"
+            />
+          }
+          toolbarEnd={
+            <TableButton
+              type="button"
+              size="sm"
+              onClick={() => setCreateOpen(true)}
+              className="h-8 rounded-md bg-zinc-950 text-white shadow-none hover:bg-zinc-800"
+            >
+              <PlusIcon /> New
+            </TableButton>
+          }
+        />
+      </div>
+
       {createOpen || search.edit === 'new' ? (
         <PageEditor
           key="new"

@@ -634,47 +634,38 @@ function AdminMedia() {
       </div>
       <AdminActionFeedback value={feedback} />
 
-      {media.length === 0 && !search.q ? (
-        <div className="mt-6 rounded-xl bg-zinc-50 px-6 py-14 text-center" role="status">
-          <p className="text-sm text-zinc-500">
-            {search.q
-              ? `No files match "${search.q}".`
-              : 'No media yet. Upload your first image above, or add one from a product page.'}
-          </p>
-        </div>
-      ) : (
-        <div className="mt-6" tabIndex={0} role="region" aria-label="Media">
-          <DataTable
-            caption="Media"
-            columns={mediaColumns}
-            data={media}
-            pageIndex={page - 1}
-            pageSize={pageSize}
-            rowCount={total}
-            pageSizeOptions={pageSizeOptions}
-            onPaginationChange={handlePaginationChange}
-            onRowClick={(row) =>
-              void navigate({
-                search: { q: search.q, page: search.page, size: search.size, edit: row.id },
-              })
-            }
-            tableClassName="min-w-[640px]"
-            emptyMessage={search.q ? `No files match "${search.q}".` : 'No media yet.'}
-            toolbar={
-              <DataTableSearch
-                value={search.q ?? ''}
-                onSearch={(q) =>
-                  void navigate({
-                    search: { q: q || undefined, page: 1, size: search.size, edit: undefined },
-                  })
-                }
-                placeholder="Search Files"
-                ariaLabel="Find a file"
-              />
-            }
-          />
-        </div>
-      )}
+      <div className="mt-6" tabIndex={0} role="region" aria-label="Media">
+        <DataTable
+          caption="Media"
+          columns={mediaColumns}
+          data={media}
+          pageIndex={page - 1}
+          pageSize={pageSize}
+          rowCount={total}
+          pageSizeOptions={pageSizeOptions}
+          onPaginationChange={handlePaginationChange}
+          onRowClick={(row) =>
+            void navigate({
+              search: { q: search.q, page: search.page, size: search.size, edit: row.id },
+            })
+          }
+          tableClassName="min-w-[640px]"
+          emptyMessage={search.q ? `No files match "${search.q}".` : 'No media yet.'}
+          toolbar={
+            <DataTableSearch
+              value={search.q ?? ''}
+              onSearch={(q) =>
+                void navigate({
+                  search: { q: q || undefined, page: 1, size: search.size, edit: undefined },
+                })
+              }
+              placeholder="Search Files"
+              ariaLabel="Find a file"
+            />
+          }
+        />
+      </div>
+
       {editingRow ? (
         <MediaDrawer
           key={editingRow.id}

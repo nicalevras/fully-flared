@@ -941,109 +941,115 @@ function AdminCollections() {
         </DrawerContent>
       </Drawer>
 
-      {collections.length === 0 ? (
-        <p className="mt-6 rounded-2xl bg-zinc-50 p-5 text-sm text-zinc-500" role="status">
-          No collections yet. Use New to create your first one.
-        </p>
-      ) : (
-        <div className="mt-6" tabIndex={0} role="region" aria-label="Collections">
-          <AdminDataTableShell
-            toolbar={
-              <DataTableSearch
-                value={search.cq}
-                onSearch={(cq) => void navigate({ search: { ...search, cq } })}
-                placeholder="Search Collections"
-                ariaLabel="Find a collection"
+      <div className="mt-6" tabIndex={0} role="region" aria-label="Collections">
+        <AdminDataTableShell
+          toolbar={
+            <DataTableSearch
+              value={search.cq}
+              onSearch={(cq) => void navigate({ search: { ...search, cq } })}
+              placeholder="Search Collections"
+              ariaLabel="Find a collection"
+            />
+          }
+          toolbarActions={
+            <>
+              <AdminColumnToggle
+                columns={[
+                  { id: 'products', label: 'Products' },
+                  { id: 'featured', label: 'Featured' },
+                ]}
+                hidden={hiddenCols}
+                onToggle={toggleCol}
               />
-            }
-            toolbarActions={
-              <>
-                <AdminColumnToggle
-                  columns={[
-                    { id: 'products', label: 'Products' },
-                    { id: 'featured', label: 'Featured' },
-                  ]}
-                  hidden={hiddenCols}
-                  onToggle={toggleCol}
-                />
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => setCreateOpen(true)}
-                  className="h-8 rounded-md bg-zinc-950 text-white shadow-none hover:bg-zinc-800"
-                >
-                  <PlusIcon /> New
-                </Button>
-              </>
-            }
-          >
-            <Table className="min-w-[640px]">
-              <TableCaption className="sr-only">Collections</TableCaption>
-              <TableHeader>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setCreateOpen(true)}
+                className="h-8 rounded-md bg-zinc-950 text-white shadow-none hover:bg-zinc-800"
+              >
+                <PlusIcon /> New
+              </Button>
+            </>
+          }
+        >
+          <Table className="min-w-[640px]">
+            <TableCaption className="sr-only">Collections</TableCaption>
+            <TableHeader>
+              <TableRow>
+                <TableHead scope="col">Collection</TableHead>
+                {hiddenCols.has('products') ? null : <TableHead scope="col">Products</TableHead>}
+                {hiddenCols.has('featured') ? null : <TableHead scope="col">Featured</TableHead>}
+                <TableHead scope="col">
+                  <span className="sr-only">Actions</span>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {collections.length === 0 ? (
                 <TableRow>
-                  <TableHead scope="col">Collection</TableHead>
-                  {hiddenCols.has('products') ? null : <TableHead scope="col">Products</TableHead>}
-                  {hiddenCols.has('featured') ? null : <TableHead scope="col">Featured</TableHead>}
-                  <TableHead scope="col">
-                    <span className="sr-only">Actions</span>
-                  </TableHead>
+                  <TableCell
+                    colSpan={
+                      2 + Number(!hiddenCols.has('products')) + Number(!hiddenCols.has('featured'))
+                    }
+                    className="h-24 text-center"
+                  >
+                    {search.cq
+                      ? `No collections match "${search.cq}".`
+                      : 'No collections yet. Use New to create your first one.'}
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {collections.map((c) => {
-                  const selected = memberOf(c);
-                  return (
-                    <TableRow
-                      key={c.id}
-                      className="cursor-pointer"
-                      onClick={(event) => {
-                        if ((event.target as HTMLElement).closest('a, button')) return;
-                        setEditingId(c.id);
-                      }}
-                    >
-                      <TableCell className="whitespace-normal">
-                        <span className="font-medium text-zinc-950">{c.title}</span>
-                        <span className="block text-[13px] text-zinc-500">
-                          /collections/{c.slug}
-                        </span>
+              ) : null}
+              {collections.map((c) => {
+                const selected = memberOf(c);
+                return (
+                  <TableRow
+                    key={c.id}
+                    className="cursor-pointer"
+                    onClick={(event) => {
+                      if ((event.target as HTMLElement).closest('a, button')) return;
+                      setEditingId(c.id);
+                    }}
+                  >
+                    <TableCell className="whitespace-normal">
+                      <span className="font-medium text-zinc-950">{c.title}</span>
+                      <span className="block text-[13px] text-zinc-500">/collections/{c.slug}</span>
+                    </TableCell>
+                    {hiddenCols.has('products') ? null : (
+                      <TableCell className="text-zinc-500">
+                        {selected.length} product{selected.length === 1 ? '' : 's'}
                       </TableCell>
-                      {hiddenCols.has('products') ? null : (
-                        <TableCell className="text-zinc-500">
-                          {selected.length} product{selected.length === 1 ? '' : 's'}
-                        </TableCell>
-                      )}
-                      {hiddenCols.has('featured') ? null : (
-                        <TableCell className="text-zinc-500">
-                          {c.featured_rank ? `#${c.featured_rank}` : '—'}
-                        </TableCell>
-                      )}
-                      <TableCell className="text-right">
-                        <AdminRowActions label={`Actions for ${c.title}`}>
-                          <DropdownMenuItem onSelect={() => setEditingId(c.id)}>
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem asChild>
-                            <Link to="/collections/$slug" params={{ slug: c.slug }}>
-                              View in store
-                            </Link>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            disabled={busy}
-                            variant="destructive"
-                            onSelect={() => askDelete(c)}
-                          >
-                            Delete
-                          </DropdownMenuItem>
-                        </AdminRowActions>
+                    )}
+                    {hiddenCols.has('featured') ? null : (
+                      <TableCell className="text-zinc-500">
+                        {c.featured_rank ? `#${c.featured_rank}` : '—'}
                       </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </AdminDataTableShell>
-        </div>
-      )}
+                    )}
+                    <TableCell className="text-right">
+                      <AdminRowActions label={`Actions for ${c.title}`}>
+                        <DropdownMenuItem onSelect={() => setEditingId(c.id)}>
+                          Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                          <Link to="/collections/$slug" params={{ slug: c.slug }}>
+                            View in store
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={busy}
+                          variant="destructive"
+                          onSelect={() => askDelete(c)}
+                        >
+                          Delete
+                        </DropdownMenuItem>
+                      </AdminRowActions>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </AdminDataTableShell>
+      </div>
 
       <Drawer
         instant

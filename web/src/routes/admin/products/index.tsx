@@ -315,185 +315,184 @@ function AdminProducts() {
       <AdminActionFeedback value={msg} />
 
       <section className="mt-6" aria-label="Product results">
-        {state === 'refine' ? (
-          <p className="rounded-2xl bg-zinc-50 p-5 text-sm text-zinc-600" role="status">
-            This search is too broad to display safely. Try a more specific title or SKU.
-          </p>
-        ) : products.length === 0 ? (
-          <div className="rounded-2xl bg-zinc-50 p-5">
-            <p className="text-sm text-zinc-500" role="status">
-              {search.q
-                ? 'No matching products. Try another title or SKU.'
-                : search.status !== 'all'
-                  ? `No ${search.status} products. Try another status or reset the filters.`
-                  : 'No products yet. Create your first product below.'}
-            </p>
-            {search.cursor ? (
-              <button
-                className={`${pillWhite} mt-3`}
-                onClick={() => void navigate({ search: { ...search, cursor: undefined } })}
-              >
-                Back to first page
-              </button>
-            ) : null}
-            {search.q || search.status !== 'all' || search.sort !== 'newest' ? (
-              <button
-                className={`${pillWhite} mt-3 ml-2`}
-                onClick={() => {
-                  void navigate({
-                    search: { q: '', mode: null, status: 'all', sort: 'newest', cursor: undefined },
-                  });
-                }}
-              >
-                Reset filters
-              </button>
-            ) : null}
-          </div>
-        ) : (
-          <div tabIndex={0} role="region" aria-label="Product results">
-            {/* Cursor pages only: the Worker hands back next/previous cursors,
+        <div tabIndex={0} role="region" aria-label="Product results">
+          {/* Cursor pages only: the Worker hands back next/previous cursors,
                 not a total. The footer override owns navigation. */}
-            <DataTable
-              caption="Products"
-              columns={productColumns}
-              data={products}
-              pageIndex={0}
-              pageSize={50}
-              rowCount={0}
-              onPaginationChange={() => undefined}
-              onRowClick={(row) => openEditor(row.id)}
-              paginationFooter={
-                previousCursor || nextCursor ? (
-                  <div className="flex justify-between gap-3 px-2 py-4">
-                    {previousCursor ? (
-                      <button
-                        type="button"
-                        className={pillWhite}
-                        onClick={() =>
-                          void navigate({ search: { ...search, cursor: previousCursor } })
-                        }
-                      >
-                        Previous 50 products
-                      </button>
-                    ) : (
-                      <span />
-                    )}
-                    {nextCursor ? (
-                      <button
-                        type="button"
-                        className={pillWhite}
-                        onClick={() => void navigate({ search: { ...search, cursor: nextCursor } })}
-                      >
-                        Next 50 products
-                      </button>
-                    ) : null}
-                  </div>
-                ) : (
-                  <></>
-                )
-              }
-              toolbar={
-                <div className="min-w-0 flex-1">
-                  <DataTableSearch
-                    value={search.q}
-                    onSearch={(q) =>
+          <DataTable
+            caption="Products"
+            emptyMessage={
+              <div className="rounded-2xl bg-zinc-50 p-5">
+                <p className="text-sm text-zinc-500" role="status">
+                  {state === 'refine'
+                    ? 'This search is too broad to display safely. Try a more specific title.'
+                    : search.q
+                      ? 'No matching products. Try another title.'
+                      : search.status !== 'all'
+                        ? `No ${search.status} products. Try another status or reset the filters.`
+                        : 'No products yet. Use New to create your first product.'}
+                </p>
+                {search.cursor ? (
+                  <button
+                    className={`${pillWhite} mt-3`}
+                    onClick={() => void navigate({ search: { ...search, cursor: undefined } })}
+                  >
+                    Back to first page
+                  </button>
+                ) : null}
+                {search.q || search.status !== 'all' || search.sort !== 'newest' ? (
+                  <button
+                    className={`${pillWhite} mt-3 ml-2`}
+                    onClick={() => {
                       void navigate({
                         search: {
-                          q,
-                          mode: q ? 'title' : null,
-                          status: search.status,
-                          sort: search.sort,
+                          q: '',
+                          mode: null,
+                          status: 'all',
+                          sort: 'newest',
                           cursor: undefined,
                         },
-                      })
-                    }
-                    placeholder="Search Products"
-                    ariaLabel="Find products"
-                  />
+                      });
+                    }}
+                  >
+                    Reset filters
+                  </button>
+                ) : null}
+              </div>
+            }
+            columns={productColumns}
+            data={products}
+            pageIndex={0}
+            pageSize={50}
+            rowCount={0}
+            onPaginationChange={() => undefined}
+            onRowClick={(row) => openEditor(row.id)}
+            paginationFooter={
+              previousCursor || nextCursor ? (
+                <div className="flex justify-between gap-3 px-2 py-4">
+                  {previousCursor ? (
+                    <button
+                      type="button"
+                      className={pillWhite}
+                      onClick={() =>
+                        void navigate({ search: { ...search, cursor: previousCursor } })
+                      }
+                    >
+                      Previous 50 products
+                    </button>
+                  ) : (
+                    <span />
+                  )}
+                  {nextCursor ? (
+                    <button
+                      type="button"
+                      className={pillWhite}
+                      onClick={() => void navigate({ search: { ...search, cursor: nextCursor } })}
+                    >
+                      Next 50 products
+                    </button>
+                  ) : null}
                 </div>
-              }
-              toolbarActions={
-                <>
-                  <Select
-                    value={search.status}
-                    onValueChange={(value) => {
-                      if (isProductStatusFilter(value))
-                        void navigate({
-                          search: { ...search, status: value, cursor: undefined },
-                        });
-                    }}
+              ) : (
+                <></>
+              )
+            }
+            toolbar={
+              <div className="min-w-0 flex-1">
+                <DataTableSearch
+                  value={search.q}
+                  onSearch={(q) =>
+                    void navigate({
+                      search: {
+                        q,
+                        mode: q ? 'title' : null,
+                        status: search.status,
+                        sort: search.sort,
+                        cursor: undefined,
+                      },
+                    })
+                  }
+                  placeholder="Search Products"
+                  ariaLabel="Find products"
+                />
+              </div>
+            }
+            toolbarActions={
+              <>
+                <Select
+                  value={search.status}
+                  onValueChange={(value) => {
+                    if (isProductStatusFilter(value))
+                      void navigate({
+                        search: { ...search, status: value, cursor: undefined },
+                      });
+                  }}
+                >
+                  <SelectTrigger
+                    aria-label="Filter by status"
+                    className={dataTableControlClassName}
                   >
-                    <SelectTrigger
-                      aria-label="Filter by status"
-                      className={dataTableControlClassName}
-                    >
-                      <SelectValue>Status</SelectValue>
-                    </SelectTrigger>
-                    <SelectContent
-                      position="popper"
-                      align="end"
-                      sideOffset={4}
-                      className={dataTableMenuClassName}
-                    >
-                      {statuses.map(([value, label]) => (
-                        <SelectItem
-                          className={dataTableMenuItemClassName}
-                          key={value}
-                          value={value}
-                        >
-                          {label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select
-                    value={search.sort}
-                    onValueChange={(value) => {
-                      if (isProductSort(value))
-                        void navigate({ search: { ...search, sort: value, cursor: undefined } });
-                    }}
+                    <SelectValue>Status</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent
+                    position="popper"
+                    align="end"
+                    sideOffset={4}
+                    className={dataTableMenuClassName}
                   >
-                    <SelectTrigger aria-label="Sort products" className={dataTableControlClassName}>
-                      <SelectValue>Sort</SelectValue>
-                    </SelectTrigger>
-                    <SelectContent
-                      position="popper"
-                      align="end"
-                      sideOffset={4}
-                      className={dataTableMenuClassName}
-                    >
-                      <SelectItem className={dataTableMenuItemClassName} value="newest">
-                        Newest
+                    {statuses.map(([value, label]) => (
+                      <SelectItem className={dataTableMenuItemClassName} key={value} value={value}>
+                        {label}
                       </SelectItem>
-                      <SelectItem className={dataTableMenuItemClassName} value="oldest">
-                        Oldest
-                      </SelectItem>
-                      <SelectItem className={dataTableMenuItemClassName} value="title">
-                        Title A–Z
-                      </SelectItem>
-                      <SelectItem className={dataTableMenuItemClassName} value="updated">
-                        Recently updated
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </>
-              }
-              toolbarEnd={
-                canCreate ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={() => setCreateOpen(true)}
-                    className="h-8 rounded-md bg-zinc-950 text-white shadow-none hover:bg-zinc-800"
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={search.sort}
+                  onValueChange={(value) => {
+                    if (isProductSort(value))
+                      void navigate({ search: { ...search, sort: value, cursor: undefined } });
+                  }}
+                >
+                  <SelectTrigger aria-label="Sort products" className={dataTableControlClassName}>
+                    <SelectValue>Sort</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent
+                    position="popper"
+                    align="end"
+                    sideOffset={4}
+                    className={dataTableMenuClassName}
                   >
-                    <PlusIcon /> New
-                  </Button>
-                ) : null
-              }
-              tableClassName="min-w-[680px]"
-            />
-          </div>
-        )}
+                    <SelectItem className={dataTableMenuItemClassName} value="newest">
+                      Newest
+                    </SelectItem>
+                    <SelectItem className={dataTableMenuItemClassName} value="oldest">
+                      Oldest
+                    </SelectItem>
+                    <SelectItem className={dataTableMenuItemClassName} value="title">
+                      Title A–Z
+                    </SelectItem>
+                    <SelectItem className={dataTableMenuItemClassName} value="updated">
+                      Recently updated
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </>
+            }
+            toolbarEnd={
+              canCreate ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => setCreateOpen(true)}
+                  className="h-8 rounded-md bg-zinc-950 text-white shadow-none hover:bg-zinc-800"
+                >
+                  <PlusIcon /> New
+                </Button>
+              ) : null
+            }
+            tableClassName="min-w-[680px]"
+          />
+        </div>
       </section>
       {canCreate ? (
         <ProductCreateDrawer

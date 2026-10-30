@@ -315,45 +315,39 @@ function Page() {
       </div>
       <AdminActionFeedback value={feedback} />
 
-      {discounts.length === 0 && !search.q ? (
-        <p className="mt-6 rounded-2xl bg-zinc-50 p-5 text-sm text-zinc-500" role="status">
-          No discount codes yet. Use New to create your first one.
-        </p>
-      ) : (
-        <div className="mt-6" tabIndex={0} role="region" aria-label="Discount codes">
-          <DataTable
-            caption="Discount codes"
-            columns={discountColumns}
-            data={discounts}
-            pageIndex={page - 1}
-            pageSize={pageSize}
-            rowCount={total}
-            pageSizeOptions={pageSizeOptions}
-            onPaginationChange={handlePaginationChange}
-            onRowClick={(row) => openEdit(row)}
-            tableClassName="min-w-[640px]"
-            emptyMessage={search.q ? `No codes match "${search.q}".` : 'No discount codes yet.'}
-            toolbar={
-              <DataTableSearch
-                value={search.q}
-                onSearch={(q) => void navigate({ search: { q, page: 1, size: search.size } })}
-                placeholder="Search Promo Codes"
-                ariaLabel="Find a code"
-              />
-            }
-            toolbarEnd={
-              <Button
-                type="button"
-                size="sm"
-                onClick={openCreate}
-                className="h-8 rounded-md bg-zinc-950 text-white shadow-none hover:bg-zinc-800"
-              >
-                <PlusIcon /> New
-              </Button>
-            }
-          />
-        </div>
-      )}
+      <div className="mt-6" tabIndex={0} role="region" aria-label="Discount codes">
+        <DataTable
+          caption="Discount codes"
+          columns={discountColumns}
+          data={discounts}
+          pageIndex={page - 1}
+          pageSize={pageSize}
+          rowCount={total}
+          pageSizeOptions={pageSizeOptions}
+          onPaginationChange={handlePaginationChange}
+          onRowClick={(row) => openEdit(row)}
+          tableClassName="min-w-[640px]"
+          emptyMessage={search.q ? `No codes match "${search.q}".` : 'No discount codes yet.'}
+          toolbar={
+            <DataTableSearch
+              value={search.q}
+              onSearch={(q) => void navigate({ search: { q, page: 1, size: search.size } })}
+              placeholder="Search Promo Codes"
+              ariaLabel="Find a code"
+            />
+          }
+          toolbarEnd={
+            <Button
+              type="button"
+              size="sm"
+              onClick={openCreate}
+              className="h-8 rounded-md bg-zinc-950 text-white shadow-none hover:bg-zinc-800"
+            >
+              <PlusIcon /> New
+            </Button>
+          }
+        />
+      </div>
 
       <Drawer
         instant

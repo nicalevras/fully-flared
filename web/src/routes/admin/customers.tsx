@@ -368,29 +368,24 @@ function AdminCustomers() {
       ) : null}
 
       <section className="mt-6">
-        {customers.length === 0 && !search.q ? (
-          <p className="p-5 text-sm text-zinc-500" role="status">
-            No accounts yet.
-          </p>
-        ) : (
-          <DataTable
-            caption="Customers and staff"
-            columns={customerColumns}
-            data={customers}
-            pageIndex={page - 1}
-            pageSize={200}
-            rowCount={total}
-            onPaginationChange={handlePaginationChange}
-            toolbar={
-              <DataTableSearch
-                value={search.q}
-                onSearch={(q) => void navigate({ search: { page: 1, q, email: '' } })}
-                placeholder="ada@example.com"
-                ariaLabel="Find a contact by email"
-              />
-            }
-          />
-        )}
+        <DataTable
+          caption="Customers and staff"
+          emptyMessage={search.q ? 'No accounts match this search.' : 'No accounts yet.'}
+          columns={customerColumns}
+          data={customers}
+          pageIndex={page - 1}
+          pageSize={200}
+          rowCount={total}
+          onPaginationChange={handlePaginationChange}
+          toolbar={
+            <DataTableSearch
+              value={search.q}
+              onSearch={(q) => void navigate({ search: { page: 1, q, email: '' } })}
+              placeholder="ada@example.com"
+              ariaLabel="Find a contact by email"
+            />
+          }
+        />
       </section>
       <section className={`${cardCls} mt-6 p-4`} aria-label="Staff accounts on this page">
         <h2 className="text-sm font-medium text-zinc-950">Staff on this page</h2>

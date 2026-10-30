@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import { Dialog } from '@base-ui/react/dialog';
 import { createServerFn, useServerFn } from '@tanstack/react-start';
 import { useNavigate } from '@tanstack/react-router';
 import * as z from 'zod';
 import { validateServerInput } from '../server/function-boundary';
 import type { PublishedProductCard } from '../server/catalog';
 import { createSearchGate, runLatestSearch } from '../lib/global-search';
+import { createPaletteSuggestionsCache } from '../lib/palette-suggestions';
 import { usePaletteNavigation } from '../lib/use-palette-navigation';
 import { useStoreCurrency } from '../lib/use-store-currency';
 import { formatMoney } from '../lib/format';
@@ -36,7 +38,10 @@ const paletteSuggestions = createServerFn({ method: 'GET' }).handler(
   }
 );
 
-let paletteSuggestionsCache: PublishedProductCard[] | null = null;
+const paletteSuggestionsCache = createPaletteSuggestionsCache<PublishedProductCard>();
+
+type QueryState =
+  { query: string; kind: 'result'; value: SuggestResult } | { query: string; kind: 'failed' };
 
 export const SEARCH_PALETTE_EVENT = 'ff:open-search-palette';
 
@@ -55,10 +60,10 @@ const itemCls =
 export function SearchPaletteDialog() {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
-  const [result, setResult] = useState<SuggestResult | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [queryState, setQueryState] = useState<QueryState | null>(null);
   const gate = useRef(createSearchGate());
   const inputRef = useRef<HTMLInputElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
   const queryRef = useRef('');
   const cache = useRef(new Map<string, SuggestResult>());
   const returnFocusRef = useRef<HTMLElement | null>(null);
@@ -67,11 +72,13 @@ export function SearchPaletteDialog() {
   const navigate = useNavigate();
   const currency = useStoreCurrency();
   const [suggested, setSuggested] = useState<PublishedProductCard[] | null>(
-    paletteSuggestionsCache
+    paletteSuggestionsCache.read
   );
-  const suggestionsAsked = useRef(paletteSuggestionsCache !== null);
 
   const query = q.trim();
+  const currentState = queryState?.query === query ? queryState : null;
+  const result = currentState?.kind === 'result' ? currentState.value : null;
+  const failed = currentState?.kind === 'failed';
   const cards = result && !result.limited ? result.cards : [];
   const visibleCards = query.length >= 3 ? cards.slice(0, 8) : (suggested ?? []);
   const items: PaletteItem[] = visibleCards.map((card) => ({
@@ -84,11 +91,8 @@ export function SearchPaletteDialog() {
     setOpen(false);
     setQ('');
     queryRef.current = '';
-    setResult(null);
-    setFailed(false);
-    const target = returnFocusRef.current;
-    returnFocusRef.current = null;
-    if (target) requestAnimationFrame(() => target.focus({ preventScroll: true }));
+    setQueryState(null);
+    reset();
   };
 
   const activate = (index: number) => {
@@ -103,6 +107,7 @@ export function SearchPaletteDialog() {
 
   useEffect(() => {
     const openDialog = () => {
+      if (open) return;
       if (document.activeElement instanceof HTMLElement) {
         returnFocusRef.current = document.activeElement;
       }
@@ -120,36 +125,18 @@ export function SearchPaletteDialog() {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener(SEARCH_PALETTE_EVENT, openDialog);
     };
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    if (window.matchMedia('(pointer: fine)').matches) {
-      inputRef.current?.focus({ preventScroll: true });
-    }
   }, [open]);
 
   useEffect(() => {
     if (!open) return;
-    const root = document.documentElement;
-    const previousRoot = root.style.overflow;
-    const previousBody = document.body.style.overflow;
-    root.style.overflow = 'hidden';
-    document.body.style.overflow = 'hidden';
-    return () => {
-      root.style.overflow = previousRoot;
-      document.body.style.overflow = previousBody;
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open || suggestionsAsked.current) return;
-    suggestionsAsked.current = true;
     let cancelled = false;
-    runSuggestions()
+    paletteSuggestionsCache
+      .load(runSuggestions)
       .then((cards) => {
-        paletteSuggestionsCache = cards;
-        if (!cancelled) setSuggested(cards);
+        if (!cancelled) {
+          setSuggested(cards);
+          reset();
+        }
       })
       .catch(() => {
         if (!cancelled) setSuggested([]);
@@ -157,25 +144,22 @@ export function SearchPaletteDialog() {
     return () => {
       cancelled = true;
     };
-  }, [open, runSuggestions]);
+  }, [open, runSuggestions, reset]);
 
   useEffect(() => {
     queryRef.current = q;
     if (!open) return;
     if (query.length < 3) {
       gate.current.invalidate();
-      setResult(null);
-      setFailed(false);
+      setQueryState(null);
       return;
     }
     const cached = cache.current.get(query.toLowerCase());
     if (cached) {
-      setResult(cached);
-      setFailed(false);
+      setQueryState({ query, kind: 'result', value: cached });
       reset();
       return;
     }
-    setFailed(false);
     const timer = setTimeout(async () => {
       try {
         const outcome = await runLatestSearch(
@@ -186,19 +170,15 @@ export function SearchPaletteDialog() {
         );
         if (outcome.applied) {
           if (!outcome.value.limited) cache.current.set(query.toLowerCase(), outcome.value);
-          setResult(outcome.value);
-          setFailed(false);
+          setQueryState({ query, kind: 'result', value: outcome.value });
           reset();
         }
       } catch {
-        setResult(null);
-        setFailed(true);
+        setQueryState({ query, kind: 'failed' });
       }
     }, 250);
     return () => clearTimeout(timer);
   }, [open, q, query, run, reset]);
-
-  if (!open) return null;
 
   let flatIndex = -1;
   const renderItem = (item: PaletteItem) => {
@@ -250,114 +230,128 @@ export function SearchPaletteDialog() {
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 p-4 pt-[14vh] supports-backdrop-filter:backdrop-blur-sm"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) close();
+    <Dialog.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) close();
       }}
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Search products"
-        className="flex max-h-72 min-h-72 w-full max-w-xl flex-col overflow-hidden rounded-3xl bg-popover p-2 text-popover-foreground shadow-lg ring-1 ring-zinc-950/10"
-      >
-        <div className="mb-1 flex items-center gap-2 px-2">
-          <SearchIcon className="size-4 shrink-0 opacity-50" />
-          <input
-            ref={inputRef}
-            role="combobox"
-            aria-expanded={items.length > 0}
-            aria-controls="search-palette-list"
-            aria-activedescendant={
-              items.length > 0 ? `search-palette-item-${activeIndex}` : undefined
-            }
-            aria-label="Search products"
-            value={q}
-            placeholder="Search products…"
-            onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') close();
-              else onKeyDown(e, items.length);
-            }}
-            className="min-w-0 flex-1 bg-transparent py-1.5 text-sm outline-none placeholder:text-muted-foreground"
-          />
-        </div>
-        {query.length >= 3 ? (
-          <div
-            id="search-palette-list"
-            role="listbox"
-            aria-label="Search results"
-            className="min-h-0 flex-1 scroll-py-1 overflow-x-hidden overflow-y-auto outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          >
-            {failed ? (
-              <p className="py-6 text-center text-sm text-muted-foreground" role="alert">
-                Search failed. Check your connection and try again.
-              </p>
-            ) : result?.limited ? (
-              <p className="py-6 text-center text-sm text-muted-foreground" role="status">
-                Too many searches. Give it a moment, then try again.
-              </p>
-            ) : result && cards.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">No results found.</p>
-            ) : result ? (
-              <>
-                <div role="group" aria-label="Results">
-                  <p className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Results</p>
-                  <ul>{items.map(renderItem)}</ul>
-                </div>
-                {result.hasMore ? (
-                  <button
-                    type="button"
-                    className="w-full px-2 py-2 text-left text-[13px] text-muted-foreground hover:text-foreground"
-                    onClick={() => {
-                      void navigate({ to: '/search', search: { q: query } });
-                      close();
-                    }}
-                  >
-                    View all results
-                  </button>
-                ) : null}
-              </>
-            ) : (
-              <div role="group" aria-label="Results" aria-busy="true">
-                <p className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Results</p>
-                <ul aria-hidden>
-                  {[0, 1, 2, 3, 4].map((row) => (
-                    <li
-                      key={row}
-                      className="flex min-h-7 items-center gap-2 rounded-xl px-2 py-1.5"
+      <Dialog.Portal>
+        <Dialog.Backdrop className="fixed inset-0 z-50 bg-black/30 supports-backdrop-filter:backdrop-blur-sm" />
+        <Dialog.Popup
+          ref={popupRef}
+          initialFocus={() =>
+            window.matchMedia('(pointer: fine)').matches ? inputRef.current : popupRef.current
+          }
+          finalFocus={returnFocusRef}
+          aria-label="Search products"
+          className="fixed top-[14vh] left-1/2 z-50 flex max-h-72 min-h-72 w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 flex-col overflow-hidden rounded-3xl bg-popover p-2 text-popover-foreground shadow-lg ring-1 ring-zinc-950/10 outline-none"
+        >
+          <div className="mb-1 flex items-center gap-2 px-2">
+            <SearchIcon className="size-4 shrink-0 opacity-50" />
+            <input
+              ref={inputRef}
+              role="combobox"
+              aria-expanded={items.length > 0}
+              aria-controls="search-palette-list"
+              aria-activedescendant={
+                items.length > 0 ? `search-palette-item-${activeIndex}` : undefined
+              }
+              aria-label="Search products"
+              value={q}
+              placeholder="Search products…"
+              onChange={(e) => {
+                gate.current.invalidate();
+                queryRef.current = e.target.value;
+                setQ(e.target.value);
+                reset();
+              }}
+              onKeyDown={(e) => onKeyDown(e, items.length)}
+              className="min-w-0 flex-1 bg-transparent py-1.5 text-sm outline-none placeholder:text-muted-foreground"
+            />
+            <Dialog.Close
+              aria-label="Close search"
+              className="shrink-0 rounded-md px-2 py-1 text-muted-foreground hover:text-foreground"
+            >
+              <span aria-hidden="true">×</span>
+            </Dialog.Close>
+          </div>
+          {query.length >= 3 ? (
+            <div
+              id="search-palette-list"
+              role="listbox"
+              aria-label="Search results"
+              className="min-h-0 flex-1 scroll-py-1 overflow-x-hidden overflow-y-auto outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            >
+              {failed ? (
+                <p className="py-6 text-center text-sm text-muted-foreground" role="alert">
+                  Search failed. Check your connection and try again.
+                </p>
+              ) : result?.limited ? (
+                <p className="py-6 text-center text-sm text-muted-foreground" role="status">
+                  Too many searches. Give it a moment, then try again.
+                </p>
+              ) : result && cards.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">No results found.</p>
+              ) : result ? (
+                <>
+                  <div role="group" aria-label="Results">
+                    <p className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Results</p>
+                    <ul>{items.map(renderItem)}</ul>
+                  </div>
+                  {result.hasMore ? (
+                    <button
+                      type="button"
+                      className="w-full px-2 py-2 text-left text-[13px] text-muted-foreground hover:text-foreground"
+                      onClick={() => {
+                        void navigate({ to: '/search', search: { q: query } });
+                        close();
+                      }}
                     >
-                      <Skeleton className="size-8 shrink-0 rounded-md" />
-                      <Skeleton className="h-4 min-w-0 flex-1" />
-                      <Skeleton className="h-4 w-12 shrink-0" />
-                    </li>
-                  ))}
-                </ul>
-                <span className="sr-only" role="status">
-                  Searching…
-                </span>
-              </div>
-            )}
-          </div>
-        ) : suggested && suggested.length > 0 ? (
-          <div
-            id="search-palette-list"
-            role="listbox"
-            aria-label="Suggested products"
-            className="min-h-0 flex-1 scroll-py-1 overflow-x-hidden overflow-y-auto outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          >
-            <div role="group" aria-label="Suggested">
-              <p className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Suggested</p>
-              <ul>{items.map(renderItem)}</ul>
+                      View all results
+                    </button>
+                  ) : null}
+                </>
+              ) : (
+                <div role="group" aria-label="Results" aria-busy="true">
+                  <p className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Results</p>
+                  <ul aria-hidden>
+                    {[0, 1, 2, 3, 4].map((row) => (
+                      <li
+                        key={row}
+                        className="flex min-h-7 items-center gap-2 rounded-xl px-2 py-1.5"
+                      >
+                        <Skeleton className="size-8 shrink-0 rounded-md" />
+                        <Skeleton className="h-4 min-w-0 flex-1" />
+                        <Skeleton className="h-4 w-12 shrink-0" />
+                      </li>
+                    ))}
+                  </ul>
+                  <span className="sr-only" role="status">
+                    Searching…
+                  </span>
+                </div>
+              )}
             </div>
-          </div>
-        ) : (
-          <p className="px-2 py-3 text-[13px] text-muted-foreground">
-            Type at least three characters to search the catalog.
-          </p>
-        )}
-      </div>
-    </div>
+          ) : suggested && suggested.length > 0 ? (
+            <div
+              id="search-palette-list"
+              role="listbox"
+              aria-label="Suggested products"
+              className="min-h-0 flex-1 scroll-py-1 overflow-x-hidden overflow-y-auto outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            >
+              <div role="group" aria-label="Suggested">
+                <p className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Suggested</p>
+                <ul>{items.map(renderItem)}</ul>
+              </div>
+            </div>
+          ) : (
+            <p className="px-2 py-3 text-[13px] text-muted-foreground">
+              Type at least three characters to search the catalog.
+            </p>
+          )}
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

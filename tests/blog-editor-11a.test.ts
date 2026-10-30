@@ -17,11 +17,11 @@ describe('Phase 11A blog list and editor split', () => {
     expect(list).toContain('formatDate(row.original.updated_at)');
     expect(list).toContain('LIMIT ? OFFSET ?');
     expect(list).toContain('pageWindow');
-    expect(list).toContain('p.title LIKE ?');
+    expect(list).toContain('posts_fts MATCH ?');
     expect(list).not.toContain('LIMIT 100');
     expect(list).toContain('<DataTable');
     const editor = readFileSync('web/src/components/BlogPostEditor.tsx', 'utf8');
-    expect(editor).toContain('BlogEditor');
+    expect(editor).toContain('ExpandableEditor');
     expect(editor).toContain('saveBlogPost');
     expect(editor).toContain('onFeedback');
     expect(editor).not.toContain('Loading post');
@@ -47,16 +47,16 @@ describe('editor find shortcut scope', () => {
 describe('article editor dialog', () => {
   it('opens a pop-up dialog around the single mounted editor', () => {
     const editor = readFileSync('web/src/components/BlogPostEditor.tsx', 'utf8');
-    expect(editor.match(/<BlogEditor/g)).toHaveLength(1);
-    expect(editor).toContain("key={form.id || 'new'}");
-    expect(editor).toContain('createPortal');
-    expect(editor).toContain('editorDialogOpen ? dialogSlot : inlineSlot');
-    expect(editor).toContain('Maximize2Icon');
-    expect(editor).not.toContain('Minimize2Icon');
-    expect(editor).not.toContain('is-expanded');
-    expect(editor).not.toContain('onExpandedChange');
-    expect(editor).toContain('role="dialog"');
-    expect(editor).toContain('Done');
+    expect(editor.match(/<ExpandableEditor/g)).toHaveLength(1);
+    expect(editor).toContain("editorKey={form.id || 'new'}");
+    expect(editor).not.toContain('createPortal');
+    expect(editor).not.toContain('editorDialogOpen');
+    expect(editor).toContain('setContentJson(json)');
+    const expanded = readFileSync('web/src/components/ExpandableEditor.tsx', 'utf8');
+    expect(expanded.match(/<BlogEditor/g)).toHaveLength(1);
+    expect(expanded).toContain('<Dialog.Portal keepMounted>');
+    expect(expanded).toContain('slot.appendChild(host)');
+    expect(expanded).not.toContain('addEventListener');
     const simple = readFileSync(
       'web/src/components/tiptap-templates/simple/simple-editor.tsx',
       'utf8'

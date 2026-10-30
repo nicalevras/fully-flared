@@ -16,6 +16,7 @@ function PopoverContent({
   className,
   align = 'start',
   sideOffset = 4,
+  onEscapeKeyDown,
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Content>) {
   return (
@@ -24,6 +25,10 @@ function PopoverContent({
         data-slot="popover-content"
         align={align}
         sideOffset={sideOffset}
+        onEscapeKeyDown={(event) => {
+          event.stopPropagation();
+          onEscapeKeyDown?.(event);
+        }}
         className={cn(
           'z-50 w-(--radix-popover-trigger-width) rounded-xl border border-zinc-200 bg-white p-1 shadow-lg outline-none',
           className

@@ -71,7 +71,9 @@ describe('storefront search palette wiring', () => {
     expect(palette).toContain('Skeleton');
     expect(palette).toContain('>Results</p>');
     expect(palette).toContain('(pointer: fine)');
-    expect(palette).toContain("document.body.style.overflow = 'hidden'");
+    expect(palette).toContain('<Dialog.Root');
+    expect(palette).toContain('<Dialog.Portal>');
+    expect(palette).toContain('<Dialog.Close');
     expect(palette).not.toContain('autoFocus');
     expect(palette).toContain('max-h-72 min-h-72');
     expect(palette).toContain('min-h-0 flex-1 scroll-py-1');
