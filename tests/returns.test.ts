@@ -151,3 +151,19 @@ it('a return refunded without restock leaves stock alone', async () => {
   );
   expect(await onHand('TEE-1')).toBe(9);
 });
+
+it('a later full refund does not restock units that were never returned', async () => {
+  const o = await paidOrder('later', [{ sku: 'TEE-1', qty: 2 }]);
+  await refundReturn(await approvedReturn(o.orderId, [{ sku: 'TEE-1', qty: 1 }]), 2000, true);
+  const rest = await runAdminAction(db, {}, owner, 'order.refund', {
+    requestId: 'later-rest',
+    orderId: o.orderId,
+  });
+  expect(rest.ok).toBe(true);
+  const refund = await db
+    .prepare("SELECT id FROM refunds WHERE request_id = 'later-rest'")
+    .first<{ id: string }>();
+  await settleRefund(db, refund?.id ?? '', 'succeeded');
+  expect(await onHand('TEE-1')).toBe(9);
+  await expectLedgerMatchesCounters(db, 'TEE-1');
+});

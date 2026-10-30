@@ -210,6 +210,7 @@ export const adminActionSchema = z.discriminatedUnion('action', [
     action: z.literal('return.refund'),
     returnId: idString,
     amountCents: z.number().int().min(1),
+    restock: z.boolean().optional().default(false),
   }),
   z.object({ action: z.literal('return.reject'), returnId: idString }),
   z.object({ action: z.literal('webhook.replay'), eventId: nonEmptyString(200) }),

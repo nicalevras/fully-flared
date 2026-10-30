@@ -734,7 +734,7 @@ export async function runAdminAction(
           env,
           ret.order_id,
           f.amountCents,
-          false,
+          f.restock,
           `return-${ret.id}-${prior?.n ?? 0}`,
           ret.id
         );
