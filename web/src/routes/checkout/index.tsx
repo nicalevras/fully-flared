@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useStoreCurrency } from '../../lib/use-store-currency';
 import { Link, createFileRoute } from '@tanstack/react-router';
 import { checkoutQuoteFn, validateDiscountFn } from '../../lib/shopFns';
@@ -81,7 +81,8 @@ function CheckoutPage() {
     phone: '',
   });
   const shippingAddress = useMemo(() => ({ ...address, country }), [address, country]);
-  const [review, setReview] = useState<{
+  const [reviewState, setReviewState] = useState<{
+    forKey: string;
     intentId: string;
     quoteHash: string;
     quote: ReviewQuote;
@@ -89,8 +90,7 @@ function CheckoutPage() {
   const [reminderConsent, setReminderConsent] = useState(false);
   const confirmFn = useServerFn(confirmCheckoutFn);
   const pendingRequest = useRef<AbortController | null>(null);
-  const detailsRef = useRef('');
-  detailsRef.current = JSON.stringify({
+  const detailsKey = JSON.stringify({
     cartId: cart.cartId,
     cartRevision: cart.cartRevision,
     email,
@@ -100,10 +100,13 @@ function CheckoutPage() {
     lines,
     reminderConsent,
   });
+  // Read after an await, where this render's detailsKey may be stale.
+  const latestDetailsKey = useRef(detailsKey);
+  useLayoutEffect(() => {
+    latestDetailsKey.current = detailsKey;
+  }, [detailsKey]);
+  const review = reviewState?.forKey === detailsKey ? reviewState : null;
   useEffect(() => () => pendingRequest.current?.abort(), []);
-  useEffect(() => {
-    setReview(null);
-  }, [email, country, rateId, appliedCode, address, lines, reminderConsent]);
 
   const zone = useMemo(() => zones.find((z) => z.countries.includes(country)), [zones, country]);
   const rate = zone?.rates.find((r) => r.id === rateId) ?? zone?.rates[0];
@@ -182,7 +185,7 @@ function CheckoutPage() {
   async function pay() {
     const controller = new AbortController();
     pendingRequest.current = controller;
-    const submittedDetails = detailsRef.current;
+    const submittedDetails = detailsKey;
     setBusy(true);
     setError('');
     try {
@@ -274,7 +277,7 @@ function CheckoutPage() {
         quote?: ReviewQuote;
       };
       if (controller.signal.aborted) return;
-      if (submittedDetails !== detailsRef.current) {
+      if (submittedDetails !== latestDetailsKey.current) {
         setError('Checkout details changed. Prepare a fresh review.');
         return;
       }
@@ -285,7 +288,12 @@ function CheckoutPage() {
         data.quoteHash &&
         data.quote
       ) {
-        setReview({ intentId: data.intentId, quoteHash: data.quoteHash, quote: data.quote });
+        setReviewState({
+          forKey: submittedDetails,
+          intentId: data.intentId,
+          quoteHash: data.quoteHash,
+          quote: data.quote,
+        });
         return;
       }
       if (res.status === 429) {
@@ -297,7 +305,7 @@ function CheckoutPage() {
       }
       if (data.code === 'STALE_ATTEMPT') {
         resetCheckoutIntent(checkoutStorage());
-        setReview(null);
+        setReviewState(null);
         await refreshCart(true);
         setError('Your cart changed. Reload checkout to review the current cart.');
         return;
@@ -346,7 +354,7 @@ function CheckoutPage() {
     if (!review) return;
     const controller = new AbortController();
     pendingRequest.current = controller;
-    const submittedDetails = detailsRef.current;
+    const submittedDetails = detailsKey;
     setBusy(true);
     setError('');
     try {
@@ -356,16 +364,16 @@ function CheckoutPage() {
       });
       if (!result.ok) {
         resetCheckoutIntent(checkoutStorage());
-        setReview(null);
+        setReviewState(null);
         await refreshCart(true);
         setError(result.error);
         return;
       }
-      if (!controller.signal.aborted && submittedDetails === detailsRef.current)
+      if (!controller.signal.aborted && submittedDetails === latestDetailsKey.current)
         window.location.href = result.checkoutUrl;
     } catch {
       setError('This checkout changed or could not be confirmed. Review it again.');
-      setReview(null);
+      setReviewState(null);
     } finally {
       setBusy(false);
       if (pendingRequest.current === controller) pendingRequest.current = null;
