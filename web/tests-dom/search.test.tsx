@@ -3,7 +3,7 @@ import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createRootRoute, createRoute, Outlet } from '@tanstack/react-router';
 import { expect, it } from 'vitest';
-import { Route as SearchRoute } from '@/routes/_shop.search';
+import { Route } from '@/routes/_shop.search';
 import { catalogSearch } from '@/lib/search-params';
 import { renderTree } from './render-route';
 
@@ -22,7 +22,7 @@ const pages: Record<string, { cards: ReturnType<typeof card>[]; nextCursor: stri
 };
 
 async function renderSearch(path: string) {
-  const { component } = SearchRoute.options;
+  const { component } = Route.options;
   const rootRoute = createRootRoute({ loader: () => ({ currency: 'USD' }), component: Outlet });
   const searchRoute = createRoute({
     getParentRoute: () => rootRoute,

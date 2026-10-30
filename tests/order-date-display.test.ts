@@ -8,7 +8,7 @@ it('shows the viewer calendar date without changing the stored UTC instant', () 
   expect(formatDate(instant, 'UTC')).toBe('October 23, 2026');
 });
 
-it('interprets legacy SQLite datetime strings as UTC before converting', () => {
+it('reads legacy SQLite datetime strings in UTC before converting', () => {
   expect(formatDateTime('2026-10-23 03:22:52', 'America/New_York')).toBe(
     formatDateTime('2026-10-23T03:22:52Z', 'America/New_York')
   );

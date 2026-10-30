@@ -1,13 +1,13 @@
 // @vitest-environment happy-dom
 import { screen, within } from '@testing-library/react';
 import { expect, it } from 'vitest';
-import { Route as CartRoute } from '@/routes/_shop.cart';
+import { Route } from '@/routes/_shop.cart';
 import { cartView, line, zone } from './fixtures';
 import { renderPage } from './render-route';
 
 it('shows option title and over-stock warning', async () => {
   await renderPage(
-    CartRoute.options.component,
+    Route.options.component,
     cartView(
       [
         line('TEE-L', { productTitle: 'Tee', variantTitle: 'Large', qty: 3, available: 2 }),

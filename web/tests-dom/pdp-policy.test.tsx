@@ -2,13 +2,13 @@
 import { screen } from '@testing-library/react';
 import { createRootRoute } from '@tanstack/react-router';
 import { expect, it } from 'vitest';
-import { Route as ProductRoute } from '@/routes/_shop.products/$slug';
+import { Route } from '@/routes/_shop.products/$slug';
 import { StorefrontLayout } from '@/routes/__root';
 import { layout, product } from './fixtures';
 import { renderPage, renderTree } from './render-route';
 
 it('copy follows settings', async () => {
-  await renderPage(ProductRoute.options.component, product('tee', 1));
+  await renderPage(Route.options.component, product('tee', 1));
   await screen.findByRole('heading', { name: 'tee product' });
 
   expect(screen.queryByText(/business days/)).toBeNull();

@@ -3,7 +3,7 @@ import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it } from 'vitest';
 import { CartDrawer } from '@/components/CartDrawer';
-import { Route as CartRoute } from '@/routes/_shop.cart';
+import { Route } from '@/routes/_shop.cart';
 import { cartView, line, zone } from './fixtures';
 import { renderPage } from './render-route';
 
@@ -11,7 +11,7 @@ const view = cartView(
   [line('TEE-1')],
   [zone('north', ['CA'], 5_000), zone('europe', ['GB'], 10_000)]
 );
-const CartPage = CartRoute.options.component;
+const CartPage = Route.options.component;
 
 function CartWithDrawer() {
   return (

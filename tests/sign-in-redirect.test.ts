@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { isRedirect } from '../web/node_modules/@tanstack/react-router';
 import type { AuthErrorCode } from '../web/src/server/session';
 import { signInSearch } from '../web/src/lib/search-params';
-import type { SearchSchemaInput } from '../web/node_modules/@tanstack/react-router';
-import { Route as AdminRoute, enterAdmin } from '../web/src/routes/admin/route';
+import { rawSearch } from './helpers/route';
+import { Route, enterAdmin } from '../web/src/routes/admin/route';
 
 const failure = vi.hoisted((): { code: AuthErrorCode } => ({ code: 'UNAUTHENTICATED' }));
 vi.mock('../web/src/server/session', async (original) => {
@@ -26,11 +26,9 @@ vi.mock('../web/node_modules/@tanstack/react-start/dist/esm/server.js', () => ({
   getRequest: () => new Request('http://localhost:8799/admin'),
 }));
 
-const rawSearch: SearchSchemaInput = { __TSearchSchemaInput__: 'TSearchSchemaInput' };
-
 async function adminRedirect(code: AuthErrorCode, href: string) {
   failure.code = code;
-  expect(AdminRoute.options.beforeLoad).toBe(enterAdmin);
+  expect(Route.options.beforeLoad).toBe(enterAdmin);
   try {
     await enterAdmin({ location: { href } });
     return null;

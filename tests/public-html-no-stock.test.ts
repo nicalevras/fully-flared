@@ -6,7 +6,7 @@ import { createMemoryHistory } from '../web/node_modules/@tanstack/react-router'
 import { getRouter } from '../web/src/router';
 
 // Without Start's compiler, createIsomorphicFn runs its `.server()` implementation,
-// so the router below loads the page exactly as SSR does before dehydrating it.
+// so the router below loads the page exactly the way SSR does before dehydrating it.
 vi.mock('../web/node_modules/@tanstack/react-start', async (original) => {
   const chain = { middleware: () => chain, validator: () => chain, handler: (run: unknown) => run };
   return {

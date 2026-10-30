@@ -2,7 +2,7 @@
 import { render, screen } from '@testing-library/react';
 import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/react-router';
 import { expect, it, vi } from 'vitest';
-import { Route as SuccessRoute } from '@/routes/checkout/success';
+import { Route } from '@/routes/checkout/success';
 
 const loadOrder = vi.hoisted(() => vi.fn());
 
@@ -34,7 +34,7 @@ const order = (guest: boolean) => ({
 
 async function renderSuccess() {
   const router = createRouter({
-    routeTree: SuccessRoute,
+    routeTree: Route,
     history: createMemoryHistory({ initialEntries: ['/?order=o1&t=signed'] }),
   });
   await router.load();

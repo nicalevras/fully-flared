@@ -5,7 +5,7 @@ import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/rea
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { CartView } from '@/lib/cartFns';
 import type { StoreLimits } from '@/lib/settings-definitions';
-import { Route as CheckoutRoute } from '@/routes/checkout/index';
+import { Route } from '@/routes/checkout/index';
 
 const fns = vi.hoisted(() => ({
   getCart: vi.fn(),
@@ -147,7 +147,7 @@ function recordCommit() {
 
 async function renderCheckout() {
   const router = createRouter({
-    routeTree: CheckoutRoute,
+    routeTree: Route,
     history: createMemoryHistory({ initialEntries: ['/'] }),
   });
   await router.load();
