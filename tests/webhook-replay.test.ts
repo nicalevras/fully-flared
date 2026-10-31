@@ -3,7 +3,7 @@ import { createTestDb } from './helpers/d1';
 import { env } from './helpers/cloudflare-workers-stub';
 import { runAdminAction } from '../web/src/server/admin-actions';
 import { processInboxEvent } from '../web/src/server/checkout';
-import { actionFailure } from './helpers/json';
+import { actionFailure, parseJson, z } from './helpers/json';
 import { fakeProvider } from './helpers/payments';
 import { fakeQueue, messageBatch, queueMessage } from './helpers/queue';
 import { gatewayContext } from './helpers/gateway';
@@ -151,9 +151,24 @@ it('replays a dead event exactly once and audits the action', async () => {
     .first<{ status: string }>();
   expect(inbox?.status).toBe('processed');
   const audit = await db
-    .prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'webhook.replay'")
-    .first<{ n: number }>();
-  expect(audit?.n).toBe(1);
+    .prepare(
+      "SELECT action,actor_user_id,entity_id,details_json FROM audit_log WHERE action LIKE 'webhook.replay.%' ORDER BY action"
+    )
+    .all<{ action: string; actor_user_id: string; entity_id: string; details_json: string }>();
+  expect(
+    audit.results.map(({ action, actor_user_id, entity_id }) => ({
+      action,
+      actor_user_id,
+      entity_id,
+    }))
+  ).toEqual([
+    { action: 'webhook.replay.queued', actor_user_id: owner.id, entity_id: 'evt_replay_1' },
+    { action: 'webhook.replay.requested', actor_user_id: owner.id, entity_id: 'evt_replay_1' },
+  ]);
+  const replayIds = audit.results.map(
+    (row) => parseJson(row.details_json, z.object({ replayId: z.string().uuid() })).replayId
+  );
+  expect(new Set(replayIds).size).toBe(1);
 });
 
 it('queue failure leaves the event quarantined; a later replay recovers it', async () => {

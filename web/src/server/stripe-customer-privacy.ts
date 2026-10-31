@@ -74,7 +74,7 @@ export async function reconcileCustomerOperations(
 ): Promise<{ checked: number; more: boolean }> {
   const row = await db
     .prepare(
-      `SELECT attempt_id,order_id,created_at,creation_deadline_at,reconcile_cursor FROM stripe_customer_operations
+      `SELECT attempt_id,order_id,created_at,reconcile_cursor FROM stripe_customer_operations
      WHERE observed_at IS NULL AND next_reconcile_at<=? ORDER BY next_reconcile_at,attempt_id LIMIT 1`
     )
     .bind(cutoff)
@@ -82,7 +82,6 @@ export async function reconcileCustomerOperations(
       attempt_id: string;
       order_id: string;
       created_at: string;
-      creation_deadline_at: string;
       reconcile_cursor: string | null;
     }>();
   if (!row) return { checked: 0, more: false };
@@ -91,7 +90,7 @@ export async function reconcileCustomerOperations(
     {
       limit: 100,
       createdAfter: Math.floor(Date.parse(row.created_at) / 1000) - 60,
-      createdBefore: Math.ceil(Date.parse(row.creation_deadline_at) / 1000) + 60,
+      createdBefore: Math.ceil(Date.parse(cutoff) / 1000),
       startingAfter: row.reconcile_cursor ?? undefined,
     },
     { timeoutMs: 10_000 }

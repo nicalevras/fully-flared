@@ -102,15 +102,17 @@ describe('read-path census', () => {
     }
   });
 
-  it('global search stays bounded and finds products by title and SKU', async () => {
+  it('global search stays bounded and searches product titles only', async () => {
     const { db, dispose } = await createTestDb();
     try {
       await seedProduct(db, { onHand: 5 });
       const byTitle = await globalSearch(db, 'tee', { orders: false, customers: false });
       expect(byTitle.products.length).toBeGreaterThanOrEqual(1);
       expect(byTitle.products.length).toBeLessThanOrEqual(5);
-      const bySku = await globalSearch(db, 'TEE', { orders: false, customers: false });
-      expect(bySku.products.length).toBeGreaterThanOrEqual(1);
+      const byUppercaseTitle = await globalSearch(db, 'TEE', { orders: false, customers: false });
+      expect(byUppercaseTitle.products).toEqual(byTitle.products);
+      const bySku = await globalSearch(db, 'TEE-1', { orders: false, customers: false });
+      expect(bySku.products).toEqual([]);
     } finally {
       await dispose();
     }

@@ -273,6 +273,35 @@ it('does not treat an empty provider scan as proof that an uncertain customer ne
   expect((await privacyRecoveryReport(db)).historicalProviderReconciliationRequired).toBe(true);
 });
 
+it('finds a timed-out customer created after the creation-call deadline', async () => {
+  await order('late-created');
+  await db
+    .prepare(
+      `INSERT INTO stripe_customer_operations
+    (attempt_id,order_id,created_at,creation_deadline_at,next_reconcile_at)
+    VALUES('attempt-late-created','late-created','2020-01-01T00:00:00.000Z',
+      '2020-01-01T23:00:00.000Z','2020-01-01T00:00:00.000Z')`
+    )
+    .run();
+  await deleteAccountAtomically(db, 'late-created');
+  const customerCreated = Date.parse('2020-01-01T23:02:00.000Z') / 1000;
+  const listCustomersPage = vi.fn<ProviderCall<'listCustomersPage'>>(async (input) => ({
+    data:
+      input.createdBefore < customerCreated
+        ? []
+        : [
+            {
+              id: 'cus_late_created',
+              metadata: { order_id: 'late-created', attempt_id: 'attempt-late-created' },
+            },
+          ],
+    hasMore: false,
+  }));
+  await reconcileCustomerOperations(db, { listCustomersPage }, '2020-01-02T00:00:00.000Z');
+  expect(listCustomersPage).toHaveBeenCalledTimes(1);
+  expect(await deletion('cus_late_created')).toEqual({ status: 'pending' });
+});
+
 it('recovers an uncertain creation after its intent was pruned and its account deleted', async () => {
   await order('lost-response');
   const attemptId = await intent('lost-response');
@@ -383,6 +412,8 @@ it('backfills retained customers and uncertain attempts without claiming already
       .run();
     await applyMigrationFile(historical.db, '0039_stripe_customer_privacy.sql');
     await applyMigrationFile(historical.db, '0040_outbox_cancellation.sql');
+    await applyMigrationFile(historical.db, '0041_export_keyset_indexes.sql');
+    await applyMigrationFile(historical.db, '0042_privacy_gap_index.sql');
     expect(
       (
         await historical.db
