@@ -40,7 +40,7 @@ export const adminActionFn = createServerFn({ method: 'POST' })
       actor,
       data.action,
       data.payload,
-      { auth, headers: request.headers },
+      { auth, headers: request.headers, sessionId: context.staffSessionId },
       new URL(request.url).origin
     );
     if (!result.ok) setResponseStatus(result.status ?? 400);

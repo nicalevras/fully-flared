@@ -90,6 +90,7 @@ export function createAuth(
     baseURL,
     trustedOrigins: [baseURL, ...trustedOrigins],
     secret,
+    session: { cookieCache: { enabled: false } },
     // Block HTTP exposure while retaining the store's guarded server-side API calls.
     disabledPaths: Object.values(adminPlugin.endpoints).map((endpoint) => endpoint.path),
     database: drizzleAdapter(getDb(db), { provider: 'sqlite', schema }),

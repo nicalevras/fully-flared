@@ -1,8 +1,8 @@
 import { createMiddleware } from '@tanstack/react-start';
 import { getRequest, setResponseStatus } from '@tanstack/react-start/server';
-import { requireStaff, AuthError } from './session';
+import { requireStaffSession, AuthError } from './session';
 
-export type StaffContext = Awaited<ReturnType<typeof requireStaff>>;
+export type StaffContext = Awaited<ReturnType<typeof requireStaffSession>>['user'];
 
 /**
  * Staff gate for admin server functions (TanStack Start function middleware,
@@ -13,11 +13,12 @@ export type StaffContext = Awaited<ReturnType<typeof requireStaff>>;
 export const staffMiddleware = createMiddleware({ type: 'function' }).server(async ({ next }) => {
   const { env } = await import('cloudflare:workers');
   let staff: StaffContext;
+  let sessionId: string;
   try {
-    staff = await requireStaff(env.DB, getRequest());
+    ({ user: staff, sessionId } = await requireStaffSession(env.DB, getRequest()));
   } catch (error) {
     setResponseStatus(error instanceof AuthError && error.code === 'UNAUTHENTICATED' ? 401 : 403);
     throw error;
   }
-  return next({ context: { staff } });
+  return next({ context: { staff, staffSessionId: sessionId } });
 });

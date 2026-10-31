@@ -1,4 +1,5 @@
 import * as z from 'zod';
+import { auditStatement } from './audit';
 import {
   releaseOrderHoldsStmts,
   restockOrderStatements,
@@ -114,6 +115,16 @@ export async function settleRefund(
         `UPDATE returns SET status='refund_failed' WHERE id=? AND status='refunded' AND ? IN ('failed','canceled') AND EXISTS(SELECT 1 FROM refunds WHERE id=? AND status IN ('failed','canceled'))`
       )
       .bind(row.return_id, status, refundId),
+    db
+      .prepare(
+        `INSERT INTO audit_log(id,actor_user_id,action,entity_type,entity_id,details_json,created_at)
+      SELECT 'refund-outcome-'||r.id||'-'||?,a.actor_user_id,'refund.'||?,'refund',r.id,
+        json_object('orderId',r.order_id,'purpose',r.purpose,'status',r.status,'stripeRefundId',r.stripe_refund_id),?
+      FROM refunds r LEFT JOIN audit_log a ON a.id='refund-requested-'||r.id
+      WHERE r.id=? AND r.status=? AND (? IS NULL OR r.stripe_refund_id=?)
+      ON CONFLICT(id) DO NOTHING`
+      )
+      .bind(status, status, timestamp, refundId, status, stripeId ?? null, stripeId ?? null),
   ];
   if (status === 'succeeded') {
     const text =
@@ -165,6 +176,7 @@ export async function requestRefund(
     returnId?: string;
     restock?: boolean;
     recoveryReason?: 'capacity_unavailable' | 'currency_changed';
+    audit?: { actorId: string; action: string; entityType: string; entityId: string };
   }
 ) {
   const order = await db
@@ -237,6 +249,26 @@ export async function requestRefund(
               .bind(input.orderId, ...gate.values),
           ]
         : []),
+      auditStatement(
+        db,
+        input.audit?.actorId ?? null,
+        `${input.audit?.action ?? 'refund'}.requested`,
+        input.audit?.entityType ?? 'refund',
+        input.audit?.entityId ?? input.requestId,
+        {
+          requestId: input.requestId,
+          orderId: input.orderId,
+          amountCents: amount,
+          restock: Boolean(input.restock),
+        },
+        {
+          id: `refund-requested-${input.requestId}`,
+          condition: {
+            sql: 'EXISTS(SELECT 1 FROM refunds WHERE id=? AND order_id=? AND purpose=? AND amount_cents=?)',
+            values: [input.requestId, input.orderId, input.purpose, amount],
+          },
+        }
+      ),
     ]);
     row = await db
       .prepare('SELECT * FROM refunds WHERE request_id=?')

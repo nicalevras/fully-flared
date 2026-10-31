@@ -98,13 +98,22 @@ it('retains internal role updates and revokes the target sessions through the st
     'the owner'
   );
   const headers = new Headers({ cookie: ownerCookie });
+  const session = present(await auth.api.getSession({ headers }), 'the signed-in owner session');
+  await db.batch([
+    db.prepare('UPDATE user SET two_factor_enabled=1 WHERE id=?').bind(actor.id),
+    db
+      .prepare(
+        'INSERT INTO staff_two_factor_sessions(session_id,user_id,verified_at) VALUES(?,?,?)'
+      )
+      .bind(session.session.id, actor.id, new Date().toISOString()),
+  ]);
   const result = await runAdminAction(
     db,
     env,
     { id: actor.id, role: 'owner' },
     'user.setRole',
     { userId: target.id, role: 'manager' },
-    { auth, headers }
+    { auth, headers, sessionId: session.session.id }
   );
   expect(result.ok).toBe(true);
   expect(await db.prepare('SELECT role FROM user WHERE id=?').bind(target.id).first()).toEqual({

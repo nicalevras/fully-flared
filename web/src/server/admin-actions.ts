@@ -1,5 +1,6 @@
 ﻿import { requestRefund } from './refunds';
 import { adjustStock, adjustStockIdempotent } from './inventory';
+import { auditStatement as auditStmt } from './audit';
 import { canonicalizeMediaUrls, mediaKeysInContent, mediaRawSpellings } from './media';
 import { parseCsv } from './csv';
 import { getStripeProvider } from './payments';
@@ -34,29 +35,6 @@ import { SHIPPABLE_ORDER_STATUSES, SHIPPABLE_PAYMENT_STATUSES } from '../lib/ord
 const now = () => new Date().toISOString();
 const id = () => crypto.randomUUID();
 
-function auditStmt(
-  db: D1Database,
-  actorId: string,
-  action: string,
-  entityType: string,
-  entityId: string,
-  details?: unknown
-) {
-  return db
-    .prepare(
-      'INSERT INTO audit_log (id, actor_user_id, action, entity_type, entity_id, details_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    )
-    .bind(
-      id(),
-      actorId,
-      action,
-      entityType,
-      entityId,
-      details ? JSON.stringify(details) : null,
-      now()
-    );
-}
-
 async function audit(
   db: D1Database,
   actorId: string,
@@ -85,7 +63,8 @@ export async function refundOrder(
   amountCents?: number,
   restock = false,
   requestId: string = crypto.randomUUID(),
-  returnId?: string
+  returnId?: string,
+  auditContext?: { actorId: string; action: string; entityType: string; entityId: string }
 ) {
   const existing = await db
     .prepare('SELECT id FROM refunds WHERE request_id=? AND order_id=?')
@@ -99,6 +78,7 @@ export async function refundOrder(
       requestId,
       purpose: returnId ? 'return' : 'staff',
       ...(returnId ? { returnId } : {}),
+      ...(auditContext ? { audit: auditContext } : {}),
     });
   const order = await db
     .prepare('SELECT payment_status FROM orders WHERE id=?')
@@ -116,6 +96,7 @@ export async function refundOrder(
       requestId,
       purpose: returnId ? 'return' : 'staff',
       ...(returnId ? { returnId } : {}),
+      ...(auditContext ? { audit: auditContext } : {}),
     });
   } catch (error) {
     if (error instanceof Error && /balance|refund exceeds/.test(error.message))
@@ -325,11 +306,6 @@ export type AdminAuth = {
     userHasPermission(input: {
       body: { userId: string; role: StaffRole; permissions: Record<string, string[]> };
     }): Promise<{ success: boolean }>;
-    setRole(input: {
-      body: { userId: string; role: StaffRole | 'customer' };
-      headers: Headers;
-    }): Promise<unknown>;
-    revokeUserSessions(input: { body: { userId: string }; headers: Headers }): Promise<unknown>;
   };
 };
 
@@ -356,7 +332,7 @@ export async function runAdminAction(
   actor: { id: string; role: string },
   action: string,
   payload: Record<string, unknown>,
-  authContext?: { auth: AdminAuth; headers: Headers },
+  authContext?: { auth: AdminAuth; headers: Headers; sessionId?: string },
   requestOrigin?: string
 ): Promise<AdminActionResult> {
   const parsedAction = adminActionSchema.safeParse({ ...payload, action });
@@ -666,12 +642,17 @@ export async function runAdminAction(
                 values: [f.orderId, transition],
               }
             ),
+            auditStmt(db, actor.id, 'order.ship', 'order', f.orderId, undefined, {
+              condition: {
+                sql: 'EXISTS(SELECT 1 FROM orders WHERE id=? AND transition_id=?)',
+                values: [f.orderId, transition],
+              },
+            }),
           ],
           [`shipment-${f.orderId}`]
         );
         if (!results[0]?.meta.changes)
           return { ok: false, error: 'Only a paid, undisputed order can be shipped', status: 409 };
-        await audit(db, actor.id, 'order.ship', 'order', f.orderId);
         return { ok: true };
       }
       case 'order.refund': {
@@ -694,13 +675,11 @@ export async function runAdminAction(
           f.orderId,
           f.amountCents,
           Boolean(f.restock),
-          f.requestId
+          f.requestId,
+          undefined,
+          { actorId: actor.id, action: 'order.refund', entityType: 'order', entityId: f.orderId }
         );
         if (!result.ok) return result;
-        await audit(db, actor.id, 'order.refund', 'order', f.orderId, {
-          amount: result.amount,
-          restock: Boolean(f.restock),
-        });
         await broadcastAdminRealtime('order.refunded', { orderId: f.orderId });
         return {
           ok: true,
@@ -713,13 +692,16 @@ export async function runAdminAction(
       }
       case 'return.approve': {
         const f = parsedAction.data;
-        const result = await db
-          .prepare("UPDATE returns SET status='approved' WHERE id=? AND status='requested'")
-          .bind(f.returnId)
-          .run();
-        if (!result.meta.changes)
+        const [result] = await db.batch([
+          db
+            .prepare("UPDATE returns SET status='approved' WHERE id=? AND status='requested'")
+            .bind(f.returnId),
+          auditStmt(db, actor.id, 'return.approve', 'return', f.returnId, undefined, {
+            condition: { sql: 'changes()>0', values: [] },
+          }),
+        ]);
+        if (!result?.meta.changes)
           return { ok: false, error: 'Return already decided', status: 409 };
-        await audit(db, actor.id, 'return.approve', 'return', f.returnId);
         return { ok: true, data: { refundStatus: null, amountCents: 0 } };
       }
       case 'return.refund': {
@@ -756,12 +738,10 @@ export async function runAdminAction(
           f.amountCents,
           f.restock,
           `return-${ret.id}-${prior?.n ?? 0}`,
-          ret.id
+          ret.id,
+          { actorId: actor.id, action: 'return.refund', entityType: 'return', entityId: ret.id }
         );
         if (!result.ok) return result;
-        await audit(db, actor.id, 'return.refund', 'return', ret.id, {
-          amount: result.amount,
-        });
         await broadcastAdminRealtime('order.refunded', { orderId: ret.order_id });
         return {
           ok: true,
@@ -809,15 +789,18 @@ export async function runAdminAction(
             };
         } else if (current.status !== 'requested')
           return { ok: false, error: 'Return already decided', status: 409 };
-        const result = await db
-          .prepare(
-            `UPDATE returns SET status = 'rejected' WHERE id = ? AND status = ? AND NOT EXISTS (SELECT 1 FROM refunds WHERE return_id = ? AND status NOT IN ('failed','canceled'))`
-          )
-          .bind(f.returnId, current.status, f.returnId)
-          .run();
-        if (!result.meta.changes)
+        const [result] = await db.batch([
+          db
+            .prepare(
+              `UPDATE returns SET status = 'rejected' WHERE id = ? AND status = ? AND NOT EXISTS (SELECT 1 FROM refunds WHERE return_id = ? AND status NOT IN ('failed','canceled'))`
+            )
+            .bind(f.returnId, current.status, f.returnId),
+          auditStmt(db, actor.id, 'return.reject', 'return', f.returnId, undefined, {
+            condition: { sql: 'changes()>0', values: [] },
+          }),
+        ]);
+        if (!result?.meta.changes)
           return { ok: false, error: 'Return already decided', status: 409 };
-        await audit(db, actor.id, 'return.reject', 'return', f.returnId);
         return { ok: true };
       }
       case 'webhook.replay': {
@@ -841,13 +824,28 @@ export async function runAdminAction(
         // refuses rows at the attempt cap, so a message that lands
         // before the reset would be dropped. A failed enqueue reverts
         // the row to quarantine below.
-        const reset = await db
-          .prepare(
-            "UPDATE webhook_inbox SET status = 'pending', attempts = 0, retry_after = NULL WHERE event_id = ? AND status IN ('dead','failed')"
-          )
-          .bind(f.eventId)
-          .run();
-        if (!reset.meta.changes)
+        const replayId = id();
+        const [reset] = await db.batch([
+          db
+            .prepare(
+              "UPDATE webhook_inbox SET status = 'pending', attempts = 0, retry_after = NULL WHERE event_id = ? AND status IN ('dead','failed')"
+            )
+            .bind(f.eventId),
+          auditStmt(
+            db,
+            actor.id,
+            'webhook.replay.requested',
+            'webhook',
+            f.eventId,
+            {
+              replayId,
+              type: current.type,
+              fromStatus: current.status,
+            },
+            { condition: { sql: 'changes()>0', values: [] } }
+          ),
+        ]);
+        if (!reset?.meta.changes)
           return {
             ok: false,
             error: 'Webhook event state changed; refresh and retry',
@@ -857,23 +855,21 @@ export async function runAdminAction(
         if (!queued) {
           // Restore quarantine, guarded so a consumer that already
           // picked the row up is never clobbered back to dead.
-          await db
-            .prepare(
-              "UPDATE webhook_inbox SET status = 'dead', attempts = 5, retry_after = NULL WHERE event_id = ? AND status = 'pending' AND attempts = 0"
-            )
-            .bind(f.eventId)
-            .run();
+          await db.batch([
+            db
+              .prepare(
+                "UPDATE webhook_inbox SET status = 'dead', attempts = 5, retry_after = NULL WHERE event_id = ? AND status = 'pending' AND attempts = 0"
+              )
+              .bind(f.eventId),
+            auditStmt(db, actor.id, 'webhook.replay.failed', 'webhook', f.eventId, { replayId }),
+          ]);
           return {
             ok: false,
-            error:
-              'Queue unavailable. The event stays quarantined and automatic recovery will retry it.',
+            error: 'Queue unavailable. Replay was not queued. Refresh the event before retrying.',
             status: 503,
           };
         }
-        await audit(db, actor.id, 'webhook.replay', 'webhook', f.eventId, {
-          type: current.type,
-          fromStatus: current.status,
-        });
+        await audit(db, actor.id, 'webhook.replay.queued', 'webhook', f.eventId, { replayId });
         return { ok: true, data: { eventId: f.eventId } };
       }
       case 'settings.set': {
@@ -1650,18 +1646,35 @@ export async function runAdminAction(
         }
         if (!authContext)
           return { ok: false, error: 'Auth context is required to change roles', status: 500 };
-        // Better Auth's admin plugin owns role writes; changing a role must
-        // also revoke the target's existing sessions, which the plugin call
-        // is paired with explicitly.
-        await authContext.auth.api.setRole({
-          body: { userId: f.userId, role },
-          headers: authContext.headers,
-        });
-        await authContext.auth.api.revokeUserSessions({
-          body: { userId: f.userId },
-          headers: authContext.headers,
-        });
-        await audit(db, actor.id, 'user.setRole', 'user', f.userId, { role });
+        if (!authContext.sessionId)
+          return { ok: false, error: 'A verified staff session is required', status: 403 };
+        // Better Auth 1.7.10 has no role-update or session-delete hooks here.
+        // Keep cookie caching and secondary storage disabled so this batch
+        // revokes sessions immediately. Recheck this on auth upgrades.
+        await db.batch([
+          db
+            .prepare(
+              `INSERT INTO batch_guard(id) SELECT 'stale-role-actor' WHERE NOT EXISTS(
+            SELECT 1 FROM user u JOIN session s ON s.user_id=u.id
+            JOIN staff_two_factor_sessions m ON m.session_id=s.id AND m.user_id=u.id
+            WHERE u.id=? AND u.role=? AND COALESCE(u.banned,0)=0
+              AND u.two_factor_enabled=1 AND s.id=? AND s.expires_at>?)`
+            )
+            .bind(actor.id, actor.role, authContext.sessionId, Date.now()),
+          db
+            .prepare(
+              "INSERT INTO batch_guard(id) SELECT 'stale-role-target' WHERE NOT EXISTS(SELECT 1 FROM user WHERE id=? AND role=?)"
+            )
+            .bind(f.userId, target.role),
+          db
+            .prepare('UPDATE user SET role=?,updated_at=? WHERE id=?')
+            .bind(role, Date.now(), f.userId),
+          db.prepare('DELETE FROM session WHERE user_id=?').bind(f.userId),
+          auditStmt(db, actor.id, 'user.setRole', 'user', f.userId, {
+            role,
+            previousRole: target.role,
+          }),
+        ]);
         return { ok: true };
       }
       case 'customer.export': {
@@ -2023,6 +2036,11 @@ export async function runAdminAction(
                  VALUES (?, ?, ?, 0, 'restock', 'product', ?, ?)`
                 )
                 .bind(id(), sku, stockDelta, productId, now()),
+              auditStmt(db, actor.id, 'import.productsCsv.row', 'product', productId, {
+                row: i + 1,
+                sku,
+                stockDelta,
+              }),
             ]);
             imported++;
           } catch (err) {
