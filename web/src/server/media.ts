@@ -16,20 +16,22 @@ export async function readUploadForm(request: Request): Promise<FormData | Respo
   if (declared !== null && Number(declared) > UPLOAD_BODY_LIMIT) return uploadTooLarge();
   if (!request.body) return Response.json({ error: 'file is required' }, { status: 400 });
   let received = 0;
-  const capped = request.body.pipeThrough(
-    new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        received += chunk.byteLength;
-        if (received > UPLOAD_BODY_LIMIT) controller.error(new RangeError('Upload too large'));
-        else controller.enqueue(chunk);
-      },
-    })
-  );
+  const capped = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      received += chunk.byteLength;
+      if (received > UPLOAD_BODY_LIMIT) controller.error(new RangeError('Upload too large'));
+      else controller.enqueue(chunk);
+    },
+  });
+  const transfer = request.body.pipeTo(capped.writable);
+  const parsed = new Response(capped.readable, {
+    headers: { 'Content-Type': request.headers.get('Content-Type') ?? '' },
+  }).formData();
   try {
-    return await new Response(capped, {
-      headers: { 'Content-Type': request.headers.get('Content-Type') ?? '' },
-    }).formData();
+    const [, form] = await Promise.all([transfer, parsed]);
+    return form;
   } catch (error) {
+    await Promise.allSettled([transfer, parsed]);
     if (received > UPLOAD_BODY_LIMIT) return uploadTooLarge();
     throw error;
   }
