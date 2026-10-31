@@ -22,7 +22,11 @@ beforeAll(() => {
   cpSync(join(web, 'scripts/check-migrations.mjs'), join(copy, 'scripts/check-migrations.mjs'));
   cpSync(join(web, 'src/db/schema.ts'), join(copy, 'src/db/schema.ts'));
   cpSync(join(web, 'migrations'), join(copy, 'migrations'), { recursive: true });
-  symlinkSync(join(web, 'node_modules'), join(copy, 'node_modules'));
+  symlinkSync(
+    join(web, 'node_modules'),
+    join(copy, 'node_modules'),
+    process.platform === 'win32' ? 'junction' : 'dir'
+  );
 });
 afterAll(() => rmSync(copy, { recursive: true, force: true }));
 
@@ -37,9 +41,9 @@ it('accepts migrations that produce the schema.ts tables and indexes', () => {
 });
 
 it('rejects a migration SQL file that no longer creates a column schema.ts declares', () => {
-  const file = join(copy, 'migrations/0009_checkout_recovery_guards.sql');
+  const file = join(copy, 'migrations/0013_authorized_checkout.sql');
   const original = readFileSync(file, 'utf8');
-  const statement = 'ALTER TABLE `checkout_intents` ADD `provider_step` text;';
+  const statement = 'ALTER TABLE `checkout_intents` ADD `quote_json` text;';
   expect(original).toContain(statement);
   writeFileSync(file, original.replace(statement, 'SELECT 1;'));
   try {
