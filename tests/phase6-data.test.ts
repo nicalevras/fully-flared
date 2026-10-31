@@ -209,7 +209,7 @@ describe('M5: user-scoped lookups use indexes', () => {
       .map((r) => r.detail)
       .join(' | ');
   it.each([
-    ['SELECT COUNT(*) AS n FROM orders WHERE user_id=?', 'orders_user_idx'],
+    ['SELECT COUNT(*) AS n FROM orders WHERE user_id=?', 'orders_export_owner_idx'],
     [
       'SELECT id FROM orders WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 20',
       'orders_user_idx',

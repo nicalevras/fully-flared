@@ -845,6 +845,9 @@ export const orders = sqliteTable(
     index('orders_export_guest_idx')
       .on(sql`lower(${t.customerEmail})`)
       .where(sql`${t.userId} IS NULL`),
+    index('orders_privacy_gap_idx')
+      .on(t.id)
+      .where(sql`${t.checkoutAttemptId} IS NOT NULL`),
     index('orders_payment_intent_idx').on(t.stripePaymentIntentId),
     index('orders_ip_retention_idx')
       .on(t.createdAt, t.id)

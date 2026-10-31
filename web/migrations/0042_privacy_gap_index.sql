@@ -1,0 +1,1 @@
+CREATE INDEX `orders_privacy_gap_idx` ON `orders` (`id`) WHERE "orders"."checkout_attempt_id" IS NOT NULL;

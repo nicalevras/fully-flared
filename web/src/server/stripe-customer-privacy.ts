@@ -137,7 +137,7 @@ export async function privacyRecoveryReport(db: D1Database) {
   const [history, pending, scrubbed] = await Promise.all([
     db
       .prepare(
-        `SELECT COUNT(*) AS count FROM orders o WHERE o.checkout_attempt_id IS NOT NULL
+        `SELECT COUNT(*) AS count FROM orders o INDEXED BY orders_privacy_gap_idx WHERE o.checkout_attempt_id IS NOT NULL
        AND NOT EXISTS(SELECT 1 FROM checkout_intents ci WHERE ci.order_id=o.id)
        AND NOT EXISTS(SELECT 1 FROM order_stripe_customers c WHERE c.order_id=o.id)`
       )
