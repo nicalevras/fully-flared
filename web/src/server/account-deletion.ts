@@ -1,6 +1,7 @@
 import * as z from 'zod';
 import { enqueueJob } from './email';
 import { cancelOrdersStatements } from './order-cancellation';
+import { customerDeletionStatement } from './stripe-customer-privacy';
 
 const queuedDeletions = z.array(z.object({ id: z.string().min(1) }));
 
@@ -34,12 +35,12 @@ export async function deleteAccountAtomically(
         )
         .bind(userId),
       ...cancellations,
-      // Captured before the intent UPDATE below detaches the intents from the user.
       db
         .prepare(
-          "INSERT INTO outbox(id,type,payload_json,created_at) SELECT DISTINCT 'stripe-customer-delete-'||stripe_customer_id,'stripe.customer.delete',json_object('customerId',stripe_customer_id),? FROM checkout_intents WHERE stripe_customer_id IS NOT NULL AND (user_id=? OR order_id IN(SELECT id FROM orders WHERE user_id=?)) ON CONFLICT(id) DO NOTHING RETURNING id"
+          'UPDATE orders SET privacy_deleted_at=COALESCE(privacy_deleted_at,?) WHERE user_id=?'
         )
-        .bind(new Date().toISOString(), userId, userId),
+        .bind(new Date().toISOString(), userId),
+      customerDeletionStatement(db, { sql: 'o.user_id=?', values: [userId] }),
       // Retire checkout-intent replay authorization and scrub the frozen
       // provider payload (it embeds the email); intents never become
       // guest-owned. Nulling user_id here also satisfies the FK before
@@ -56,7 +57,7 @@ export async function deleteAccountAtomically(
         .bind(userId),
       db
         .prepare(
-          "UPDATE outbox SET payload_json='{}', status=CASE WHEN status='sent' THEN 'sent' ELSE 'failed' END, attempts=CASE WHEN status='sent' THEN attempts ELSE MAX(attempts,3) END WHERE json_extract(payload_json,'$.to')=(SELECT email FROM user WHERE id=?)"
+          "UPDATE outbox SET payload_json='{}', status=CASE WHEN status='sent' THEN 'sent' ELSE 'canceled' END, retry_after=NULL WHERE json_extract(payload_json,'$.to')=(SELECT email FROM user WHERE id=?)"
         )
         .bind(userId),
       // Unprocessed events, including dead letters, still need their payload for recovery.
@@ -109,7 +110,7 @@ export async function deleteAccountAtomically(
     console.error(JSON.stringify({ event: 'account_deletion_failed' }));
     throw new Error('Account deletion failed. Please try again.');
   }
-  const deletions = queuedDeletions.parse(results[1 + cancellations.length]?.results ?? []);
+  const deletions = queuedDeletions.parse(results[2 + cancellations.length]?.results ?? []);
   for (const { id } of deletions)
     await enqueueJob({ type: 'stripe.customer.delete', outboxId: id });
 }

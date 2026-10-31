@@ -5,6 +5,7 @@ import { checkoutRequestSchema } from '../schemas/checkout';
 import { acquireCheckoutPermit, type AdmissionNamespace } from './checkout-admission';
 import { operationalRecipients, commitWithEmails, emailStatement } from './email';
 import { recoveryContext, preparationDue, type RecoveryContext } from './recovery-eligibility';
+import { registerCustomerOperation, rememberOrderCustomer } from './stripe-customer-privacy';
 
 // Durable checkout initiation (Phase 1). One intent per logical purchase
 // attempt: retries, double-clicks and worker crashes resume the same
@@ -386,6 +387,20 @@ export async function runIntentOperation(
         claimGuard(db, intentId, claim),
         db
           .prepare(
+            'INSERT INTO batch_guard SELECT 1 WHERE EXISTS(SELECT 1 FROM orders WHERE id=? AND privacy_deleted_at IS NOT NULL)'
+          )
+          .bind(intent.order_id),
+        ...(step === 'customer'
+          ? [
+              registerCustomerOperation(
+                db,
+                intentId,
+                iso(Date.parse(intent.created_at) + CREATION_HORIZON_MS)
+              ),
+            ]
+          : []),
+        db
+          .prepare(
             `UPDATE checkout_intents
         SET first_provider_attempt_at=COALESCE(first_provider_attempt_at,?),provider_step=?,updated_at=? WHERE id=?`
           )
@@ -399,6 +414,7 @@ export async function runIntentOperation(
         payload,
         await beforeCreation('customer')
       );
+      await rememberOrderCustomer(db, intent.order_id, intentId, customerId);
       await db.batch([
         claimGuard(db, intentId, claim),
         db

@@ -68,7 +68,7 @@ export async function commitWithEmails(
 export async function failedEmailCount(db: D1Database): Promise<number> {
   const row = await db
     .prepare(
-      `SELECT COUNT(*) AS n FROM outbox WHERE status='failed' AND attempts>=${MAX_EMAIL_ATTEMPTS}`
+      `SELECT COUNT(*) AS n FROM outbox WHERE type='email.send' AND status='failed' AND attempts>=${MAX_EMAIL_ATTEMPTS}`
     )
     .first<{ n: number }>();
   return row?.n ?? 0;

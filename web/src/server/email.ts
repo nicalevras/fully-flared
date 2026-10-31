@@ -5,7 +5,6 @@ export {
   operationalRecipients,
   type EmailMessage,
 } from './outbox';
-import { and, eq, lt, or, sql } from 'drizzle-orm';
 import { nextRetryIso } from './retry';
 import {
   commitWithEmails,
@@ -91,7 +90,7 @@ function parseOutboxPayload(json: string): EmailMessage | null {
 }
 type OutboxJob = {
   type: OutboxJobMessage['type'];
-  run(payloadJson: string): Promise<void>;
+  run(payloadJson: string): Promise<void | 'canceled'>;
   alert(rowId: string): Omit<EmailMessage, 'to'>;
 };
 
@@ -120,9 +119,16 @@ export function processCustomerDeletion(
     type: 'stripe.customer.delete',
     async run(payloadJson) {
       if (!provider?.deleteCustomer) throw new Error('Payment provider unavailable');
-      await provider.deleteCustomer(
-        customerDeletionSchema.parse(JSON.parse(payloadJson)).customerId
-      );
+      const { customerId } = customerDeletionSchema.parse(JSON.parse(payloadJson));
+      const retained = await db
+        .prepare(
+          `SELECT 1 FROM order_stripe_customers c JOIN orders o ON o.id=c.order_id
+         WHERE c.customer_id=? AND o.privacy_deleted_at IS NULL LIMIT 1`
+        )
+        .bind(customerId)
+        .first();
+      if (retained) return 'canceled';
+      await provider.deleteCustomer(customerId);
     },
     alert: (rowId) => ({
       subject: 'Stripe customer deletion failed permanently',
@@ -132,90 +138,90 @@ export function processCustomerDeletion(
   });
 }
 
+type ClaimedOutbox = {
+  id: string;
+  payload_json: string;
+  status: string;
+  attempts: number;
+  claimed_at: string | null;
+  created_at: string;
+};
+
+async function failOutbox(db: D1Database, row: ClaimedOutbox, job: OutboxJob) {
+  const exhausted = row.attempts >= MAX_EMAIL_ATTEMPTS && !row.id.startsWith(OUTBOX_ALERT_PREFIX);
+  const alerts = (exhausted ? await operationalRecipients(db) : []).map((to) => ({
+    to,
+    id: `${OUTBOX_ALERT_PREFIX}${row.id}-${to}`,
+  }));
+  await commitWithEmails(
+    db,
+    [
+      db
+        .prepare(
+          "UPDATE outbox SET status='failed',retry_after=? WHERE id=? AND status='sending' AND claimed_at IS ? AND attempts=?"
+        )
+        .bind(nextRetryIso(row.attempts), row.id, row.claimed_at, row.attempts),
+      ...alerts.map(({ to, id }) =>
+        emailStatement(
+          db,
+          id,
+          { to, ...job.alert(row.id) },
+          {
+            sql: `EXISTS(SELECT 1 FROM outbox WHERE id=? AND status='failed' AND attempts>=${MAX_EMAIL_ATTEMPTS} AND claimed_at IS ?)`,
+            values: [row.id, row.claimed_at],
+          }
+        )
+      ),
+    ],
+    alerts.map(({ id }) => id)
+  );
+}
+
 async function processOutbox(db: D1Database, outboxId: string, job: OutboxJob): Promise<boolean> {
-  const d = getDb(db);
-  // Claim first with a conditional update: the queue consumer and the cron
-  // drain can race for the same row, but only the claim winner may send.
   const claimNow = new Date().toISOString();
   const staleSendingBefore = new Date(Date.now() - 10 * 60_000).toISOString();
-  // Normal claim: pending, or failed under the attempt cap. The claim stamps
-  // claimed_at so a second worker can tell a live send from a dead one.
-  let claim = await d
-    .update(outbox)
-    .set({ status: 'sending', claimedAt: claimNow })
-    .where(
-      and(
-        eq(outbox.id, outboxId),
-        eq(outbox.type, job.type),
-        lt(outbox.attempts, MAX_EMAIL_ATTEMPTS),
-        or(sql`${outbox.retryAfter} IS NULL`, sql`${outbox.retryAfter} <= ${claimNow}`),
-        or(eq(outbox.status, 'pending'), eq(outbox.status, 'failed'))
-      )
+  const claim = await db
+    .prepare(
+      `UPDATE outbox SET status='sending',claimed_at=?,attempts=attempts+1
+     WHERE id=? AND type=? AND attempts<${MAX_EMAIL_ATTEMPTS} AND (
+       (status IN ('pending','failed') AND (retry_after IS NULL OR retry_after<=?))
+       OR (status='sending' AND COALESCE(claimed_at,created_at)<?))`
     )
+    .bind(claimNow, outboxId, job.type, claimNow, staleSendingBefore)
     .run();
-  if ((claim.meta.changes ?? 0) === 0) {
-    // Recovery claim: a worker that died mid-send leaves the row in
-    // 'sending'. Only a claim older than 10 minutes is stale — keyed on
-    // claimed_at, never created_at, so a retried old row that is actively
-    // being sent cannot be claimed twice. The reclaim itself counts as an
-    // attempt, so a crash loop still stops at the cap. The conditional
-    // update is atomic: after the winner restamps claimed_at, a loser's
-    // stale predicate no longer matches.
-    claim = await d
-      .update(outbox)
-      .set({ status: 'sending', claimedAt: claimNow, attempts: sql`${outbox.attempts} + 1` })
-      .where(
-        and(
-          eq(outbox.id, outboxId),
-          eq(outbox.type, job.type),
-          eq(outbox.status, 'sending'),
-          lt(outbox.claimedAt, staleSendingBefore),
-          lt(outbox.attempts, MAX_EMAIL_ATTEMPTS)
-        )
+  const row = await db
+    .prepare(
+      'SELECT id,payload_json,status,attempts,claimed_at,created_at FROM outbox WHERE id=? AND type=?'
+    )
+    .bind(outboxId, job.type)
+    .first<ClaimedOutbox>();
+  if (!row) return false;
+  if (!(claim.meta.changes ?? 0)) {
+    if (
+      row.status === 'sending' &&
+      row.attempts >= MAX_EMAIL_ATTEMPTS &&
+      (row.claimed_at ?? row.created_at) < staleSendingBefore
+    )
+      await failOutbox(db, row, job);
+    return false;
+  }
+  if (row.status !== 'sending' || row.claimed_at !== claimNow) return false;
+  try {
+    const outcome = await job.run(row.payload_json);
+    await db
+      .prepare(
+        "UPDATE outbox SET status=?,sent_at=?,payload_json='{}' WHERE id=? AND status='sending' AND claimed_at=?"
+      )
+      .bind(
+        outcome === 'canceled' ? 'canceled' : 'sent',
+        outcome === 'canceled' ? null : new Date().toISOString(),
+        row.id,
+        claimNow
       )
       .run();
-  }
-  if ((claim.meta.changes ?? 0) === 0) return false;
-  const row = await d.query.outbox.findFirst({ where: eq(outbox.id, outboxId) });
-  if (!row) return false;
-  try {
-    await job.run(row.payloadJson);
-    await d
-      .update(outbox)
-      .set({ status: 'sent', sentAt: new Date().toISOString(), payloadJson: '{}' })
-      .where(
-        and(eq(outbox.id, row.id), eq(outbox.status, 'sending'), eq(outbox.claimedAt, claimNow))
-      );
     return true;
   } catch (error) {
-    const attempts = row.attempts + 1;
-    const exhausted = attempts >= MAX_EMAIL_ATTEMPTS && !row.id.startsWith(OUTBOX_ALERT_PREFIX);
-    const alerts = (exhausted ? await operationalRecipients(db) : []).map((to) => ({
-      to,
-      id: `${OUTBOX_ALERT_PREFIX}${row.id}-${to}`,
-    }));
-    await commitWithEmails(
-      db,
-      [
-        db
-          .prepare(
-            "UPDATE outbox SET status='failed', attempts=attempts+1, retry_after=? WHERE id=? AND status='sending' AND claimed_at=?"
-          )
-          .bind(nextRetryIso(attempts), row.id, claimNow),
-        ...alerts.map(({ to, id }) =>
-          emailStatement(
-            db,
-            id,
-            { to, ...job.alert(row.id) },
-            {
-              sql: `EXISTS(SELECT 1 FROM outbox WHERE id=? AND status='failed' AND attempts>=${MAX_EMAIL_ATTEMPTS})`,
-              values: [row.id],
-            }
-          )
-        ),
-      ],
-      alerts.map(({ id }) => id)
-    );
+    await failOutbox(db, row, job);
     const code =
       error instanceof Error && 'code' in error && typeof error.code === 'string'
         ? error.code

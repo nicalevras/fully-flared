@@ -113,7 +113,7 @@ it('deletion queues customers.del for each id', async () => {
   expect(await outboxRow('stripe-customer-delete-cus_a')).toEqual({
     type: 'stripe.customer.delete',
     status: 'sent',
-    attempts: 0,
+    attempts: 1,
   });
   expect(await outboxRow('stripe-customer-delete-cus_other')).toBeNull();
 });

@@ -17,6 +17,7 @@ export async function pruneRetention(
   sessions: number;
   verifications: number;
   failedOutbox: number;
+  canceledOutbox: number;
   deadWebhookInbox: number;
 }> {
   const ninetyDaysAgo = new Date(cutoffMs - 90 * 24 * 60 * 60_000).toISOString();
@@ -67,7 +68,7 @@ export async function pruneRetention(
       .run(),
     db
       .prepare(
-        `DELETE FROM outbox WHERE id IN (SELECT id FROM outbox WHERE status = 'failed' AND attempts >= ${MAX_EMAIL_ATTEMPTS} AND created_at < ? ORDER BY created_at,id LIMIT 1000)`
+        `DELETE FROM outbox WHERE id IN (SELECT id FROM outbox WHERE status = 'failed' AND type='email.send' AND attempts >= ${MAX_EMAIL_ATTEMPTS} AND created_at < ? ORDER BY created_at,id LIMIT 1000)`
       )
       .bind(thirtyDaysAgo)
       .run(),
@@ -85,7 +86,7 @@ export async function pruneRetention(
         count: deadWebhookInbox.meta.changes,
       })
     );
-  const [webhookInbox, outbox, reservations] = await Promise.all([
+  const [webhookInbox, outbox, reservations, canceledOutbox] = await Promise.all([
     db
       .prepare(
         `DELETE FROM webhook_inbox WHERE id IN (SELECT id FROM webhook_inbox WHERE status = 'processed' AND COALESCE(processed_at, received_at) < ? ORDER BY COALESCE(processed_at, received_at),id LIMIT 1000)`
@@ -104,6 +105,12 @@ export async function pruneRetention(
       )
       .bind(yearAgo)
       .run(),
+    db
+      .prepare(
+        `DELETE FROM outbox WHERE id IN (SELECT id FROM outbox WHERE status = 'canceled' AND COALESCE(sent_at, created_at) < ? ORDER BY COALESCE(sent_at, created_at),id LIMIT 1000)`
+      )
+      .bind(ninetyDaysAgo)
+      .run(),
   ]);
   return {
     webhookInbox: webhookInbox.meta.changes ?? 0,
@@ -115,6 +122,7 @@ export async function pruneRetention(
     sessions: sessions.meta.changes ?? 0,
     verifications: verifications.meta.changes ?? 0,
     failedOutbox: failedOutbox.meta.changes ?? 0,
+    canceledOutbox: canceledOutbox.meta.changes ?? 0,
     deadWebhookInbox: deadWebhookInbox.meta.changes ?? 0,
   };
 }

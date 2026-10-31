@@ -100,9 +100,9 @@ export function authorizationAlertDue(c: RecoveryContext): Predicate {
 /** Sending recovery matches processOutboxRow's ten-minute claim timeout. */
 export function outboxDue(c: RecoveryContext): Predicate {
   return {
-    sql: `o.created_at<=? AND o.attempts<${MAX_EMAIL_ATTEMPTS} AND (
-      (o.status IN ('pending','failed') AND (o.retry_after IS NULL OR o.retry_after<=?))
-      OR (o.status='sending' AND o.claimed_at<?))`,
+    sql: `o.created_at<=? AND (
+      (o.attempts<${MAX_EMAIL_ATTEMPTS} AND o.status IN ('pending','failed') AND (o.retry_after IS NULL OR o.retry_after<=?))
+      OR (o.status='sending' AND COALESCE(o.claimed_at,o.created_at)<?))`,
     values: [c.cutoff, c.cutoff, before(c.clock, 10)],
   };
 }

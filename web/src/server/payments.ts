@@ -68,6 +68,18 @@ export interface PaymentProvider {
   withinDeadline?<T>(options: ProviderCallOptions, action: () => Promise<T>): Promise<T>;
   createCheckoutCustomer?(req: CheckoutRequest, options: ProviderCallOptions): Promise<string>;
   deleteCustomer?(id: string): Promise<void>;
+  listCustomersPage?(
+    input: {
+      limit: number;
+      createdAfter: number;
+      createdBefore: number;
+      startingAfter?: string | undefined;
+    },
+    options: ProviderCallOptions
+  ): Promise<{
+    data: { id: string; metadata: { order_id?: string; attempt_id?: string } }[];
+    hasMore: boolean;
+  }>;
   retrievePaymentIntent?(id: string, options: ProviderCallOptions): Promise<PaymentIntentDetails>;
   capturePaymentIntent?(
     id: string,
@@ -448,6 +460,31 @@ export class StripeProvider implements PaymentProvider {
         return;
       throw error;
     }
+  }
+
+  async listCustomersPage(
+    input: {
+      limit: number;
+      createdAfter: number;
+      createdBefore: number;
+      startingAfter?: string | undefined;
+    },
+    options: ProviderCallOptions
+  ) {
+    const page = await this.bounded(options, () =>
+      this.stripe.customers.list(
+        {
+          limit: input.limit,
+          created: { gte: input.createdAfter, lte: input.createdBefore },
+          ...(input.startingAfter ? { starting_after: input.startingAfter } : {}),
+        },
+        { timeout: options.timeoutMs }
+      )
+    );
+    return {
+      data: page.data.map(({ id, metadata }) => ({ id, metadata })),
+      hasMore: page.has_more,
+    };
   }
 
   async retrieveCheckoutSession(

@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestDb } from './helpers/d1';
 import { env as stubEnv } from './helpers/cloudflare-workers-stub';
-import { MAX_EMAIL_ATTEMPTS } from '../web/src/server/outbox';
+import { MAX_EMAIL_ATTEMPTS, failedEmailCount } from '../web/src/server/outbox';
+import { recoveryContext, outboxDue } from '../web/src/server/recovery-eligibility';
 
 // P0 item 3: outbox reclaim must key on claimed_at, never created_at.
 // A retried row can be hours old while a worker is actively sending it;
@@ -79,9 +80,30 @@ describe('outbox claimed_at reclaim', () => {
       )
       .bind(payload, MAX_EMAIL_ATTEMPTS, iso(3600_000), iso(20 * 60_000))
       .run();
+    await db
+      .prepare(
+        "INSERT INTO settings(key,value,updated_at) VALUES('operational_alert_email','ops@example.invalid','2026') ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+      )
+      .run();
+    const due = outboxDue(await recoveryContext(db));
+    expect(
+      await db
+        .prepare(`SELECT 1 FROM outbox o WHERE o.id='ob-capped' AND ${due.sql}`)
+        .bind(...due.values)
+        .first()
+    ).not.toBeNull();
     const claimed = await processOutboxRow(db, 'ob-capped');
     expect(claimed).toBe(false);
     expect(sends).toBe(1);
+    expect(
+      await db.prepare("SELECT status,attempts FROM outbox WHERE id='ob-capped'").first()
+    ).toEqual({ status: 'failed', attempts: MAX_EMAIL_ATTEMPTS });
+    expect(await failedEmailCount(db)).toBe(1);
+    await processOutboxRow(db, 'ob-capped');
+    expect(
+      (await db.prepare("SELECT id FROM outbox WHERE id LIKE 'outbox-alert-ob-capped-%'").all())
+        .results
+    ).toHaveLength(1);
   }, 60_000);
 });
 

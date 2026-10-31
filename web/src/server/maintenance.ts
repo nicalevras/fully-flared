@@ -16,6 +16,7 @@ import {
 } from './email';
 import { reconcileStripe } from './reconcile';
 import { pruneRetention } from './operations';
+import { reconcileCustomerOperations, privacyRecoveryReport } from './stripe-customer-privacy';
 import { runCatalogUnit } from './catalog-publisher';
 import { acquireCheckoutPermit } from './checkout-admission';
 import { CatalogBudget } from './catalog-exec';
@@ -240,8 +241,20 @@ export async function runMaintenance(env: WorkerEnv, runId: string) {
         )
         .bind(new Date(Date.parse(run.cutoff) - 60 * 60_000).toISOString())
         .run();
-      progress.checked = (progress.checked ?? 0) + (result.meta.changes ?? 0);
-      done = (result.meta.changes ?? 0) < 1000;
+      const customers = provider
+        ? await reconcileCustomerOperations(db, provider, run.cutoff)
+        : { checked: 0, more: false };
+      if (!progress.checked) {
+        const report = await privacyRecoveryReport(db);
+        if (
+          report.historicalOrdersWithoutCustomerAssociation ||
+          report.unresolvedCustomerOperations ||
+          report.ambiguousScrubbedEmails
+        )
+          console.warn(JSON.stringify({ event: 'privacy_recovery_gaps', ...report }));
+      }
+      progress.checked = (progress.checked ?? 0) + (result.meta.changes ?? 0) + customers.checked;
+      done = (result.meta.changes ?? 0) < 1000 && !customers.more;
     } else if (run.task === 'retention') {
       const results = await pruneRetention(db, Date.parse(run.cutoff));
       done = Object.values(results).every((n) => n < 1000);

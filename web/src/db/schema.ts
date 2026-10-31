@@ -822,6 +822,7 @@ export const orders = sqliteTable(
     reminderConsent: integer('reminder_consent', { mode: 'boolean' }).notNull().default(false),
     reminderSuppressedAt: text('reminder_suppressed_at'),
     customerIp: text('customer_ip'),
+    privacyDeletedAt: text('privacy_deleted_at'),
     transitionId: text('transition_id'),
     shippingCountry: text('shipping_country'),
     shippingRateId: text('shipping_rate_id'),
@@ -851,6 +852,40 @@ export const orders = sqliteTable(
  *  supplies the UUID; initiation state lives here while order/payment
  *  status stays authoritative on orders. Frozen provider payloads are
  *  replayed verbatim, never logged. */
+export const stripeCustomerOperations = sqliteTable(
+  'stripe_customer_operations',
+  {
+    attemptId: text('attempt_id').primaryKey(),
+    orderId: text('order_id')
+      .notNull()
+      .references(() => orders.id),
+    createdAt: text('created_at').notNull(),
+    creationDeadlineAt: text('creation_deadline_at').notNull(),
+    nextReconcileAt: text('next_reconcile_at').notNull(),
+    reconcileCursor: text('reconcile_cursor'),
+    observedAt: text('observed_at'),
+  },
+  (t) => [
+    index('stripe_customer_operations_due_idx').on(t.observedAt, t.nextReconcileAt, t.attemptId),
+  ]
+);
+
+export const orderStripeCustomers = sqliteTable(
+  'order_stripe_customers',
+  {
+    orderId: text('order_id')
+      .notNull()
+      .references(() => orders.id),
+    customerId: text('customer_id').notNull(),
+    attemptId: text('attempt_id').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.orderId, t.customerId] }),
+    index('order_stripe_customers_customer_idx').on(t.customerId, t.orderId),
+  ]
+);
+
 export const checkoutIntents = sqliteTable(
   'checkout_intents',
   {
@@ -1195,7 +1230,7 @@ export const outbox = sqliteTable(
     id: text('id').primaryKey(),
     type: text('type').notNull(),
     payloadJson: text('payload_json').notNull(),
-    status: text('status', { enum: ['pending', 'sending', 'sent', 'failed'] })
+    status: text('status', { enum: ['pending', 'sending', 'sent', 'failed', 'canceled'] })
       .notNull()
       .default('pending'),
     attempts: integer('attempts').notNull().default(0),
@@ -1206,9 +1241,7 @@ export const outbox = sqliteTable(
   },
   (t) => [
     index('outbox_status_idx').on(t.status, t.createdAt),
-    index('outbox_claim_due_idx')
-      .on(t.status, t.claimedAt, t.id)
-      .where(sql`${t.attempts}<8`),
+    index('outbox_claim_due_idx').on(t.status, t.claimedAt, t.id),
   ]
 );
 

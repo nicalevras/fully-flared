@@ -274,6 +274,20 @@
       "when": 1793389530688,
       "tag": "0038_variants_version",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "6",
+      "when": 1793452917083,
+      "tag": "0039_stripe_customer_privacy",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "6",
+      "when": 1793452951758,
+      "tag": "0040_outbox_cancellation",
+      "breakpoints": true
     }
   ]
 }
