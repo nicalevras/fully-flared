@@ -170,8 +170,6 @@ export const ACTION_PERMISSIONS: Record<
   'page.save': { resource: 'page', action: 'save' },
   'post.save': { resource: 'post', action: 'save' },
   'import.productsCsv': { resource: 'import', action: 'products-csv' },
-  'customer.export': { resource: 'customer', action: 'export' },
   'customer.delete': { resource: 'customer', action: 'delete' },
-  'guest.export': { resource: 'customer', action: 'export' },
   'user.setRole': { resource: 'user', action: 'set-role' },
 };

@@ -1,3 +1,4 @@
+import { DataExportButton } from '../../components/DataExportButton';
 import { useState } from 'react';
 import { LocalDate } from '../../components/LocalDate';
 import { Link, createFileRoute } from '@tanstack/react-router';
@@ -778,12 +779,13 @@ function AccountPage() {
           <p className="text-sm text-zinc-500">
             Download everything this store holds about you: profile, orders, returns, and addresses.
           </p>
-          <a
-            href="/api/account?export=1"
+          <DataExportButton
+            target={{ kind: 'self' }}
+            filename="my-store-data.json"
             className={cn(buttonVariants({ variant: 'outline' }), 'ml-auto')}
           >
             Export my data (JSON)
-          </a>
+          </DataExportButton>
         </div>
         <div className="border-t border-zinc-100 pt-4">
           <p className="text-sm font-medium text-red-600">Delete my account</p>

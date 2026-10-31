@@ -5,9 +5,8 @@ import { deleteAccountAtomically } from '../web/src/server/account-deletion';
 import { pruneRetention } from '../web/src/server/operations';
 import { calculateDiscount } from '../web/src/server/checkout';
 import { MAX_EMAIL_ATTEMPTS } from '../web/src/server/outbox';
-import { present } from './helpers/fixtures';
-import { actionData, responseJson, z } from './helpers/json';
-import { noNext, routeResponse } from './helpers/route';
+import { z } from './helpers/json';
+import { exportJson } from './helpers/data-export';
 
 const session = vi.hoisted(() => ({
   user: { id: 'u1', name: 'Una', email: 'una@example.com', emailVerified: true },
@@ -17,9 +16,9 @@ vi.mock('../web/src/server/session', async (original) => ({
   getSessionUser: async () => session.user,
 }));
 
-let db: D1Database, bindings: Env, dispose: () => Promise<void>;
+let db: D1Database, dispose: () => Promise<void>;
 beforeEach(async () => {
-  ({ db, env: bindings, dispose } = await createTestDb());
+  ({ db, dispose } = await createTestDb());
   env.DB = db;
 });
 afterEach(async () => {
@@ -316,42 +315,22 @@ describe('L6: customer data export', () => {
 
   it('the self-service export includes items, returns and the order address, and claims nothing', async () => {
     await seedHistory();
-    const { Route } = await import('../web/src/routes/api/account');
-    const handlers = present(Route.options.server?.handlers, 'the account handlers');
-    if (typeof handlers === 'function') throw new Error('Expected direct route handlers');
-    const handler = present(handlers.GET, 'the account GET handler');
-    const response = routeResponse(
-      await handler({
-        request: new Request('http://localhost/api/account?export=1'),
-        context: undefined,
-        params: {},
-        pathname: '/api/account',
-        next: noNext,
-      })
-    );
-    expect(response.status).toBe(200);
-    const body = await responseJson(
-      response,
+    const body = await exportJson(
+      db,
+      { id: 'u1', role: 'customer' },
+      { kind: 'self' },
       z.object({
-        orders: z.array(
-          z.object({
-            id: z.string(),
-            items: z.array(z.object({ sku: z.string() })),
-            shippingAddress: z.unknown(),
-          })
-        ),
-        returns: z.array(
-          z.object({
-            id: z.string(),
-            items: z.array(z.object({ sku: z.string(), qty: z.number() })),
-          })
-        ),
+        orders: z.array(z.object({ id: z.string(), shippingAddress: z.unknown() })),
+        items: z.array(z.object({ orderId: z.string(), sku: z.string() })),
+        returns: z.array(z.object({ id: z.string() })),
+        returnItems: z.array(z.object({ returnId: z.string(), sku: z.string(), qty: z.number() })),
       })
     );
     expect(body.orders.map((o) => o.id)).toEqual(['o1']);
-    expect(body.orders[0]?.items.map((i) => i.sku)).toEqual(['TEE-1']);
+    expect(body.items).toEqual([{ orderId: 'o1', sku: 'TEE-1' }]);
     expect(body.orders[0]?.shippingAddress).toEqual({ line1: '1 Main St' });
-    expect(body.returns[0]?.items).toMatchObject([{ sku: 'TEE-1', qty: 1 }]);
+    expect(body.returns.map((ret) => ret.id)).toEqual(['r1']);
+    expect(body.returnItems).toEqual([{ returnId: 'r1', sku: 'TEE-1', qty: 1 }]);
     expect(
       (await db.prepare("SELECT user_id FROM orders WHERE id='guest'").first())?.user_id
     ).toBeNull();
@@ -359,18 +338,17 @@ describe('L6: customer data export', () => {
 
   it('the admin export returns the same order items and returns', async () => {
     await seedHistory();
-    const { runAdminAction } = await import('../web/src/server/admin-actions');
-    const result = await runAdminAction(
+    const data = await exportJson(
       db,
-      bindings,
       { id: 'owner-1', role: 'owner' },
-      'customer.export',
-      { userId: 'u1' }
+      { kind: 'account', userId: 'u1' },
+      z.object({
+        items: z.array(z.object({ orderId: z.string(), sku: z.string() })),
+        returnItems: z.array(z.object({ returnId: z.string(), sku: z.string() })),
+      })
     );
-    const skus = z.object({ items: z.array(z.object({ sku: z.string() })) });
-    const data = actionData(result, z.object({ orders: z.array(skus), returns: z.array(skus) }));
-    expect(data.orders[0]?.items.map((i) => i.sku)).toEqual(['TEE-1']);
-    expect(data.returns[0]?.items.map((i) => i.sku)).toEqual(['TEE-1']);
+    expect(data.items).toEqual([{ orderId: 'o1', sku: 'TEE-1' }]);
+    expect(data.returnItems).toEqual([{ returnId: 'r1', sku: 'TEE-1' }]);
   });
 });
 

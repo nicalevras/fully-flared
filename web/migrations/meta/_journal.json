@@ -288,6 +288,13 @@
       "when": 1793452951758,
       "tag": "0040_outbox_cancellation",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "6",
+      "when": 1793473474512,
+      "tag": "0041_export_keyset_indexes",
+      "breakpoints": true
     }
   ]
 }

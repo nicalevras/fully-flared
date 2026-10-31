@@ -841,6 +841,10 @@ export const orders = sqliteTable(
     index('orders_created_id_idx').on(t.createdAt, t.id),
     index('orders_email_idx').on(t.customerEmail),
     index('orders_user_idx').on(t.userId, t.createdAt, t.id),
+    index('orders_export_owner_idx').on(t.userId),
+    index('orders_export_guest_idx')
+      .on(sql`lower(${t.customerEmail})`)
+      .where(sql`${t.userId} IS NULL`),
     index('orders_payment_intent_idx').on(t.stripePaymentIntentId),
     index('orders_ip_retention_idx')
       .on(t.createdAt, t.id)

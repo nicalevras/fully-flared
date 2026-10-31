@@ -1,3 +1,4 @@
+import { DataExportButton } from '../../components/DataExportButton';
 import { createContext, useContext, useState } from 'react';
 import { staffMiddleware } from '../../server/staff-middleware';
 import { requireStaffPermission } from '../../server/session';
@@ -127,7 +128,6 @@ function AdminCustomers() {
   const { customers, total, myRole, page, lookup, history } = Route.useLoaderData();
   const search = Route.useSearch();
   const [deleteTarget, setDeleteTarget] = useState<(typeof customers)[number] | null>(null);
-  const [guestBusy, setGuestBusy] = useState(false);
   const navigate = Route.useNavigate();
   const router = useRouter();
   const [msg, setMsg] = useState('');
@@ -207,30 +207,16 @@ function AdminCustomers() {
         const c = row.original;
         return (
           <span className="flex items-center gap-2">
-            <button
-              type="button"
+            <DataExportButton
+              target={{ kind: 'account', userId: c.id }}
+              filename={`customer-${c.id}.json`}
               className="text-[13px] font-medium text-zinc-950 underline-offset-2 hover:underline"
               disabled={busyId === c.id}
-              onClick={async () => {
-                setBusyId(c.id);
-                const r = await adminAction('customer.export', { userId: c.id });
-                setBusyId('');
-                if (r.ok) {
-                  const blob = new Blob([JSON.stringify(r.data, null, 2)], {
-                    type: 'application/json',
-                  });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = `customer-${c.id}.json`;
-                  a.click();
-                  URL.revokeObjectURL(url);
-                  setMsg(`Exported ${c.email}.`);
-                } else setMsg(r.error ?? 'Export failed');
-              }}
+              onSuccess={() => setMsg(`Exported ${c.email}.`)}
+              onError={setMsg}
             >
               Export
-            </button>
+            </DataExportButton>
             <button
               type="button"
               className="text-[13px] font-medium text-red-600 underline-offset-2 hover:underline"
@@ -380,39 +366,15 @@ function AdminCustomers() {
                   but not erased here. Account orders with the same email are never touched.
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  <button
-                    type="button"
+                  <DataExportButton
+                    target={{ kind: 'guest', email: history.email }}
+                    filename="guest-data.json"
                     className={btnPrimary}
-                    disabled={guestBusy}
-                    onClick={async () => {
-                      setGuestBusy(true);
-                      const r = await adminAction('guest.export', { email: history.email });
-                      setGuestBusy(false);
-                      if (r.ok) {
-                        const blob = new Blob([JSON.stringify(r.data, null, 2)], {
-                          type: 'application/json',
-                        });
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = `guest-${history.email}.json`;
-                        a.click();
-                        URL.revokeObjectURL(url);
-                        const truncated =
-                          typeof r.data === 'object' &&
-                          r.data !== null &&
-                          'truncated' in r.data &&
-                          r.data.truncated === true;
-                        setMsg(
-                          truncated
-                            ? `Downloaded a partial export for ${history.email}. Some records were omitted because export limits were exceeded.`
-                            : `Exported guest purchases for ${history.email}.`
-                        );
-                      } else setMsg(r.error ?? 'Guest export failed');
-                    }}
+                    onSuccess={() => setMsg(`Exported guest purchases for ${history.email}.`)}
+                    onError={setMsg}
                   >
                     Export guest purchases
-                  </button>
+                  </DataExportButton>
                 </div>
               </>
             )}

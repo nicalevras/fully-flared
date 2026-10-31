@@ -1,6 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { AuthError, getSessionUser } from '../../server/session';
-import { exportCustomerData } from '../../server/account';
 
 // Customer self-service API (plan Step 5): address book, data export,
 // account deletion. Every handler requires the caller's own session; a
@@ -20,15 +19,13 @@ export const Route = createFileRoute('/api/account')({
           const { env, user } = await requireUser(request);
           const url = new URL(request.url);
           if (url.searchParams.get('export') === '1') {
-            const data = await exportCustomerData(env.DB, user.id);
-            if (!data) throw new AuthError('UNAUTHENTICATED', 'Sign in required');
-            const payload = { exportedAt: new Date().toISOString(), ...data };
-            return new Response(JSON.stringify(payload, null, 2), {
-              headers: {
-                'Content-Type': 'application/json',
-                'Content-Disposition': 'attachment; filename="my-store-data.json"',
+            return Response.json(
+              {
+                ok: false,
+                error: 'Use the export button in your account to download your complete history.',
               },
-            });
+              { status: 410, headers: { 'Cache-Control': 'private, no-store' } }
+            );
           }
           const rows = await env.DB.prepare(
             'SELECT id, name, line1, line2, city, state AS region, postal_code, country, phone, is_default FROM addresses WHERE user_id = ? ORDER BY is_default DESC, rowid'

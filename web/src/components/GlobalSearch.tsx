@@ -79,6 +79,7 @@ export function GlobalSearchDialog() {
 
   useEffect(() => {
     const openDialog = () => {
+      if (open) return;
       if (document.activeElement instanceof HTMLElement) {
         returnFocusRef.current = document.activeElement;
       }
@@ -96,7 +97,7 @@ export function GlobalSearchDialog() {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener(GLOBAL_SEARCH_EVENT, openDialog);
     };
-  }, []);
+  }, [open]);
 
   useEffect(() => {
     queryRef.current = q;

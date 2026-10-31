@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb } from './helpers/d1';
 import { runAdminAction } from '../web/src/server/admin-actions';
 import { previewGuestData } from '../web/src/server/guest-data';
-import { actionData, z } from './helpers/json';
+import { z } from './helpers/json';
+import { exportJson } from './helpers/data-export';
 
 let db: D1Database, env: Env, dispose: () => Promise<void>;
 const owner = { id: 'owner', role: 'owner' };
@@ -40,10 +41,12 @@ describe('Phase 10C guest export and erasure', () => {
   });
 
   it('exports guest purchases without account orders', async () => {
-    const result = await runAdminAction(db, env, owner, 'guest.export', {
-      email: 'ada@example.com',
-    });
-    const data = actionData(result, z.object({ orders: z.array(z.object({ id: z.string() })) }));
+    const data = await exportJson(
+      db,
+      owner,
+      { kind: 'guest', email: 'ada@example.com' },
+      z.object({ orders: z.array(z.object({ id: z.string() })) })
+    );
     expect(data.orders.map((o) => o.id)).toEqual(['g1']);
   });
 

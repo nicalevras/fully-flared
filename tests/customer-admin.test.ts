@@ -3,7 +3,8 @@ import { createTestDb, seedProduct } from './helpers/d1';
 import { runAdminAction } from '../web/src/server/admin-actions';
 import { withOverrides } from './helpers/fixtures';
 import { grantingAdminAuth } from './helpers/admin-auth';
-import { actionData, actionFailure, z } from './helpers/json';
+import { z } from './helpers/json';
+import { exportJson } from './helpers/data-export';
 
 let db: D1Database;
 let env: Env;
@@ -35,15 +36,10 @@ afterAll(async () => {
 
 describe('admin customer export and deletion', () => {
   it('exports the customer profile and order history', async () => {
-    const result = await runAdminAction(
+    const data = await exportJson(
       db,
-      env,
       { id: 'owner-1', role: 'owner' },
-      'customer.export',
-      { userId: 'cust-1' }
-    );
-    const data = actionData(
-      result,
+      { kind: 'account', userId: 'cust-1' },
       z.object({
         profile: z.object({ email: z.string() }),
         orders: z.array(z.object({ number: z.string() })),
@@ -54,14 +50,14 @@ describe('admin customer export and deletion', () => {
   });
 
   it('support cannot export (403 permission gate)', async () => {
-    const result = await runAdminAction(
-      db,
-      env,
-      { id: 'sup-1', role: 'support' },
-      'customer.export',
-      { userId: 'cust-1' }
-    );
-    expect(actionFailure(result).status).toBe(403);
+    await expect(
+      exportJson(
+        db,
+        { id: 'sup-1', role: 'support' },
+        { kind: 'account', userId: 'cust-1' },
+        z.unknown()
+      )
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
   it('media.delete removes the original and every generated variant from R2 (B8)', async () => {
