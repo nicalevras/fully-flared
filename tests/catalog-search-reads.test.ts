@@ -28,7 +28,8 @@ beforeAll(async () => {
   await db
     .prepare(
       `INSERT INTO catalog_cards (product_id, slug, card_json, revision, doc_revision, updated_at)
-       SELECT id, slug, json_object('id', id, 'slug', slug, 'title', title), 'r', 'r', '2026-01-01'
+       SELECT id, slug, json_object('id', id, 'slug', slug, 'title', title,
+         'status', status, 'priceCents', NULL, 'imageKey', NULL), 'r', 'r', '2026-01-01'
        FROM products WHERE title LIKE 'Cotton Shirt %'`
     )
     .run();

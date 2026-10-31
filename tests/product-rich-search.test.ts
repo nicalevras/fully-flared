@@ -50,7 +50,14 @@ describe('product rich text search index', () => {
       )
       .bind(
         productId,
-        JSON.stringify({ id: productId, slug: 'searchable-tee', title: 'Searchable Tee' })
+        JSON.stringify({
+          id: productId,
+          slug: 'searchable-tee',
+          title: 'Searchable Tee',
+          status: 'active',
+          priceCents: 2000,
+          imageKey: null,
+        })
       )
       .run();
 

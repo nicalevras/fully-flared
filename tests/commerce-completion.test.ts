@@ -10,6 +10,8 @@ import {
 import { deleteAccountAtomically } from '../web/src/server/account-deletion';
 import { at, present } from './helpers/fixtures';
 import { fakeProvider, type ProviderCall } from './helpers/payments';
+import type { CheckoutRequest } from '../web/src/server/payments';
+import { checkoutRequestSchema } from '../web/src/schemas/checkout';
 
 let db: D1Database, dispose: () => Promise<void>;
 beforeEach(async () => {
@@ -38,33 +40,41 @@ async function checkout(userId?: string) {
       guestCapabilityHash: userId ? null : 'hash',
       fingerprint: 'fp',
       sessionExpiresAt: '2999-01-01',
-      payloadFor: async (_quote, orderId) => ({
-        orderId,
-        attemptId: id,
-        email: 'probe@example.invalid',
-        currency: 'USD',
-        lineItems: [],
-        expiresAtEpochSeconds: 32472144000,
-      }),
+      payloadFor: async (_quote, orderId) =>
+        checkoutRequestSchema.parse({
+          orderId,
+          attemptId: id,
+          email: 'probe@example.invalid',
+          currency: 'USD',
+          lineItems: [{ name: 'Tee', unitAmountCents: 2000, qty: 1 }],
+          successUrl: 'https://shop.test/checkout/success',
+          cancelUrl: 'https://shop.test/cart',
+          collectShipping: false,
+          shippingCountries: ['US'],
+          automaticTax: false,
+          expiresAtEpochSeconds: 32472144000,
+        } satisfies CheckoutRequest),
     }
   );
   return { id, orderId: order.orderId };
 }
 it('a stale successful provider worker cannot attach anything to the order', async () => {
   const created = await checkout();
+  const createSession = vi.fn<ProviderCall<'createCheckoutSession'>>(async () => {
+    await db
+      .prepare("UPDATE checkout_intents SET claim_token='winner',fencing=fencing+1 WHERE id=?")
+      .bind(created.id)
+      .run();
+    return { sessionId: 'cs_stale', url: 'https://stripe.test/stale' };
+  });
   const provider = fakeProvider({
     createCheckoutCustomer: async () => 'cus_stale',
-    createCheckoutSession: async () => {
-      await db
-        .prepare("UPDATE checkout_intents SET claim_token='winner',fencing=fencing+1 WHERE id=?")
-        .bind(created.id)
-        .run();
-      return { sessionId: 'cs_stale', url: 'https://stripe.test/stale' };
-    },
+    createCheckoutSession: createSession,
   });
   expect(await runIntentOperation(db, provider, created.id)).toEqual({
     status: 'pending',
   });
+  expect(createSession).toHaveBeenCalledOnce();
   expect(
     await db
       .prepare('SELECT stripe_checkout_session_id FROM orders WHERE id=?')
@@ -80,12 +90,17 @@ it('a failed cancellation rolls back intent retirement as well as inventory', as
       "CREATE TRIGGER reject_cancel BEFORE UPDATE OF status ON orders WHEN NEW.status='canceled' BEGIN SELECT RAISE(ABORT,'injected cancellation failure'); END"
     )
     .run();
-  const provider = fakeProvider({
-    createCheckoutSession: async () => {
-      throw { statusCode: 400 };
-    },
+  const createSession = vi.fn<ProviderCall<'createCheckoutSession'>>(async () => {
+    throw { statusCode: 400 };
   });
-  await runIntentOperation(db, provider, created.id).catch(() => undefined);
+  const provider = fakeProvider({
+    createCheckoutCustomer: async () => 'cus_cancel',
+    createCheckoutSession: createSession,
+  });
+  await expect(runIntentOperation(db, provider, created.id)).rejects.toThrow(
+    'injected cancellation failure'
+  );
+  expect(createSession).toHaveBeenCalledOnce();
   expect((await loadIntent(db, created.id))?.state).not.toBe('canceled');
   expect(await db.prepare("SELECT reserved FROM stock WHERE sku='TEE-1'").first('reserved')).toBe(
     1
@@ -100,10 +115,16 @@ it.each(['reserved', 'session_creating', 'reconciliation_required'])(
       .bind(state, '2020-01-01', created.id)
       .run();
     const create = vi.fn(async () => ({ sessionId: 'cs_wrong', url: 'https://stripe.test/wrong' }));
+    const createCustomer = vi.fn<ProviderCall<'createCheckoutCustomer'>>();
     expect(
-      await runIntentOperation(db, fakeProvider({ createCheckoutSession: create }), created.id)
+      await runIntentOperation(
+        db,
+        fakeProvider({ createCheckoutCustomer: createCustomer, createCheckoutSession: create }),
+        created.id
+      )
     ).toEqual({ status: 'pending' });
     expect(create).not.toHaveBeenCalled();
+    expect(createCustomer).not.toHaveBeenCalled();
     expect((await loadIntent(db, created.id))?.state).toBe('reconciliation_required');
   }
 );
@@ -171,20 +192,44 @@ it('a failure after order attachment rolls the order write back', async () => {
   const c = await checkout();
   await db
     .prepare(
-      "CREATE TRIGGER fail_ready BEFORE UPDATE OF state ON checkout_intents WHEN NEW.state='ready' BEGIN SELECT RAISE(ABORT,'injected'); END"
+      "CREATE TRIGGER fail_ready BEFORE UPDATE OF state ON checkout_intents WHEN NEW.state='ready' BEGIN SELECT RAISE(ABORT,'injected ready failure'); END"
     )
     .run();
+  const createSession = vi.fn<ProviderCall<'createCheckoutSession'>>(async () => ({
+    sessionId: 'cs_rollback',
+    url: 'https://stripe.test/a',
+  }));
+  const failedBatch = vi.fn<(error: unknown) => void>();
+  const observedDb = new Proxy(db, {
+    get(target, key) {
+      if (key === 'batch')
+        return async (statements: D1PreparedStatement[]) => {
+          try {
+            return await target.batch(statements);
+          } catch (error) {
+            failedBatch(error);
+            throw error;
+          }
+        };
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
   const result = await runIntentOperation(
-    db,
+    observedDb,
     fakeProvider({
-      createCheckoutSession: async () => ({
-        sessionId: 'cs_rollback',
-        url: 'https://stripe.test/a',
-      }),
+      createCheckoutCustomer: async () => 'cus_rollback',
+      createCheckoutSession: createSession,
     }),
     c.id
   );
   expect(result.status).toBe('pending');
+  expect(createSession).toHaveBeenCalledOnce();
+  expect(failedBatch).toHaveBeenCalledOnce();
+  expect(failedBatch).toHaveBeenCalledWith(
+    expect.objectContaining({ message: expect.stringContaining('injected ready failure') })
+  );
+  expect((await loadIntent(db, c.id))?.failure_code).toBe('provider_uncertain');
   expect(
     await db
       .prepare('SELECT stripe_checkout_session_id FROM orders WHERE id=?')
@@ -199,17 +244,19 @@ it('known-session retrieval failure never authorizes a creation replay or cancel
     .bind(c.id)
     .run();
   const create = vi.fn<ProviderCall<'createCheckoutSession'>>();
+  const retrieve = vi.fn<ProviderCall<'retrieveCheckoutSession'>>(async () => {
+    throw { statusCode: 404 };
+  });
   await runIntentOperation(
     db,
     fakeProvider({
-      retrieveCheckoutSession: async () => {
-        throw { statusCode: 404 };
-      },
+      retrieveCheckoutSession: retrieve,
       createCheckoutSession: create,
     }),
     c.id
   );
   expect(create).not.toHaveBeenCalled();
+  expect(retrieve).toHaveBeenCalledOnce();
   expect((await loadIntent(db, c.id))?.state).toBe('reconciliation_required');
   expect(
     await db.prepare('SELECT status FROM orders WHERE id=?').bind(c.orderId).first('status')
@@ -319,19 +366,22 @@ it('0009 upgrades populated 0008 without changing financial data and stops legac
 
 it('an expired claim cannot attach even when no newer worker has claimed it', async () => {
   const c = await checkout();
+  const createSession = vi.fn<ProviderCall<'createCheckoutSession'>>(async () => {
+    await db
+      .prepare("UPDATE checkout_intents SET claim_expires_at='2000-01-01' WHERE id=?")
+      .bind(c.id)
+      .run();
+    return { sessionId: 'cs_expired_claim', url: 'https://stripe.test/a' };
+  });
   await runIntentOperation(
     db,
     fakeProvider({
-      createCheckoutSession: async () => {
-        await db
-          .prepare("UPDATE checkout_intents SET claim_expires_at='2000-01-01' WHERE id=?")
-          .bind(c.id)
-          .run();
-        return { sessionId: 'cs_expired_claim', url: 'https://stripe.test/a' };
-      },
+      createCheckoutCustomer: async () => 'cus_expired_claim',
+      createCheckoutSession: createSession,
     }),
     c.id
   );
+  expect(createSession).toHaveBeenCalledOnce();
   expect(
     await db
       .prepare('SELECT stripe_checkout_session_id FROM orders WHERE id=?')

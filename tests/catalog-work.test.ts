@@ -222,7 +222,16 @@ it('search continues past the first page with a cursor, without repeats', async 
         .prepare(
           `INSERT INTO catalog_cards (product_id, slug, card_json, revision, doc_revision, updated_at) VALUES ('s${n}', 'seek-${n}', ?, 'r', 'r', '2026-02-01')`
         )
-        .bind(JSON.stringify({ id: `s${n}`, slug: `seek-${n}`, title: `Seekable ${n}` }))
+        .bind(
+          JSON.stringify({
+            id: `s${n}`,
+            slug: `seek-${n}`,
+            title: `Seekable ${n}`,
+            status: 'active',
+            priceCents: null,
+            imageKey: null,
+          })
+        )
     );
   }
   await db.batch(stmts);
