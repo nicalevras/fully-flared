@@ -36,7 +36,7 @@ const TRACKING_PARAMS = new Set([
 ]);
 
 const PAGE_PARAMS = ['page'];
-const SEARCH_PARAMS = ['q', 'cursor'];
+const SEARCH_PARAMS = ['q', 'cursor', 'page'];
 const SITEMAP_PARAMS = ['from'];
 
 /** Returns the cleaned request to forward to PublicStorefront, or

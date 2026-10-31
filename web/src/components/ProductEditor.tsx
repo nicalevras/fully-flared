@@ -884,8 +884,7 @@ export function ProductEditor({
                 <AccordionTrigger>Variants</AccordionTrigger>
                 <AccordionContent>
                   <p className={hintCls}>
-                    Price and original price are in dollars here and stored as cents. Stock changes
-                    go through the ledger.
+                    Price and original price are in {currency}. Stock changes go through the ledger.
                   </p>
                   {visibleVariants.length > 1 ? (
                     <div className="mt-4 flex flex-wrap items-end gap-2 rounded-xl bg-zinc-50 p-3.5">
@@ -895,12 +894,12 @@ export function ProductEditor({
                       </span>
                       <span>
                         <label className="sr-only" htmlFor="bulk-price">
-                          Bulk price in dollars
+                          Bulk price in {currency}
                         </label>
                         <input
                           id="bulk-price"
                           inputMode="decimal"
-                          placeholder="Set price $"
+                          placeholder={`Set price (${currency})`}
                           className={`${inputCls} w-32`}
                           value={bulk.price}
                           onChange={(e) => setBulk({ ...bulk, price: e.target.value })}

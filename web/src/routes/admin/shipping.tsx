@@ -335,7 +335,7 @@ function Page() {
           </label>
           {rate.kind === 'weight' ? (
             <label className={labelCls}>
-              Per started kg ($)
+              Per started kg ({currency})
               <input
                 className={inputCls}
                 value={rate.perKg}
@@ -376,7 +376,7 @@ function Page() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelCls} htmlFor="r-price">
-                Price ($)
+                Price ({currency})
               </label>
               <input
                 id="r-price"
@@ -388,7 +388,7 @@ function Page() {
             </div>
             <div>
               <label className={labelCls} htmlFor="r-free">
-                Free over ($)
+                Free over ({currency})
               </label>
               <input
                 id="r-free"
@@ -464,7 +464,7 @@ function Page() {
           </div>
           <div>
             <label className={labelCls} htmlFor="q-subtotal">
-              Order subtotal ($)
+              Order subtotal ({currency})
             </label>
             <input
               id="q-subtotal"

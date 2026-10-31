@@ -75,7 +75,13 @@ it('gives each page one cache key: page 1 and home pages share the bare path', (
   expect(key('/collections/shoes?page=1')).toBe('/collections/shoes');
   expect(key('/?page=3')).toBe('/');
   expect(key('/search?q=tee&utm_source=x&foo=1')).toBe('/search?q=tee');
-  expect(key('/search?cursor=abc&q=tee&page=2')).toBe('/search?cursor=abc&q=tee');
+  expect(key('/search?cursor=abc&q=tee&page=2')).toBe('/search?cursor=abc&page=2&q=tee');
+  expect(key('/search?q=tee&cursor=abc&page=03&utm_source=x')).toBe(
+    '/search?cursor=abc&page=3&q=tee'
+  );
+  expect(key('/search?q=tee&page=1')).toBe('/search?q=tee');
+  expect(key('/search?q=tee&page=invalid')).toBe('/search?q=tee');
+  expect(key('/search?q=tee&page=2')).not.toBe(key('/search?q=tee&page=3'));
 });
 
 it('strips private/forwarding headers and nonsemantic product parameters', () => {

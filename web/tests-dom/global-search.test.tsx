@@ -53,6 +53,51 @@ it('shortening the query below two characters clears the matches', async () => {
   expect(screen.queryByRole('link')).toBeNull();
 });
 
+it('changing to another query immediately removes old links before debounce', async () => {
+  const user = userEvent.setup();
+  const { input, router } = await openSearch();
+  await user.type(input, 'blue');
+  await screen.findByRole('link', { name: /blue tee/ });
+  await user.type(input, 's');
+  expect(screen.queryByRole('link')).toBeNull();
+  await user.keyboard('{Enter}');
+  expect(router.state.location.pathname).toBe('/');
+  expect(await screen.findByRole('link', { name: /blues tee/ })).toBeTruthy();
+});
+
+it('ignores a late error from a replaced query', async () => {
+  let rejectOld: (error: Error) => void = () => {
+    throw new Error('request not started');
+  };
+  search.mockImplementationOnce(
+    () =>
+      new Promise((_, reject) => {
+        rejectOld = reject;
+      })
+  );
+  const user = userEvent.setup();
+  const { input } = await openSearch();
+  await user.type(input, 'blue');
+  await waitFor(() => expect(search).toHaveBeenCalled());
+  await user.type(input, 's');
+  await act(async () => {
+    rejectOld(new Error('offline'));
+  });
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(await screen.findByRole('link', { name: /blues tee/ })).toBeTruthy();
+});
+
+it('contains keyboard focus while open', async () => {
+  const user = userEvent.setup();
+  await openSearch();
+  const dialog = screen.getByRole('dialog', { name: 'Global search' });
+  await user.click(screen.getByLabelText('Search products, orders, and customers'));
+  for (let index = 0; index < 5; index++) {
+    await user.tab();
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  }
+});
+
 it('arrow keys and Enter open the highlighted match', async () => {
   const user = userEvent.setup();
   const { input, router } = await openSearch();

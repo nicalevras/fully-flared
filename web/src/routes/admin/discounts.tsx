@@ -412,7 +412,7 @@ function Page() {
                 </div>
                 <div>
                   <label className={labelCls} htmlFor="d-value">
-                    {form.type === 'percentage' ? 'Percent off' : 'Amount off ($)'}
+                    {form.type === 'percentage' ? 'Percent off' : `Amount off (${currency})`}
                   </label>
                   <Input
                     id="d-value"
@@ -423,14 +423,16 @@ function Page() {
                     onChange={(e) => setForm({ ...form, value: e.target.value })}
                   />
                   <p className={hintCls}>
-                    {form.type === 'percentage' ? '10 means 10% off.' : '10.00 means $10.00 off.'}
+                    {form.type === 'percentage'
+                      ? '10 means 10% off.'
+                      : `10.00 means ${formatMoney(1000, currency)} off.`}
                   </p>
                 </div>
               </div>
               <div className="mt-4 grid gap-4 sm:grid-cols-3">
                 <div>
                   <label className={labelCls} htmlFor="d-min">
-                    Minimum order ($)
+                    Minimum order ({currency})
                   </label>
                   <Input
                     id="d-min"
@@ -468,7 +470,7 @@ function Page() {
                 </div>
                 <div>
                   <label className={labelCls} htmlFor="d-max">
-                    Largest discount ($)
+                    Largest discount ({currency})
                   </label>
                   <Input
                     id="d-max"
